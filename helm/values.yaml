@@ -1,0 +1,61 @@
+# Jiro Search API — Helm values
+replicaCount: 1
+
+image:
+  repository: jiro-search
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Persistent data (SQLite cache + keys + usage)
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClass: ""
+
+config:
+  # Override any Jiro setting via JIRO__ dotted env vars
+  env:
+    JIRO_SERVER__HOST: "0.0.0.0"
+    JIRO_SERVER__PORT: "8000"
+    JIRO_DB__PATH: "/data/jiro/jiro.db"
+    JIRO_CACHE__PATH: "/data/jiro/cache.db"
+    JIRO_CACHE__TYPE: "sqlite"
+    # Auth (recommended for team deployments):
+    JIRO_AUTH__ENABLED: "false"
+  # Secrets — set via values --set or a pre-existing Secret:
+  #   envFromSecret: "jiro-secrets"
+  envFromSecret: ""
+
+# Optional Redis for a shared cache (JIRO_CACHE__TYPE=redis, JIRO_CACHE__URL=redis://...)
+redis:
+  enabled: false
+
+ingress:
+  enabled: false
+  className: ""
+  host: jiro.example.com
+  tls:
+    enabled: false
+    secretName: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

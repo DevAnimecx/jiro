@@ -1,0 +1,39 @@
+# Jiro Search API — self-hosted with persistent data volume.
+#
+#   docker compose up -d
+#   curl http://localhost:8000/health
+#
+# Bring your own keys via environment variables (never commit secrets):
+#   OPENAI_API_KEY, ANTHROPIC_API_KEY, CAPSOLVER_API_KEY, BRIGHTDATA_API_KEY ...
+#
+# Optional: add a Redis service and set JIRO_CACHE__TYPE=redis for a shared
+# team cache (Redis backend is on the Phase-2 roadmap).
+
+services:
+  jiro:
+    build: .
+    image: jiro-search:0.1.0
+    container_name: jiro
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      JIRO_SERVER__HOST: "0.0.0.0"
+      JIRO_SERVER__PORT: "8000"
+      JIRO_DB__PATH: "/data/jiro/jiro.db"
+      JIRO_CACHE__PATH: "/data/jiro/cache.db"
+      # Secrets — pass through from the host environment:
+      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    volumes:
+      - jiro-data:/data/jiro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  jiro-data:

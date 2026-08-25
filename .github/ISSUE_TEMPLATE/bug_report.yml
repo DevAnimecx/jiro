@@ -1,0 +1,53 @@
+name: 🐞 Bug Report
+description: Report a bug in Jiro Search
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. jiro serve
+        2. curl "http://localhost:8000/search.json?q=..."
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Jiro version
+      placeholder: "jiro --version (e.g. 0.1.0)"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Engine(s) affected
+      placeholder: "google, bing, ..."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell
+      description: Run with `--log-level debug` and paste output (redact keys/URLs).

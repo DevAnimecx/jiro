@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jiro-search"
+version = "0.1.0"
+description = "Local-first, AI-native web search & scraping API. A drop-in, self-hosted SerpAPI alternative with MCP server, agentic research, and built-in legal compliance."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Adarsh Kushwah", email = "webcrafterreal@gmail.com" },
+]
+maintainers = [
+    { name = "Blackvault Technology", email = "webcrafterreal@gmail.com" },
+]
+keywords = [
+    "search", "search-api", "web-search", "web-scraping", "scraper",
+    "serpapi-alternative", "serpapi", "self-hosted", "self-hosted-api",
+    "scraping-api", "llm", "agent", "ai-agents", "mcp", "model-context-protocol",
+    "fastapi", "langchain", "llamaindex", "function-calling", "openai",
+    "anthropic", "gemini", "claude", "cursor", "markdown-scraper", "seo",
+    "data-extraction", "agentic-research", "rag",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx[http2]>=0.27",
+    "curl_cffi>=0.15",
+    "brotli>=1.1",
+    "selectolax>=0.3.21",
+    "pydantic>=2.6",
+    "PyYAML>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "PyJWT>=2.8",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "fakeredis>=2.23",
+       "hypothesis>=6.100"]
+browser = ["playwright>=1.44"]
+redis = ["redis>=5.0"]
+recipes = ["lxml>=5.0"]
+all = ["playwright>=1.44", "redis>=5.0", "lxml>=5.0"]
+
+[project.scripts]
+jiro = "jiro.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/DevAnimecx/jiro"
+Documentation = "https://github.com/DevAnimecx/jiro#readme"
+Repository = "https://github.com/DevAnimecx/jiro"
+Issues = "https://github.com/DevAnimecx/jiro/issues"
+Changelog = "https://github.com/DevAnimecx/jiro/blob/main/CHANGELOG.md"
+"Buy Me a Coffee" = "https://github.com/sponsors/DevAnimecx"
+
+[tool.setuptools.packages.find]
+include = ["jiro*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "network: tests that require network access (deselect with '-m \"not network\"')",
+    "integration: integration tests requiring services (docker/testcontainers)",
+    "contract: contract tests for API schemas",
+    "chaos: chaos engineering / resilience tests",
+    "property: property-based (hypothesis) tests",
+    "slow: slow running tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

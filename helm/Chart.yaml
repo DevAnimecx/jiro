@@ -1,0 +1,15 @@
+apiVersion: v2
+name: jiro-search
+description: Jiro Search API — local-first, AI-native web search & scraping (self-hosted SerpAPI alternative)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - search
+  - scraping
+  - serp
+  - llm
+  - agent
+home: https://github.com/DevAnimecx/jiro
+sources:
+  - https://github.com/DevAnimecx/jiro

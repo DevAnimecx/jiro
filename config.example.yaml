@@ -1,0 +1,74 @@
+# Jiro Search API — example configuration (PRD §14.1)
+# Copy to ~/.jiro/config.yaml (or point JIRO_CONFIG at it).
+# Secrets use ${ENV_VAR} interpolation and are never logged.
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  workers: 1
+  cors:
+    enabled: false
+    origins: ["*"]            # e.g. ["http://localhost:3000", "https://example.com"]
+    allow_credentials: false
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers: ["*"]
+
+scraping:
+  default_engine: google        # google | bing | brave | duckduckgo | youtube | amazon | ebay | yandex | baidu | auto
+  engines: [google, bing, brave, duckduckgo, youtube, amazon, ebay, yandex, baidu]
+  fallback_order: [google, bing, brave, duckduckgo, youtube, amazon, ebay, yandex, baidu]
+  timeout: 10
+  retries: 3
+  user_agent_rotation: true
+  max_results: 20
+  browser_fallback: false       # render blocked/JS pages with Playwright (lazy)
+  proxy:                        # BYOK proxy — provider preset or URL list
+    enabled: false
+    provider: ""                # brightdata | oxylabs | scraperapi | zenrows | smartproxy
+    api_key: ${BRIGHTDATA_API_KEY}
+    url: ""                     # or explicit: http://user:pass@host:port,socks5://h:1080
+    health_check: false         # enable proxy connectivity check endpoint
+    rotation_strategy: round_robin  # round_robin | random | least_failures
+  captcha:                      # BYOK CAPTCHA solver (2captcha | capsolver)
+    enabled: false
+    provider: capsolver
+    api_key: ${CAPSOLVER_API_KEY}
+
+
+cache:
+  type: sqlite                  # sqlite | memory | redis
+  path: ~/.jiro/cache.db
+  url: redis://localhost:6379/0 # used when type: redis
+  ttl_seconds: 3600
+  max_size_mb: 1024
+  semantic: false               # fuzzy query reuse via embeddings (needs llm key)
+
+db:
+  path: ~/.jiro/jiro.db
+
+llm:
+  provider: openai              # openai | anthropic | gemini | openrouter | ollama
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o-mini
+  base_url: ""                  # e.g. http://localhost:11434/v1 for Ollama
+  temperature: 0.2
+  max_tokens: 1024
+
+auth:
+  enabled: false                # true for team deployments
+  jwt_secret: ${JIRO_JWT_SECRET}
+  jwt_ttl_minutes: 720
+  rate_limit_rpm: 60
+
+agent:
+  max_steps: 5
+  max_sources: 8
+  max_snippets_per_source: 3
+
+logging:
+  level: info
+  file: ""                      # e.g. ~/.jiro/jiro.log
+
+privacy:
+  log_queries: false            # never store query text unless you opt in
+  log_payloads: false

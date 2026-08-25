@@ -1,0 +1,29 @@
+name: 🔌 New Engine Request
+description: Request support for a new search engine or data source
+title: "engine: "
+labels: ["engine-request"]
+body:
+  - type: input
+    id: engine
+    attributes:
+      label: Engine / source name
+      placeholder: "e.g. Mojeek, Startpage, Etsy"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this useful?
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Implementation notes
+      description: Search URL pattern, result CSS selectors, auth requirements, etc.
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to implement this engine plugin myself.
