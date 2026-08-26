@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser, Node
 
@@ -66,7 +66,7 @@ class ContentExtractor:
 
         main = self.main_content()
         if main is not None:
-            result.html = main.html
+            result.html = main.html or ""
             result.text = main.text(separator="\n", strip=True)
             result.markdown = node_to_markdown(main, base_url=self.base)
         else:
@@ -83,8 +83,8 @@ class ContentExtractor:
         for sel in ("meta[property='og:title']", "meta[name='twitter:title']",
                     "meta[name='title']"):
             node = self.tree.css_first(sel)
-            if node and node.attributes.get("content", "").strip():
-                return node.attributes["content"].strip()
+            if node and (node.attributes.get("content") or "").strip():
+                return (node.attributes.get("content") or "").strip()
         t = self.tree.css_first("title")
         if t and t.text().strip():
             return t.text().strip()
@@ -158,7 +158,7 @@ class ContentExtractor:
         out: List[Dict[str, Any]] = []
         seen = set()
         for a in self.tree.css("a[href]"):
-            href = a.attributes.get("href", "").strip()
+            href = (a.attributes.get("href") or "").strip()
             if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
                 continue
             url = urljoin(self.base, href)
@@ -174,7 +174,7 @@ class ContentExtractor:
         out: List[Dict[str, Any]] = []
         seen = set()
         for img in self.tree.css("img[src]"):
-            src = img.attributes.get("src", "").strip()
+            src = (img.attributes.get("src") or "").strip()
             if not src or src.startswith("data:"):
                 continue
             url = urljoin(self.base, src)

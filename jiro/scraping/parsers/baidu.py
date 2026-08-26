@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import unquote
 
 from selectolax.parser import HTMLParser, Node
 
@@ -75,7 +74,7 @@ class BaiduEngine(BaseEngine):
         )
 
     def _parse_organic(self, tree: HTMLParser, req: SearchRequest) -> List[OrganicResult]:
-        results = []
+        results: list[OrganicResult] = []
         for idx, block in enumerate(tree.css("div.result, div.c-container")):
             if len(results) >= req.num:
                 break
@@ -93,7 +92,7 @@ class BaiduEngine(BaseEngine):
             data = json.loads(m.group(1))
         except Exception:
             return []
-        results = []
+        results: list[OrganicResult] = []
         for item in data.get("data", []):
             if len(results) >= req.num:
                 break

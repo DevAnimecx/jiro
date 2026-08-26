@@ -10,10 +10,13 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from jiro.db import Database
 from jiro.log import get_logger
+
+if TYPE_CHECKING:
+    from jiro.redis_cache import RedisCache
 
 log = get_logger("jiro.cache")
 
@@ -50,10 +53,6 @@ class CacheManager:
         self.memory = memory
         self.ttl = ttl
         self._mem: Optional[MemoryCache] = MemoryCache() if memory else None
-        try:  # import here to avoid a hard dependency when redis is unused
-            from jiro.redis_cache import RedisCache
-        except ImportError:
-            RedisCache = None  # type: ignore[assignment,misc]
         self._redis: Optional[Any] = redis
         self._backend = "memory" if memory else ("redis" if redis else "sqlite")
 

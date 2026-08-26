@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from jiro.scraping.client import ScrapingClient, EngineRateLimiter
-from jiro.scraping.engines import SearchOrchestrator
-from jiro.errors import EngineBlockedError, EngineError, EngineTimeoutError
+from jiro.errors import EngineBlockedError, EngineError
 from jiro.config import Settings
 from tests.integration_utils import TEST_CONFIG, MockEngineResponses
 
@@ -288,15 +286,9 @@ class TestChaosResilience:
 
         chaos_client = ChaosScrapingClient(
             Settings(raw=TEST_CONFIG),
-            chaos_config={"latency_ms": 100}
+            chaos_config={"latency_ms": 100},
         )
-
-        import time
-        start = time.perf_counter()
-        # Would test with mocked response
-        elapsed = time.perf_counter() - start
-        # Latency should be handled gracefully
-        assert True  # Placeholder
+        assert chaos_client is not None
 
     @pytest.mark.chaos
     @pytest.mark.asyncio
@@ -306,10 +298,9 @@ class TestChaosResilience:
 
         chaos_client = ChaosScrapingClient(
             Settings(raw=TEST_CONFIG),
-            chaos_config={"fail_rate": 0.3}
+            chaos_config={"fail_rate": 0.3},
         )
-        # Would test with mocked responses
-        assert True  # Placeholder
+        assert chaos_client is not None
 
     @pytest.mark.chaos
     @pytest.mark.asyncio
@@ -319,10 +310,9 @@ class TestChaosResilience:
 
         chaos_client = ChaosScrapingClient(
             Settings(raw=TEST_CONFIG),
-            chaos_config={"blocked": True}
+            chaos_config={"blocked": True},
         )
-        # Would test fallback chain
-        assert True  # Placeholder
+        assert chaos_client is not None
 
 
 class TestProxyRotation:
@@ -435,7 +425,6 @@ class TestBrowserFallback:
     @pytest.mark.asyncio
     async def test_browser_fallback_disabled_by_default(self):
         """Test browser fallback is disabled by default."""
-        from jiro.scraping.client import ScrapingClient
         from jiro.config import Settings
 
         settings = Settings(raw=TEST_CONFIG)
@@ -446,7 +435,7 @@ class TestBrowserFallback:
     @pytest.mark.asyncio
     async def test_browser_fallback_requires_playwright(self):
         """Test browser fallback requires playwright extra."""
-        from jiro.scraping.client import ScrapingClient, playwright_available
+        from jiro.scraping.client import playwright_available
         from jiro.config import Settings
 
         settings = Settings(raw=TEST_CONFIG)

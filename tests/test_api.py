@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
-from jiro.config import Settings
 from jiro.server import create_app
 
 network = pytest.mark.network

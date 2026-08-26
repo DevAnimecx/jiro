@@ -4,10 +4,7 @@ SQLite cookie persistence, proxy cost tracking, and enhanced bot detection.
 
 from __future__ import annotations
 
-import asyncio
-import time
-from typing import Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,7 +21,6 @@ from jiro.proxy import ProxyManager
 from jiro.scraping.client import (
     BLOCK_MARKERS,
     EngineCookieJar,
-    ScrapingClient,
     _ADAPTIVE_DELAYS,
     CircuitBreaker,
 )

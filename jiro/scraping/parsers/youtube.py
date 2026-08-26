@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote_plus
+from typing import Any, Dict, List
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse
@@ -66,7 +65,7 @@ class YouTubeEngine(BaseEngine):
             data = json.loads(json_match.group(1))
         except Exception:
             return []
-        videos = []
+        videos: list[OrganicResult] = []
         contents = (
             data.get("contents", {})
             .get("twoColumnSearchResultsRenderer", {})
@@ -132,7 +131,7 @@ class YouTubeEngine(BaseEngine):
     def _parse_html_fallback(self, html: str, req: SearchRequest) -> List[OrganicResult]:
         """Fallback: parse video links directly from HTML."""
         tree = parse_html(html)
-        videos = []
+        videos: list[OrganicResult] = []
         seen = set()
         for a in tree.css("a#video-title, a.yt-simple-endpoint[href*='/watch']"):
             href = (a.attributes.get("href") or "").strip()

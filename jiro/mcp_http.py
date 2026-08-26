@@ -35,20 +35,17 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from jiro.auth import AuthContext, build_auth_context
 from jiro.errors import AuthError, RateLimitError
 from jiro.log import get_logger
 from jiro.mcp import (
-    INTERNAL_ERROR,
-    INVALID_REQUEST,
     PARSE_ERROR,
     JiroMCPServer,
-    SUPPORTED_PROTOCOL_VERSIONS,
 )
 
 log = get_logger("jiro.mcp_http")
@@ -352,7 +349,7 @@ def create_mcp_router() -> APIRouter:
         store = _get_session_store(request)
 
         try:
-            ctx = await _authenticate(request, server)
+            await _authenticate(request, server)
         except AuthError:
             return JSONResponse(status_code=401, content={"error": "unauthorized"})
 

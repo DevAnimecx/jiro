@@ -6,10 +6,9 @@ condition, and seller info.
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse

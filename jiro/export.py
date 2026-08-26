@@ -9,7 +9,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional

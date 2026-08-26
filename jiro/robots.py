@@ -80,7 +80,10 @@ class RobotsTxt:
             return None
         matching.sort(key=lambda r: 0 if r.user_agent == "*" else 1)
         try:
-            num, denom = matching[0].request_rate.split("/")
+            rate = matching[0].request_rate
+            if rate is None:
+                return None
+            num, denom = rate.split("/")
             return int(num) / int(denom)
         except (ValueError, ZeroDivisionError):
             return None
@@ -161,26 +164,26 @@ class RobotsManager:
                 if time.time() - robots.fetched_at < 3600:
                     return robots
 
-            robots = await self._fetch_robots(url, host)
-            if robots:
-                self._cache[host] = robots
+            fetched = await self._fetch_robots(url, host)
+            if fetched:
+                self._cache[host] = fetched
                 if self.cache is not None:
                     try:
                         await self.cache.put(f"robots:{host}", {
-                            "host": robots.host,
+                            "host": fetched.host,
                             "rules": [{"user_agent": r.user_agent,
                                        "disallow": r.disallow,
                                        "allow": r.allow,
                                        "crawl_delay": r.crawl_delay,
                                        "request_rate": r.request_rate}
-                                      for r in robots.rules],
-                            "sitemaps": robots.sitemaps,
-                            "fetched_at": robots.fetched_at,
-                            "raw": robots.raw,
+                                      for r in fetched.rules],
+                            "sitemaps": fetched.sitemaps,
+                            "fetched_at": fetched.fetched_at,
+                            "raw": fetched.raw,
                         })
                     except Exception:
                         pass
-            return robots
+            return fetched
 
     async def _fetch_robots(self, url: str, host: str) -> Optional[RobotsTxt]:
         """Fetch and parse robots.txt from a host."""

@@ -67,7 +67,7 @@ def is_blocked_ip(ip: str) -> bool:
 def _resolve(hostname: str) -> List[str]:
     """Resolve a hostname to IPv4/IPv6 address literals."""
     infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-    return list({info[4][0] for info in infos})
+    return list({str(info[4][0]) for info in infos})
 
 
 async def resolve_hostname(hostname: str) -> List[str]:

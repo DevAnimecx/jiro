@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -340,7 +338,7 @@ registry.register({name.capitalize()}Engine)
 
     output_path.write_text(template)
     console.print(f"[green]Created plugin scaffold at {output_path}[/green]")
-    console.print(f"\nTo use this plugin:")
+    console.print("\nTo use this plugin:")
     console.print(f"  1. Edit {output_path} with your engine's parsing logic")
-    console.print(f"  2. Place it in ~/.jiro/plugins/ or set JIRO_PLUGIN_PATH")
-    console.print(f"  3. Run 'jiro plugins discover' to load it")
+    console.print("  2. Place it in ~/.jiro/plugins/ or set JIRO_PLUGIN_PATH")
+    console.print("  3. Run 'jiro plugins discover' to load it")

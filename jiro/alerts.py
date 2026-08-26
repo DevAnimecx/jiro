@@ -15,7 +15,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from jiro.log import get_logger
 
@@ -227,8 +227,8 @@ class AlertManager:
     def summary(self) -> Dict[str, Any]:
         """Alert summary counts."""
         alerts = list(self._alerts)
-        by_severity = {}
-        by_type = {}
+        by_severity: Dict[str, int] = {}
+        by_type: Dict[str, int] = {}
         for a in alerts:
             by_severity[a.severity.value] = by_severity.get(a.severity.value, 0) + 1
             by_type[a.type.value] = by_type.get(a.type.value, 0) + 1

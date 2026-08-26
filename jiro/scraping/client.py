@@ -26,7 +26,6 @@ from jiro.proxy import ProxyManager
 
 try:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
-    from curl_cffi.requests import BrowserType
 
     _CURL_CFFI_AVAILABLE = True
 except ImportError:
@@ -370,7 +369,7 @@ class ScrapingClient:
             and playwright_available()
         ) else None
         self._curl_sessions: Dict[str, Any] = {}  # per-engine curl_cffi sessions
-        self._client = None  # httpx fallback
+        self._client: Any = None  # httpx fallback
         self._db = db  # for proxy cost tracking
         self._proxy_costs: Dict[str, List[float]] = {}  # per-proxy latencies
         # SSRF guard: refuse to scrape the server's own host.
@@ -398,7 +397,7 @@ class ScrapingClient:
         """Get or create a curl_cffi AsyncSession with browser impersonation."""
         if engine not in self._curl_sessions:
             profile = self.fingerprint.next_profile()
-            session = CurlAsyncSession(
+            session: Any = CurlAsyncSession(
                 impersonate=profile,  # type: ignore[arg-type]
                 timeout=self.timeout,
             )
@@ -488,7 +487,7 @@ class ScrapingClient:
                 )
             except (EngineBlockedError, EngineError, EngineTimeoutError):
                 raise
-            except httpx.TimeoutException as exc:
+            except httpx.TimeoutException:
                 last_error = EngineTimeoutError(
                     f"timeout fetching {url}", details={"engine": engine, "attempt": attempt}
                 )

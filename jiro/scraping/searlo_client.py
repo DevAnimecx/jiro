@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 from pydantic import BaseModel

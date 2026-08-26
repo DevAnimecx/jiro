@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from jiro.ai.agent import Agent
-from jiro.ai.llm import LLM
 from jiro.auth import AuthContext
 from jiro.models import AgentRequest, AISearchRequest
 from jiro.server.deps import get_agent, get_auth_context, record_usage

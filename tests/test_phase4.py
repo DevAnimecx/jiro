@@ -4,16 +4,10 @@ content classification, answer extraction, and image alt-text extraction.
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock
 
-import pytest
 
 from jiro.structured import (
-    ContentClassification,
-    SchemaOrgData,
     StructuredResult,
-    AnswerExtraction,
     classify_content,
     extract_answers,
     extract_images_with_alt,

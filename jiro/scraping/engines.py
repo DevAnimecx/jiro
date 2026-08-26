@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Type
 
 from jiro.config import Settings
-from jiro.errors import EngineBlockedError, EngineError, EngineParseError
+from jiro.errors import EngineBlockedError, EngineError
 from jiro.models import SearchRequest, SearchResponse
 from jiro.scraping.client import ScrapingClient
 from jiro.robots import RobotsManager

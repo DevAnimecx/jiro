@@ -217,9 +217,11 @@ class Database:
     async def _acquire(self) -> "aiosqlite.Connection":
         if not self._connected:
             raise CacheError("database not connected")
+        assert self._available is not None
         return await self._available.get()
 
     async def _release(self, conn: "aiosqlite.Connection") -> None:
+        assert self._available is not None
         await self._available.put(conn)
 
     async def execute(self, sql: str, params: tuple = ()) -> None:
@@ -312,7 +314,11 @@ class Database:
             "SELECT * FROM api_keys" + ("" if include_revoked else " WHERE revoked = 0")
             + " ORDER BY created_at DESC"
         )
-        return [self._key_row(r) for r in rows]
+        return [
+            out
+            for out in (self._key_row(r) for r in rows if r is not None)
+            if out is not None
+        ]
 
     async def key_revoke(self, key_id: str) -> bool:
         await self.execute("UPDATE api_keys SET revoked = 1 WHERE id = ?", (key_id,))
@@ -345,7 +351,8 @@ class Database:
 
     async def usage_summary(self, key_id: Optional[str] = None,
                             since: float = 0.0) -> Dict[str, Any]:
-        where, params = " WHERE ts >= ?", (since,)
+        where = " WHERE ts >= ?"
+        params: tuple = (since,)
         if key_id:
             where += " AND key_id = ?"
             params += (key_id,)
@@ -415,7 +422,8 @@ class Database:
 
     async def proxy_cost_summary(self, proxy_url: Optional[str] = None,
                                  since: float = 0.0) -> Dict[str, Any]:
-        where, params = " WHERE request_ts >= ?", (since,)
+        where = " WHERE request_ts >= ?"
+        params: tuple = (since,)
         if proxy_url:
             where += " AND proxy_url = ?"
             params += (proxy_url,)

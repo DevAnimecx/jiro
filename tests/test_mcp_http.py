@@ -307,7 +307,7 @@ class TestLegacySSETransport:
                 chunks.append(line)
                 if line.startswith("data:"):
                     break
-            endpoint_line = next(l for l in chunks if l.startswith("data:"))
+            endpoint_line = next(line for line in chunks if line.startswith("data:"))
             payload = json.loads(endpoint_line[len("data:"):].strip())
             assert "/messages" in payload["uri"]
             assert "sessionId=" in payload["uri"]

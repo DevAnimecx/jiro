@@ -135,11 +135,11 @@ class BingEngine(BaseEngine):
             date = date_match.group(1)
 
         sitelinks: List[Dict[str, Any]] = []
-        for link in block.css("ul.b_sitelink a, .b_attribution a"):
-            text = link.text(strip=True)
+        for slink in block.css("ul.b_sitelink a, .b_attribution a"):
+            text = slink.text(strip=True)
             if text and len(sitelinks) < 6:
                 sitelinks.append({"title": text,
-                                  "link": normalize_url(link.attributes.get("href") or "")})
+                                  "link": normalize_url(slink.attributes.get("href") or "")})
 
         source = self._source(link)
         return OrganicResult(
@@ -245,9 +245,9 @@ class BingEngine(BaseEngine):
             ourl = ""
             con = block.css_first("div[ourl]")
             if con:
-                ourl = con.attributes.get("ourl", "")
+                ourl = (con.attributes.get("ourl") or "")
             if not ourl:
-                mmeta = block.attributes.get("mmeta", "")
+                mmeta = (block.attributes.get("mmeta") or "")
                 m = re.search(r"murl\\?\\?&quot;:&quot;([^&]+)&quot;", mmeta) or \
                     re.search(r"murl\\?\":\\?\"([^\"]+)\\\?", mmeta)
                 if m:

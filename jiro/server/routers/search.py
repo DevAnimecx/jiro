@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
@@ -70,12 +70,9 @@ async def search_get(
                         fresh=fresh)
     ip = request.client.host if request.client else None
     key_id = ctx.key_id
-    ua = request.headers.get("User-Agent")
 
     try:
         result = await orchestrator.search(req, fresh=fresh)
-        status = 200
-        error = None
     except EngineError as exc:
         latency_ms = (time.perf_counter() - started) * 1000
         await record_usage(request, endpoint="/search", status=exc.status_code,
@@ -143,7 +140,6 @@ async def search_post(
 
     try:
         result = await orchestrator.search(body, fresh=body.fresh)
-        status = 200
     except EngineError as exc:
         latency_ms = (time.perf_counter() - started) * 1000
         await record_usage(request, endpoint="/search", status=exc.status_code,
@@ -287,8 +283,8 @@ async def search_stream(
                          for eng in engine_list}
                 for eng, task in tasks.items():
                     try:
-                        result = await task
-                        data = result.model_dump()
+                        task_result: Any = await task
+                        data = task_result.model_dump()
                         org = data.get("organic_results", [])
                         for r in org:
                             r["engine"] = eng

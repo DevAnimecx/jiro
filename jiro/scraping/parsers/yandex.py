@@ -73,7 +73,7 @@ class YandexEngine(BaseEngine):
         )
 
     def _parse_organic(self, tree: HTMLParser, req: SearchRequest) -> List[OrganicResult]:
-        results = []
+        results: list[OrganicResult] = []
         for idx, block in enumerate(tree.css("li.serp-item, div.organic")):
             if len(results) >= req.num:
                 break
@@ -91,7 +91,7 @@ class YandexEngine(BaseEngine):
             data = json.loads(m.group(1))
         except Exception:
             return []
-        results = []
+        results: list[OrganicResult] = []
         for item in data.get("organic", []):
             if len(results) >= req.num:
                 break

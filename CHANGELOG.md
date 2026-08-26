@@ -79,6 +79,13 @@ All notable changes to Jiro Search are documented here. This project adheres to
 ### Tests
 - 390 passing, 10 skipped, 8 network-deselected (0 failures).
 
+### Maintenance
+- Enabled `pydantic.mypy` plugin; fixed all `ruff` (144) and `mypy` (87)
+  lint/type errors: unused imports & variables, ambiguous names, SSRF annotation
+  import, duplicate `MCPError`, genuine `None`/type mismatches in parsers, db
+  pool, auth/jobs/robots typing, and unreachable `await _authenticate` call in the
+  MCP stream endpoint.
+
 ---
 
 ## [Unreleased]

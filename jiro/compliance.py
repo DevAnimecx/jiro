@@ -6,9 +6,6 @@ and user acknowledgment tracking.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -357,7 +354,7 @@ class ComplianceManager:
 
     def generate_compliance_report(self) -> Dict[str, Any]:
         """Generate a compliance report for all engines."""
-        report = {
+        report: Dict[str, Any] = {
             "generated_at": time.time(),
             "engines": {},
             "summary": {

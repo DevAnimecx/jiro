@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Request
 
@@ -16,7 +16,6 @@ from jiro.server.deps import (
     get_auth_context,
     get_client,
     get_llm,
-    get_orchestrator,
     record_usage,
 )
 

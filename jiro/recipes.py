@@ -22,9 +22,8 @@ JSONPath with a small built-in evaluator (no external dependency).
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from jiro.errors import JiroError
 

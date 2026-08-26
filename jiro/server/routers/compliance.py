@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Request
 
 from jiro.auth import AuthContext
 from jiro.compliance import (
     ComplianceManager,
-    EngineTOS,
-    UserAcknowledgment,
     get_engine_warning,
     get_startup_warning,
 )

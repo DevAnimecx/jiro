@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import asyncio
-from typing import AsyncGenerator
 
 # Testcontainers imports (optional - only if docker available)
 try:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from hypothesis import given, strategies as st, settings, assume
-from hypothesis.strategies import composite
 
 from jiro.scraping.client import EngineRateLimiter
 from jiro.scraping.engines import SearchOrchestrator

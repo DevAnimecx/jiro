@@ -9,12 +9,11 @@ featured snippets, knowledge panels, and FAQ data.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import HTMLParser
 
 from jiro.log import get_logger
 
@@ -207,7 +206,10 @@ def _extract_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, dict):
-        return value.get("@value", value.get("name", value.get("text", ""))).strip() if isinstance(value.get("@value", value.get("name", value.get("text", ""))), str) else str(value.get("@value", ""))
+        inner = value.get("@value", value.get("name", value.get("text", "")))
+        if isinstance(inner, str):
+            return inner.strip()
+        return str(inner)
     if isinstance(value, list):
         parts = [_extract_text(v) for v in value if _extract_text(v)]
         return ", ".join(parts[:5])
@@ -338,7 +340,7 @@ def extract_schema_org(html: str, url: str = "") -> SchemaOrgData:
         result.event_end = _extract_text(main_obj.get("endDate", ""))
         loc = main_obj.get("location", {})
         if isinstance(loc, dict):
-            result.event_location = loc.get("name", loc.get("address", ""))
+            result.event_location = loc.get("name") or loc.get("address") or ""
         elif isinstance(loc, str):
             result.event_location = loc
 
@@ -626,7 +628,7 @@ def extract_images_with_alt(html: str, url: str = "",
     seen = set()
 
     for img in tree.css("img[src]"):
-        src = (img.attributes or {}).get("src", "").strip()
+        src = ((img.attributes or {}).get("src") or "").strip()
         if not src or src.startswith("data:") or len(src) < 5:
             continue
         full_url = urljoin(url, src) if url else src

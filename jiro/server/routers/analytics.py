@@ -14,8 +14,6 @@ from jiro.analytics import AnalyticsEngine
 from jiro.auth import AuthContext
 from jiro.server.deps import (
     get_auth_context,
-    get_db,
-    get_orchestrator,
     record_usage,
 )
 

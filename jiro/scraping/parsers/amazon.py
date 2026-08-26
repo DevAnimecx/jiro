@@ -6,11 +6,9 @@ blocks with ASIN, title, price, rating, and Prime badge.
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse
@@ -31,7 +29,7 @@ class AmazonEngine(BaseEngine):
             "ref": "sr_sb_noss",
         }
         if req.num:
-            params["rh"] = f"n:1850115011"  # default department
+            params["rh"] = "n:1850115011"  # default department
         if req.time_range == "month":
             params["rh"] = "p_n_date_band_type-browse:1260830011"
         elif req.time_range == "week":
@@ -74,7 +72,7 @@ class AmazonEngine(BaseEngine):
         )
 
     def _parse_product(self, block: Node, position: int) -> Optional[OrganicResult]:
-        asin = block.attributes.get("data-asin", "").strip()
+        asin = (block.attributes.get("data-asin") or "").strip()
         if not asin:
             return None
 

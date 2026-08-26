@@ -15,7 +15,6 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser
 
 from jiro.errors import EngineBlockedError, EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse

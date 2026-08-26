@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from jiro.extract import ContentExtractor, node_to_markdown
+from jiro.extract import ContentExtractor
 
 PAGE = """
 <!DOCTYPE html>
@@ -49,6 +49,6 @@ def test_markdown_output():
 def test_links_and_images():
     ex = ContentExtractor(PAGE, url="https://site.example/article")
     result = ex.extract()
-    urls = [l["url"] for l in result.links]
+    urls = [link["url"] for link in result.links]
     assert "https://external.example/x" in urls
     assert result.images[0]["url"] == "https://site.example/images/hero.png"

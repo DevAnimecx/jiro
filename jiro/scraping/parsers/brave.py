@@ -144,7 +144,7 @@ class BraveEngine(BaseEngine):
 
     @staticmethod
     def _related_searches(tree: HTMLParser) -> List[Dict[str, str]]:
-        out = []
+        out: list[dict[str, str]] = []
         for a in tree.css("div[class*='related'] a"):
             text = a.text(strip=True)
             if text and len(out) < 12:

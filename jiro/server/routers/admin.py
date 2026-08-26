@@ -5,12 +5,12 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from jiro.auth import AuthContext, AuthManager
 from jiro.db import Database
 from jiro.models import ApiKeyCreate, ApiKeyCreated, ApiKeyOut, LoginRequest, TokenResponse
-from jiro.server.deps import get_auth_manager, get_db, optional_auth_context, require_scope
+from jiro.server.deps import get_auth_manager, get_db, require_scope
 
 router = APIRouter(tags=["admin"])
 

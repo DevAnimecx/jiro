@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import base64
 import json
 
 import pytest
 from starlette.testclient import TestClient
 
-from jiro.config import Settings
 from jiro.server import create_app
 
 

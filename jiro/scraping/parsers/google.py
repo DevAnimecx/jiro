@@ -172,7 +172,7 @@ class GoogleEngine(BaseEngine):
         if dm:
             date = dm.group(1)
 
-        sitelinks = []
+        sitelinks: list[dict[str, Any]] = []
         for a in block.css("div.d5lMud li a, div[jsname] a"):
             text = a.text(strip=True)
             if text and len(sitelinks) < 6:
@@ -210,7 +210,7 @@ class GoogleEngine(BaseEngine):
             seen.add(link)
             organic.append(OrganicResult(
                 position=req.start + idx,
-                title=a.attributes.get("aria-label", ""),
+                title=(a.attributes.get("aria-label") or ""),
                 link=link,
                 source=self._source(link),
             ))

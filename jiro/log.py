@@ -11,7 +11,7 @@ import json
 import logging
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 _RESERVED = {"name", "msg", "args", "levelname", "levelno", "pathname", "filename",
              "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
@@ -36,7 +36,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(level: str = "info", file: str = "") -> None:
-    handlers = [logging.StreamHandler(sys.stderr)]
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if file:
         handlers.append(logging.FileHandler(file))
     logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO),

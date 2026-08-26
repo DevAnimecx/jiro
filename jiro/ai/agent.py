@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from jiro.ai.llm import LLM, count_tokens
 from jiro.config import Settings
 from jiro.errors import LLMError
-from jiro.models import SearchRequest, SearchResponse
+from jiro.models import SearchRequest
 from jiro.scraping.engines import SearchOrchestrator
 
 MAX_SNIPPET_CHARS = 600
@@ -50,7 +50,7 @@ class Agent:
 
     @staticmethod
     def _deadline_exceeded(deadline_at: Optional[float]) -> bool:
-        return bool(deadline_at) and time.monotonic() >= deadline_at
+        return deadline_at is not None and time.monotonic() >= deadline_at
 
     async def research(self, query: str, *, max_sources: Optional[int] = None,
                         provider: Optional[str] = None,
@@ -268,7 +268,6 @@ class Agent:
         steps: List[Dict[str, Any]] = []
         sources: List[Dict[str, Any]] = []
         search_results: List[Dict[str, Any]] = []
-        findings: List[str] = []
         current_query = goal
         used_llm = False
         deadline_exceeded = False
@@ -494,7 +493,7 @@ class Agent:
                     "snippet": src.get("snippet", ""), "content": content,
                 })
                 yield {"type": "source", "url": src["url"], "title": src["title"]}
-            except Exception as exc:
+            except Exception:
                 yield {"type": "source", "url": src["url"], "status": "failed"}
                 if src.get("snippet"):
                     sources.append({

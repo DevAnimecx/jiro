@@ -19,7 +19,6 @@ from jiro.server.deps import (
     get_client,
     get_llm,
     record_usage,
-    require_scope,
 )
 
 router = APIRouter(tags=["scrape"])
@@ -161,12 +160,12 @@ def _naive_extract(text: str, schema: Dict[str, Any]) -> Dict[str, Any]:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     for key, kind in schema.items():
         low = key.lower()
-        if kind in ("date",) and re.search(r"\d{4}-\d{2}-\d{2}", text):
-            result[key] = re.search(r"\d{4}-\d{2}-\d{2}", text).group(0)
+        if kind in ("date",) and (m := re.search(r"\d{4}-\d{2}-\d{2}", text)):
+            result[key] = m.group(0)
         elif low in ("title", "heading") and lines:
             result[key] = lines[0][:200]
         elif kind == "list":
-            items = [l for l in lines if l.startswith(("-", "*", "1."))][:10]
+            items = [line for line in lines if line.startswith(("-", "*", "1."))][:10]
             result[key] = items
         else:
             result[key] = text[:200] if text else None

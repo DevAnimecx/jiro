@@ -6,9 +6,7 @@ error rates, and usage patterns from the SQLite usage table.
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from jiro.db import Database
 from jiro.log import get_logger

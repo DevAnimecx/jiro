@@ -198,7 +198,7 @@ def _add_middleware(app: FastAPI, settings: Settings) -> None:
         except JiroError as exc:
             response = JSONResponse(status_code=exc.status_code,
                                     content=exc.to_dict())
-        except Exception as exc:  # pragma: no cover - safety net
+        except Exception:  # pragma: no cover - safety net
             log.exception("unhandled error", extra={"request_id": request_id})
             response = JSONResponse(status_code=500, content={
                 "error": "internal server error", "error_code": "internal_error",

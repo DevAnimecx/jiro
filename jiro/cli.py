@@ -5,10 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
-import time
 import warnings
-from typing import List, Optional
+from typing import Optional
 
 import typer
 import uvicorn
@@ -112,7 +110,6 @@ def search_web(
 async def _cli_search(q, engine, type, num, location, language, json_output, config):
     warnings.filterwarnings("ignore")
     from jiro.server import create_app
-    from jiro.models import SearchRequest
     from starlette.testclient import TestClient
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:

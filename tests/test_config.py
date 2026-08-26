@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 
-import pytest
 
 from jiro.config import Settings, deep_merge, interpolate_env
 

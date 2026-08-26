@@ -131,8 +131,8 @@ class AuthManager:
                 details={"required": scope, "scopes": scopes},
             )
 
-    def require_admin(self, record: Dict[str, Any]) -> None:
-        if record.get("role") != "admin":
+    def require_admin(self, record: Optional[Dict[str, Any]]) -> None:
+        if record is None or record.get("role") != "admin":
             raise JiroPermissionError("admin role required")
 
     # ------------------------------------------------------------------- jwt
@@ -299,10 +299,10 @@ async def build_auth_context(request: Any, auth: AuthManager,
     authz = request.headers.get("Authorization", "")
     if authz.lower().startswith("bearer "):
         claims = auth.decode_token(authz[7:].strip())
-        record = await auth.db.key_get(claims.get("sub", ""))
-        if record is None or record.get("revoked"):
+        jwt_record = await auth.db.key_get(claims.get("sub", ""))
+        if jwt_record is None or jwt_record.get("revoked"):
             raise AuthError("token subject revoked")
-        return AuthContext(record, via_jwt=True, bucket=f"key:{record['id']}")
+        return AuthContext(jwt_record, via_jwt=True, bucket=f"key:{jwt_record['id']}")
 
     if require:
         raise AuthError("missing credentials: send X-API-Key or Authorization: Bearer")

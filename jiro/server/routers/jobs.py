@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Request
 
@@ -18,13 +18,11 @@ def _build_runner(request: Request):
     """Async runner that dispatches jobs to the right executor."""
     agent = request.app.state.agent
     client = request.app.state.scraper_client
-    cache = request.app.state.cache
-    settings = request.app.state.settings
 
     async def runner(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if job_type == "ai_search":
             from jiro.models import AISearchRequest
-            body = AISearchRequest(**payload)
+            body: Any = AISearchRequest(**payload)
             return await agent.research(body.query, max_sources=body.max_sources,
                                         provider=body.llm_provider,
                                         model=body.llm_model)

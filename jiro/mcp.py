@@ -18,9 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import time
-import uuid
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 from jiro.ai.agent import Agent
 from jiro.ai.llm import LLM
@@ -29,9 +27,8 @@ from jiro.auth import AuthManager
 from jiro.cache import CacheManager
 from jiro.config import Settings
 from jiro.db import Database
-from jiro.errors import JiroError
 from jiro.log import get_logger
-from jiro.models import AISearchRequest, SearchRequest
+from jiro.models import SearchRequest
 from jiro.scraping.client import ScrapingClient
 from jiro.ai.tools import ENGINE_ENUM
 from jiro.scraping.engines import SearchOrchestrator
@@ -101,14 +98,6 @@ class ProgressReporter:
         return self.progress_token is not None
 
 
-class MCPError(Exception):
-    def __init__(self, code: int, message: str, data: Optional[Any] = None) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.data = data
-
-
 class JiroMCPServer:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or Settings.load()
@@ -133,7 +122,7 @@ class JiroMCPServer:
             ttl=self.settings.cache_ttl,
         )
         self.client = ScrapingClient(self.settings)
-        auth = AuthManager(self.settings, self.db)
+        AuthManager(self.settings, self.db)
         self.orchestrator = SearchOrchestrator(self.settings, self.client, self.cache)
         llm = LLM(self.settings)
         self.agent = Agent(self.settings, self.orchestrator,
