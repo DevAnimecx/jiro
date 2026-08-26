@@ -1,22 +1,108 @@
-# Jiro Search API 🔍
+<!--
+SEO meta description (used by search engines indexing this README/repo):
+Jiro Search — a local-first, AI-native, self-hosted web search and scraping API.
+Free open-source SerpAPI alternative with a built-in MCP server, agentic research,
+9 search engines, legal compliance, and first-class AI-agent integrations
+(Claude, Codex, Cursor, Manus, Hermes). pip install jirosearch.
+-->
 
-> **Local-first, AI-native web search & scraping API** — a drop-in, **self-hosted SerpAPI alternative** with **MCP server**, **agentic research**, and **built-in legal compliance**.
+<p align="center">
+  <a href="https://github.com/DevAnimecx/jiro">
+    <img src="https://logo.clearbit.com/jiro.dev" alt="Jiro Search" width="240"
+         onerror="this.src='https://github.com/DevAnimecx.png?size=240';this.alt='Jiro';" />
+  </a>
+</p>
 
-[![GitHub stars](https://img.shields.io/github/stars/DevAnimecx/jiro?style=social)](https://github.com/DevAnimecx/jiro/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/DevAnimecx/jiro?style=social)](https://github.com/DevAnimecx/jiro/network/members)
-[![PyPI version](https://img.shields.io/pypi/v/jirosearch?color=blue)](https://pypi.org/project/jirosearch/)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io%2FDevAnimecx%2Fjiro-blue)](https://github.com/DevAnimecx/jiro/pkgs/container/jiro)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-380%20passing-brightgreen)](https://github.com/DevAnimecx/jiro/actions)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+<h1 align="center">Jiro Search — Local-First, AI-Native Web Search & Scraping API</h1>
 
-**Jiro** scrapes Google, Bing, DuckDuckGo, Brave, YouTube, Amazon, eBay, Yandex and Baidu directly — no third-party search API, no per-query billing, no cloud lock-in. Results are cached locally in SQLite (sub-50 ms cached responses), exposed through a **SerpAPI-compatible REST API**, and built to be called by **AI agents**: function-calling schemas for OpenAI/Anthropic/Gemini, a **Model Context Protocol (MCP) server**, LangChain/LlamaIndex wrappers, and an agentic `/ai/search` loop that plans → searches → reads pages → synthesizes a cited answer. Bring your own keys (BYOK) for proxies, CAPTCHA solvers and LLM providers.
+<p align="center">
+  <b>A free, open-source <a href="https://serpapi.com">SerpAPI</a> alternative.</b>
+  Self-hosted search + scrape + agentic research + <b>MCP server</b>, built for AI agents.
+</p>
 
-> **Status:** Production-ready MVP (open-source, MIT). Self-host it for $0 or subscribe to **Jiro Cloud** for a managed proxy fleet, SLA and compliance dashboard.
-> **Responsible use:** search engines actively fight bots. From residential IPs (and with BYOK proxies) Google/DuckDuckGo work; on datacenter IPs Jiro automatically falls back across engines (`google → bing → brave → duckduckgo`). Respect each engine's ToS and `robots.txt`.
+<p align="center">
+  <a href="https://pypi.org/project/jirosearch/"><img src="https://img.shields.io/pypi/v/jirosearch?color=blue&label=pypi%20jirosearch" alt="PyPI jirosearch"></a>
+  <a href="https://pypi.org/project/jirosearch/"><img src="https://img.shields.io/pypi/pyversions/jirosearch.svg" alt="Python 3.11+"></a>
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+  <a href="https://github.com/DevAnimecx/jiro/actions"><img src="https://img.shields.io/badge/tests-390%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/DevAnimecx/jiro/stargazers"><img src="https://img.shields.io/github/stars/DevAnimecx/jiro?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/DevAnimecx/jiro/network/members"><img src="https://img.shields.io/github/forks/DevAnimecx/jiro?style=social" alt="GitHub forks"></a>
+  <a href="https://github.com/DevAnimecx/jiro/pkgs/container/jiro"><img src="https://img.shields.io/badge/docker-ghcr.io%2FDevAnimecx%2Fjiro-blue" alt="Docker"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python">
+</p>
+
+<p align="center">
+  <a href="https://github.com/DevAnimecx/jiro/discussions"><img src="https://cdn.simpleicons.org/github/EAC54F" width="22" alt="GitHub Discussions"></a>
+  &nbsp;
+  <a href="https://www.producthunt.com/search?q=jiro%20search"><img src="https://cdn.simpleicons.org/producthunt/FB6831" width="22" alt="Product Hunt"></a>
+  &nbsp;
+  <a href="https://www.reddit.com/search/?q=jiro%20search"><img src="https://cdn.simpleicons.org/reddit/FF4500" width="22" alt="Reddit"></a>
+  &nbsp;
+  <a href="https://dev.to/devanimecx"><img src="https://cdn.simpleicons.org/devdotto/0A0A0A" width="22" alt="dev.to"></a>
+  &nbsp;
+  <a href="https://www.instagram.com/explore/tags/jirosearch/"><img src="https://cdn.simpleicons.org/instagram/E4405F" width="22" alt="Instagram"></a>
+  &nbsp;
+  <a href="https://www.threads.net/"><img src="https://cdn.simpleicons.org/threads/000000" width="22" alt="Threads"></a>
+  &nbsp;
+  <a href="https://x.com/DevAnimecx"><img src="https://cdn.simpleicons.org/x/000000" width="22" alt="X.com"></a>
+</p>
 
 ---
 
+> **Jiro** scrapes Google, Bing, DuckDuckGo, Brave, YouTube, Amazon, eBay, Yandex and Baidu
+> directly — no third-party search API, no per-query billing, no cloud lock-in. Results are
+> cached locally in SQLite (sub-50 ms cached responses) and exposed through a **SerpAPI-compatible
+> REST API**, an **MCP server**, and **agentic research** with citations. Bring your own keys (BYOK)
+> for proxies, CAPTCHA solvers and LLM providers.
+
+**Status:** Production-ready MVP (open-source, MIT). Self-host it for $0 or subscribe to **Jiro Cloud** for a managed proxy fleet, SLA and compliance dashboard.
+**Responsible use:** search engines actively fight bots. From residential IPs (and with BYOK proxies) Google/DuckDuckGo work; on datacenter IPs Jiro automatically falls back across engines (`google → bing → brave → duckduckgo`). Respect each engine's ToS and `robots.txt`.
+
+---
+
+## Table of Contents
+- [What's New](#whats-new)
+- [Why Jiro? (SerpAPI Alternative, Self-Hosted)](#why-jiro)
+- [One-Command Start](#one-command-start)
+- [AI Agent Integrations](#ai-agent-integrations) — Claude Desktop · Claude Code · Codex · Hermes · Manus · Cursor · Continue · Zed · Cline
+- [Install Jiro in Your Agent (copy-paste prompt)](#install-jiro-in-your-agent)
+- [Function Calling (OpenAI / Anthropic / Gemini)](#function-calling)
+- [LangChain / LlamaIndex](#langchain--llamaIndex)
+- [Feature Matrix](#feature-matrix)
+- [What You Get](#what-you-get)
+- [API Reference](#api-reference)
+- [CLI](#cli)
+- [Configuration & BYOK](#configuration--byok)
+- [Deployment (Docker · Helm · Team)](#deployment)
+- [Security & Compliance](#security--compliance)
+- [Performance](#performance)
+- [Project Layout](#project-layout)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [License & Responsible Use](#license--responsible-use)
+- [Community & Support](#community--support)
+- [Brand Assets](#brand-assets)
+
+---
+
+<a id="whats-new"></a>
+## What's New
+
+**v0.1.2 — packaging & release**
+- Distribution published to PyPI as **`jirosearch`** → `pip install jirosearch` works world-wide.
+- `jiro --version` now reports the real installed release (via `importlib.metadata`).
+- README, badges and docs updated to the `jirosearch` name.
+
+**v0.1.1 — security & reliability hardening**
+- **SSRF protection** for scrape targets (blocks loopback, RFC1918, link-local, cloud metadata `169.254.169.254`).
+- Auth startup guard refuses non-loopback binds without `--insecure`.
+- JWT upgraded to **RS256** + `kid` with a startup secret-strength check.
+- Redis-backed rate limiting with in-memory fallback; SQLite connection pool + schema migrations.
+- Agent execution **deadline** + **content budget**; robots.txt enforcement; `/health/engines`; structured request logging; graceful shutdown.
+
+---
+
+<a id="why-jiro"></a>
 ## Why Jiro? (SerpAPI Alternative, Self-Hosted)
 
 | Problem with closed search APIs | Jiro's open-source solution |
@@ -29,12 +115,13 @@
 
 ---
 
+<a id="one-command-start"></a>
 ## One-Command Start
 
 ```bash
 pip install jirosearch          # or: uv tool install jirosearch
 
-jiro serve                       # API on http://localhost:8000  (docs: /docs)
+jiro serve                      # API on http://localhost:8000  (docs: /docs)
 ```
 
 That's it — a working **self-hosted search API** in one command.
@@ -56,6 +143,172 @@ curl -X POST http://localhost:8000/ai/search \
 
 ---
 
+<a id="ai-agent-integrations"></a>
+## AI Agent Integrations
+
+Jiro is an **MCP server** at its core, so any MCP-capable agent can use live web search,
+scraping and agentic research. It also ships **function-calling schemas** for OpenAI /
+Anthropic / Gemini and **LangChain / LlamaIndex** wrappers.
+
+**Transports**
+
+| Transport | Command / Endpoint | Best for |
+|-----------|-------------------|----------|
+| **stdio** | `jiro mcp` | Local agents (Claude Desktop, Claude Code, Codex, Cursor, Hermes) |
+| **Streamable HTTP** | `jiro mcp --transport http` → `http://host:8000/mcp` | Remote / cloud agents (Manus, hosted Claude) |
+| **HTTP+SSE (legacy)** | `http://host:8000/sse` | Older MCP clients |
+
+Protocol versions negotiated: `2025-03-26`, `2024-11-05`.
+
+**MCP Tools**
+| Tool | Description |
+|------|-------------|
+| `search` | Web search across 9 engines, 6 search types (web/images/news/videos/shopping/places) |
+| `scrape` | URL → markdown / text / html / json |
+| `ai_search` | Agentic research with citations (plan → search → read → synthesize) |
+
+**MCP Prompts:** `search_and_summarize`, `compare_engines`. Argument autocompletion for engine names, search types, time ranges and formats.
+
+### Claude Desktop
+Edit `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "jiro": {
+      "command": "jiro",
+      "args": ["mcp"],
+      "env": { "JIRO_CONFIG": "~/.jiro/config.yaml" }
+    }
+  }
+}
+```
+
+### Claude Code
+```bash
+# Quick add (recommended)
+claude mcp add jiro -- jiro mcp
+
+# …or add to .claude/settings.json / project .mcp.json:
+```
+```json
+{
+  "mcpServers": {
+    "jiro": { "command": "jiro", "args": ["mcp"] }
+  }
+}
+```
+
+### OpenAI Codex (Codex CLI)
+Codex reads MCP servers from `~/.codex/config.toml`:
+```toml
+[mcp_servers.jiro]
+command = "jiro"
+args = ["mcp"]
+```
+Or one-shot:
+```bash
+codex mcp add jiro --command jiro --args mcp
+```
+
+### Hermes Agent
+Point Hermes at the Jiro **stdio** server:
+```json
+{
+  "mcpServers": {
+    "jiro": { "command": "jiro", "args": ["mcp"] }
+  }
+}
+```
+For a remote Hermes deployment, run `jiro mcp --transport http` and connect to
+`http://host:8000/mcp` with header `X-API-Key: jsk_...` (or `Authorization: Bearer <jwt>`).
+
+### Manus AI
+Manus connects to remote tools over **Streamable HTTP MCP**. Start Jiro in HTTP mode:
+```bash
+jiro mcp --transport http --host 0.0.0.0 --port 8000
+```
+Then register the tool endpoint in Manus:
+```
+MCP endpoint:  http://<your-host>:8000/mcp
+Auth:         X-API-Key: jsk_...   (or Authorization: Bearer <jwt>)
+```
+Manus can now call `search`, `scrape` and `ai_search` as native tools.
+
+### Cursor / Continue.dev / Zed / Cline
+Point the MCP client at `jiro mcp` as the server command. For remote access use
+`jiro mcp --transport http` and connect to `http://host:8000/mcp` with your
+`X-API-Key` or `Authorization: Bearer <jwt>`.
+
+> **Auth note:** MCP HTTP endpoints accept the same credentials as the REST API:
+> `X-API-Key: jsk_...` or `Authorization: Bearer <jwt>`. Sessions are created on
+> `initialize` and identified by `Mcp-Session-Id`; they support resume via
+> `Last-Event-ID` and per-key rate limits.
+
+---
+
+<a id="install-jiro-in-your-agent"></a>
+## Install Jiro in Your Agent (copy-paste prompt)
+
+Copy the block below and paste it into **any** chat-based agent (Claude, Codex, ChatGPT,
+Hermes, Manus, etc.) to have it wire Jiro up for you:
+
+```
+Install the Jiro Search MCP server so I can search the web, scrape pages into
+markdown, and run agentic research with citations.
+
+1) Install the package:   pip install jirosearch
+2) Start the MCP server:  jiro mcp            (stdio, local)
+   or for remote/cloud:   jiro mcp --transport http --host 0.0.0.0 --port 8000
+3) Register this MCP server in my agent config:
+
+{
+  "mcpServers": {
+    "jiro": {
+      "command": "jiro",
+      "args": ["mcp"]
+    }
+  }
+}
+
+Then verify with: jiro --version  (expect jiro 0.1.2)
+```
+
+Prefer a one-liner? For Claude Code / Codex:
+```bash
+# Claude Code
+claude mcp add jiro -- jiro mcp
+# Codex
+codex mcp add jiro --command jiro --args mcp
+```
+
+---
+
+<a id="function-calling"></a>
+## Function Calling (OpenAI / Anthropic / Gemini)
+
+```python
+from jiro.ai.tools import openai_tools, anthropic_tools, gemini_tools
+tools = openai_tools()           # OpenAI / OpenRouter / Ollama
+```
+
+Drop the returned schema into your LLM request and call `jiro`'s `search` / `scrape` /
+`ai_search` when the model invokes the function.
+
+---
+
+<a id="langchain--llamaIndex"></a>
+## LangChain / LlamaIndex
+
+```python
+from jiro.ai.tools import langchain_tools, ToolSpec
+tools = langchain_tools(search_fn=my_search, scrape_fn=my_scrape, ai_fn=my_ai_search)
+```
+→ Tutorial: [Build a Deep Research Agent with Jiro + Claude (MCP)](docs/tutorials/deep-research-agent.md)
+
+---
+
+<a id="feature-matrix"></a>
 ## Feature Matrix
 
 | Capability | Jiro (OSS) | SerpAPI | ScraperAPI | Bright Data |
@@ -73,6 +326,7 @@ curl -X POST http://localhost:8000/ai/search \
 
 ---
 
+<a id="what-you-get"></a>
 ## What You Get
 
 | Area | Features |
@@ -91,64 +345,7 @@ curl -X POST http://localhost:8000/ai/search \
 
 ---
 
-## Jiro vs SerpAPI, ScraperAPI & Bright Data
-
-Jiro is the only **open-source, self-hostable** project that combines **search + scrape + agentic AI research + MCP** in one binary, with **legal compliance built in**. Closed competitors charge $200–$3,000/month for subsets of this and never let you self-host.
-
-→ Full comparisons: [vs SerpAPI](docs/comparisons/serpapi.md) · [vs ScraperAPI](docs/comparisons/scraperapi.md) · [vs Bright Data](docs/comparisons/bright-data.md)
-
----
-
-## AI Agent Integration
-
-### Model Context Protocol (MCP)
-
-Jiro ships a full **MCP server** (stdio, Streamable HTTP, legacy SSE) — giving AI agents live web search, page scraping and research.
-
-```bash
-jiro mcp                           # MCP server over stdio
-jiro mcp --transport http         # Streamable HTTP + SSE on :8000/mcp
-```
-
-**Tools:** `search` (9 engines, 6 search types) · `scrape` (markdown/text/html/json) · `ai_search` (agentic research with citations).
-**Prompts:** `search_and_summarize`, `compare_engines`. **Autocompletion:** engine names, search types, time ranges, formats.
-
-#### Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "jiro": {
-      "command": "jiro",
-      "args": ["mcp"],
-      "env": { "JIRO_CONFIG": "~/.jiro/config.yaml" }
-    }
-  }
-}
-```
-
-#### Cursor / Continue.dev / Zed / Cline
-
-Point the MCP client at `jiro mcp` as the server command (see [docs/mcp](docs/mcp.md)).
-
-### Function Calling (OpenAI / Anthropic / Gemini)
-
-```python
-from jiro.ai.tools import openai_tools, anthropic_tools, gemini_tools
-tools = openai_tools()           # OpenAI / OpenRouter / Ollama
-```
-
-### LangChain / LlamaIndex
-
-```python
-from jiro.ai.tools import langchain_tools, ToolSpec
-tools = langchain_tools(search_fn=my_search, scrape_fn=my_scrape, ai_fn=my_ai_search)
-```
-
-→ Tutorial: [Build a Deep Research Agent with Jiro + Claude (MCP)](docs/tutorials/deep-research-agent.md)
-
----
-
+<a id="api-reference"></a>
 ## API Reference
 
 Interactive docs at **`http://localhost:8000/docs`** (Swagger) and `http://localhost:8000/openapi.json`.
@@ -174,6 +371,7 @@ Auth: `X-API-Key: jsk_...` header, `?api_key=...` param, or `Authorization: Bear
 
 ---
 
+<a id="cli"></a>
 ## CLI
 
 ```bash
@@ -182,6 +380,7 @@ jiro search web "python scraping" --engine bing --num 5 --json
 jiro scrape "https://example.com" --format markdown
 jiro ask "best python scraping library?" --max-sources 5
 jiro mcp                          # MCP server over stdio
+jiro mcp --transport http         # Streamable HTTP + SSE on :8000/mcp
 jiro config init                  # write ~/.jiro/config.yaml
 jiro config show
 jiro keys create --name "ci" --role user        # prompts for admin key
@@ -193,9 +392,12 @@ jiro plugins create myengine --author "Your Name"   # scaffold a new engine
 
 ---
 
+<a id="configuration--byok"></a>
 ## Configuration & BYOK
 
-Config at `~/.jiro/config.yaml` (or `$JIRO_CONFIG`). Override anything with env: `JIRO_SERVER__PORT=9000`, `JIRO_AUTH__ENABLED=true`. Secrets interpolate from env: `api_key: ${OPENAI_API_KEY}`.
+Config at `~/.jiro/config.yaml` (or `$JIRO_CONFIG`). Override anything with env:
+`JIRO_SERVER__PORT=9000`, `JIRO_AUTH__ENABLED=true`. Secrets interpolate from env:
+`api_key: ${OPENAI_API_KEY}`.
 
 | Service | Config | Env example |
 |---|---|---|
@@ -209,26 +411,23 @@ Config at `~/.jiro/config.yaml` (or `$JIRO_CONFIG`). Override anything with env:
 
 ---
 
+<a id="deployment"></a>
 ## Deployment
 
 ### Docker
-
 ```bash
 docker compose up -d            # http://localhost:8000
 ```
 
 ### Helm (Kubernetes)
-
 ```bash
 helm install jiro ./helm \
   --set config.env.JIRO_AUTH__ENABLED=true \
   --set config.envFromSecret=jiro-secrets
 ```
-
 Ships Deployment, Service, PVC (SQLite data), optional Ingress and optional Redis cache (`--set redis.enabled=true`).
 
 ### Team setup (auth on)
-
 ```bash
 export JIRO_AUTH__ENABLED=true JIRO_JWT_SECRET=$(openssl rand -hex 32)
 jiro keys create --name admin --role admin --admin-key "$ADMIN"
@@ -237,32 +436,20 @@ jiro keys create --name "alice" --role user --rate-limit 30
 
 ---
 
-## 💡 Open Core & Monetization
+<a id="security--compliance"></a>
+## Security & Compliance
 
-Jiro is **open-source (MIT)** and will always be free to self-host. The sustainable model:
+Jiro is built for **responsible, compliant** use:
+- **SSRF protection** — scrape targets cannot hit loopback, RFC1918, link-local or cloud metadata IPs (fail-open for air-gapped use).
+- **Auth guard** — refuses to bind a public interface without `--insecure`.
+- **JWT RS256** + `kid`, with a startup check that rejects weak secrets.
+- **robots.txt** enforcement, ToS tracking, and **immutable audit logs**.
 
-| Edition | What | License | For |
-|---------|------|---------|-----|
-| **Jiro OSS** | Full search/scrape/AI/MCP, all engines, plugins, compliance | MIT | Everyone — $0 |
-| **Jiro Cloud** *(roadmap)* | Managed hosting, auto-scaling, global residential proxy pool, SLA, SSO, compliance dashboard | SaaS | Teams & agents |
-| **Jiro Enterprise** *(roadmap)* | Air-gapped license (BSL-1.0), SOC 2 path, dedicated support, private engine plugins | Source-available | Fintech/Legal/Gov/AI labs |
-
-We monetize **convenience, compliance and support** — never the code. Community contributions stay MIT.
-
-→ Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+→ Full details: [docs/compliance.md](docs/compliance.md) · [SECURITY.md](SECURITY.md)
 
 ---
 
-## Documentation
-
-- 📖 [Docs hub](docs/README.md)
-- 🔌 [MCP integration](docs/mcp.md)
-- ⚖️ [Compliance & responsible use](docs/compliance.md)
-- 🆚 [vs SerpAPI](docs/comparisons/serpapi.md) · [vs ScraperAPI](docs/comparisons/scraperapi.md) · [vs Bright Data](docs/comparisons/bright-data.md)
-- 🎓 [Deep Research Agent tutorial](docs/tutorials/deep-research-agent.md)
-
----
-
+<a id="performance"></a>
 ## Performance
 
 | Metric | Value |
@@ -271,13 +458,14 @@ We monetize **convenience, compliance and support** — never the code. Communit
 | Cached search (SQLite) | ~1–3 ms round-trip in-process |
 | Live Bing search | ~0.3–0.8 s from a datacenter IP |
 | `/scrape` of a small page | ~0.3–0.9 s first hit, then cached |
-| Test suite | 380 tests passing |
+| Test suite | 390 tests passing |
 
 ---
 
+<a id="project-layout"></a>
 ## Project Layout
 
-```
+```text
 jiro/
 ├── ai/            LLM providers, tool schemas, agentic loop (research + multi-step agent + SSE)
 ├── scraping/      HTTP client (UA rotation, retries, circuit breaker, proxy manager, browser fallback),
@@ -292,6 +480,7 @@ jiro/
 ├── extract.py     readability + metadata + HTML→Markdown
 ├── jobs.py        async job queue + webhooks (HMAC-signed)
 ├── mcp.py         MCP server (stdio): tools, prompts, resources, autocompletion
+├── mcp_http.py    MCP server (Streamable HTTP + SSE) for remote agents
 ├── models.py      Pydantic contracts
 ├── proxy.py       BYOK proxy manager (provider presets, rotation, cooldown)
 ├── recipes.py     CSS / XPath / JSONPath extraction recipes
@@ -303,6 +492,7 @@ tests/             parser fixtures + unit/API/integration/chaos/property tests
 
 ---
 
+<a id="development"></a>
 ## Development
 
 ```bash
@@ -313,7 +503,6 @@ jiro serve --reload
 ```
 
 ### Roadmap status
-
 - **Phase 1 (MVP)** — ✅ CLI, config, FastAPI server, google/bing/ddg web engines, SerpAPI-compatible JSON, SQLite cache, API-key auth, OpenAI tool schema, `/ai/search`, Dockerfile.
 - **Phase 2** — ✅ Brave + Bing videos, images/news types, team keys, MCP server, LangChain/LlamaIndex wrappers, batch scrape, `/metrics`, Playwright fallback, BYOK proxy + CAPTCHA, SSE, Redis.
 - **Phase 3** — ✅ `/ai/agent` multi-step research, CSS/XPath/JSONPath recipes, LLM extraction, plugin registry, async jobs + webhooks.
@@ -321,18 +510,53 @@ jiro serve --reload
 
 ---
 
-## License & Responsible Use
+<a id="roadmap"></a>
+## Roadmap
 
-**MIT**. Jiro is a scraping tool: respect each search engine's Terms of Service and `robots.txt`, keep request rates respectful, and use proxies/CAPTCHA services at your own discretion. All traffic originates from *your* network; queries are only visible to the engines you query.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full plan (Jiro Cloud, Enterprise/BSL edition,
+RAG pipelines, parser marketplace, horizontal scaling).
 
 ---
 
+<a id="license--responsible-use"></a>
+## License & Responsible Use
+
+**MIT**. Jiro is a scraping tool: respect each search engine's Terms of Service and `robots.txt`,
+keep request rates respectful, and use proxies/CAPTCHA services at your own discretion. All traffic
+originates from *your* network; queries are only visible to the engines you query.
+
+---
+
+<a id="community--support"></a>
 ## Community & Support
+
+<p>
+  <a href="https://github.com/DevAnimecx/jiro/discussions"><img src="https://cdn.simpleicons.org/github/EAC54F" width="20" alt="GitHub Discussions"></a>
+  <a href="https://www.producthunt.com/search?q=jiro%20search"><img src="https://cdn.simpleicons.org/producthunt/FB6831" width="20" alt="Product Hunt"></a>
+  <a href="https://www.reddit.com/search/?q=jiro%20search"><img src="https://cdn.simpleicons.org/reddit/FF4500" width="20" alt="Reddit"></a>
+  <a href="https://dev.to/devanimecx"><img src="https://cdn.simpleicons.org/devdotto/0A0A0A" width="20" alt="dev.to"></a>
+  <a href="https://www.instagram.com/explore/tags/jirosearch/"><img src="https://cdn.simpleicons.org/instagram/E4405F" width="20" alt="Instagram"></a>
+  <a href="https://www.threads.net/"><img src="https://cdn.simpleicons.org/threads/000000" width="20" alt="Threads"></a>
+  <a href="https://x.com/DevAnimecx"><img src="https://cdn.simpleicons.org/x/000000" width="20" alt="X.com"></a>
+</p>
 
 - 💬 [GitHub Discussions](https://github.com/DevAnimecx/jiro/discussions) — questions & ideas
 - 🐛 [Issues](https://github.com/DevAnimecx/jiro/issues) — bugs & feature requests
 - 📜 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 - 🐦 Follow the launch: [@DevAnimecx](https://github.com/DevAnimecx)
+
+---
+
+<a id="brand-assets"></a>
+## Brand Assets
+
+- **Logo (hero):** served via the hunter.io logo API (Clearbit-backed) from
+  `https://logo.clearbit.com/jiro.dev`. If you own a different domain, update that URL,
+  or drop your **transparent logo** at `assets/logo.png` and change the hero `src` to
+  `assets/logo.png`.
+- **Social strip:** community logos use [Simple Icons](https://simpleicons.org) CDN
+  (`cdn.simpleicons.org`) for GitHub, Product Hunt, Reddit, dev.to, Instagram, Threads and X.
+- **Badges:** [shields.io](https://shields.io) for PyPI version, Python versions, license, tests and Docker.
 
 ---
 
