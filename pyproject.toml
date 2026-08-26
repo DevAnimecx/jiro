@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jiro-search"
-version = "0.1.0"
+name = "jirosearch"
+version = "0.1.1"
 description = "Local-first, AI-native web search & scraping API. A drop-in, self-hosted SerpAPI alternative with MCP server, agentic research, and built-in legal compliance."
 readme = "README.md"
 requires-python = ">=3.11"
