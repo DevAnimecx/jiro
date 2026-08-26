@@ -47,6 +47,18 @@ All notable changes to Jiro Search are documented here. This project adheres to
 
 ---
 
+## [0.1.2] — 2026-08-26 (packaging: PyPI release)
+
+### Changed
+- Distribution name is now **`jirosearch`** (`pip install jirosearch`); the import
+  name remains `jiro`.
+- `jiro.__version__` now reads the installed distribution version via
+  `importlib.metadata` (falls back to the literal when not installed), so
+  `jiro --version` reports the published release.
+- README install instructions and PyPI badge updated to `jirosearch`.
+
+---
+
 ## [0.1.1] — 2026-08-26 (security & reliability hardening)
 
 ### Added

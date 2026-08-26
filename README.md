@@ -4,7 +4,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/DevAnimecx/jiro?style=social)](https://github.com/DevAnimecx/jiro/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/DevAnimecx/jiro?style=social)](https://github.com/DevAnimecx/jiro/network/members)
-[![PyPI version](https://img.shields.io/pypi/v/jiro-search?color=blue)](https://pypi.org/project/jiro-search/)
+[![PyPI version](https://img.shields.io/pypi/v/jirosearch?color=blue)](https://pypi.org/project/jirosearch/)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2FDevAnimecx%2Fjiro-blue)](https://github.com/DevAnimecx/jiro/pkgs/container/jiro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-380%20passing-brightgreen)](https://github.com/DevAnimecx/jiro/actions)
@@ -32,7 +32,7 @@
 ## One-Command Start
 
 ```bash
-pip install jiro-search          # or: uv tool install jiro-search
+pip install jirosearch          # or: uv tool install jirosearch
 
 jiro serve                       # API on http://localhost:8000  (docs: /docs)
 ```
