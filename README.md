@@ -8,7 +8,7 @@ Free open-source SerpAPI alternative with a built-in MCP server, agentic researc
 
 <p align="center">
   <a href="https://github.com/DevAnimecx/jiro">
-    <img src="https://github.com/DevAnimecx/jiro/blob/main/assests/Jiro%20Seach.png?raw=true" alt="Jiro Search" width="240"
+    <img src="https://github.com/DevAnimecx/jiro/blob/main/assests/logo.png?raw=true alt="Jiro Search" width="240"
          onerror="this.src='https://github.com/DevAnimecx.png?size=240';this.alt='Jiro';" />
   </a>
 </p>
