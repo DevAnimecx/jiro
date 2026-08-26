@@ -9,7 +9,9 @@ key is configured: queries become heuristics, synthesis becomes extractive.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 from jiro.ai.llm import LLM, count_tokens
@@ -32,13 +34,35 @@ class Agent:
         self.max_steps = int(cfg.get("max_steps", 5))
         self.max_sources = int(cfg.get("max_sources", 8))
         self.max_snippets = int(cfg.get("max_snippets_per_source", 3))
+        self.deadline_seconds = float(cfg.get("deadline_seconds", 0) or 0)
+        self.content_budget = int(cfg.get("content_budget_chars", 200000) or 200000)
+
+    async def _llm_complete(self, messages: List[Dict[str, Any]],
+                            *, system: Optional[str] = None) -> str:
+        """LLM completion guarded by a per-call timeout."""
+        timeout = max(10.0, self.settings.timeout * 2)
+        try:
+            return await asyncio.wait_for(
+                self.llm.complete(messages, system=system), timeout=timeout
+            )
+        except asyncio.TimeoutError as exc:
+            raise LLMError("LLM call timed out", details={"timeout": timeout}) from exc
+
+    @staticmethod
+    def _deadline_exceeded(deadline_at: Optional[float]) -> bool:
+        return bool(deadline_at) and time.monotonic() >= deadline_at
 
     async def research(self, query: str, *, max_sources: Optional[int] = None,
-                       provider: Optional[str] = None,
-                       model: Optional[str] = None) -> Dict[str, Any]:
+                        provider: Optional[str] = None,
+                        model: Optional[str] = None,
+                        deadline: Optional[float] = None) -> Dict[str, Any]:
         max_sources = min(max_sources or self.max_sources, 20)
+        deadline = deadline or self.deadline_seconds or None
+        deadline_at = (time.monotonic() + deadline) if deadline else None
+        content_left = self.content_budget
         steps: List[Dict[str, Any]] = []
         used_llm = False
+        deadline_exceeded = False
 
         # 1–2. Understand + generate search queries
         plan = await self._plan_queries(query, provider=provider, model=model,
@@ -51,6 +75,10 @@ class Agent:
         search_results: List[Dict[str, Any]] = []
         seen_links: Dict[str, Dict[str, Any]] = {}
         for q in query_list[: self.max_steps]:
+            if self._deadline_exceeded(deadline_at):
+                deadline_exceeded = True
+                steps.append({"step": "stop", "reason": "deadline_exceeded"})
+                break
             try:
                 resp = await self.orchestrator.search(
                     SearchRequest(q=q, num=min(10, max_sources), engine="auto")
@@ -79,9 +107,15 @@ class Agent:
         for src in candidates:
             if len(sources) >= max_sources:
                 break
+            if self._deadline_exceeded(deadline_at):
+                deadline_exceeded = True
+                steps.append({"step": "stop", "reason": "deadline_exceeded"})
+                break
             try:
                 page = await self.scraper(src["url"])
                 content = (page.get("content") or "")[:3000]
+                content = content[: max(0, content_left)]
+                content_left -= len(content)
                 if not content.strip():
                     raise ValueError("empty content")
                 steps.append({"step": "scrape", "url": src["url"], "status": "success"})
@@ -126,6 +160,7 @@ class Agent:
             "reasoning_steps": steps,
             "provider": provider_used,
             "model": model_used,
+            "deadline_exceeded": deadline_exceeded,
         }
 
     # ------------------------------------------------------------------ plan
@@ -141,7 +176,7 @@ class Agent:
                     f"Output only the queries, one per line, no numbering.\n\n"
                     f"Question: {query}"
                 )
-                text = await self.llm.complete(
+                text = await self._llm_complete(
                     [{"role": "user", "content": prompt}]
                 )
                 queries = [ln.strip(" -•0123456789.)\t") for ln in text.splitlines()
@@ -199,7 +234,7 @@ class Agent:
                 user = (f"Question: {query}\n\n"
                         f"Sources:\n{context}\n\n"
                         f"Answer with citations [n].")
-                answer = await self.llm.complete(
+                answer = await self._llm_complete(
                     [{"role": "user", "content": user}], system=system
                 )
                 used_llm_flag[0] = True
@@ -223,20 +258,29 @@ class Agent:
     async def run_agent(self, goal: str, *, max_steps: int = 5,
                         max_sources: int = 8, max_sources_per_step: int = 3,
                         refine: bool = True, provider: Optional[str] = None,
-                        model: Optional[str] = None) -> Dict[str, Any]:
+                        model: Optional[str] = None,
+                        deadline: Optional[float] = None) -> Dict[str, Any]:
         """Autonomous multi-step research (PRD Phase 3 /ai/agent)."""
         max_steps = min(max_steps, 20)
+        deadline = deadline or self.deadline_seconds or None
+        deadline_at = (time.monotonic() + deadline) if deadline else None
+        content_left = self.content_budget
         steps: List[Dict[str, Any]] = []
         sources: List[Dict[str, Any]] = []
         search_results: List[Dict[str, Any]] = []
         findings: List[str] = []
         current_query = goal
         used_llm = False
+        deadline_exceeded = False
 
         steps.append({"step": "plan", "goal": goal,
                       "max_steps": max_steps, "refine": refine})
 
         for step_num in range(1, max_steps + 1):
+            if self._deadline_exceeded(deadline_at):
+                deadline_exceeded = True
+                steps.append({"step": "stop", "reason": "deadline_exceeded"})
+                break
             # --- search
             try:
                 resp = await self.orchestrator.search(
@@ -264,6 +308,8 @@ class Agent:
                 try:
                     page = await self.scraper(cand["url"])
                     content = (page.get("content") or "")[:2500]
+                    content = content[: max(0, content_left)]
+                    content_left -= len(content)
                     if not content.strip():
                         raise ValueError("empty content")
                     steps.append({"step": "scrape", "iteration": step_num,
@@ -337,6 +383,7 @@ class Agent:
             "reasoning_steps": steps,
             "provider": provider_used,
             "model": model_used,
+            "deadline_exceeded": deadline_exceeded,
         }
 
     async def _decide_next(self, goal: str, current_query: str,
@@ -351,8 +398,8 @@ class Agent:
                       "web search query and nothing else.")
             user = (f"Goal: {goal}\nCurrent query: {current_query}\nStep {step_num} "
                     f"of {max_steps}\n\nGathered so far:\n{context[:3000]}")
-            text = await self.llm.complete([{"role": "user", "content": user}],
-                                           system=system)
+            text = await self._llm_complete([{"role": "user", "content": user}],
+                                            system=system)
             text = text.strip().upper()
             if text.startswith("CONCLUDE"):
                 return {"conclude": True, "reason": "llm: sufficient information"}
@@ -393,10 +440,14 @@ class Agent:
 
     # -------------------------------------------------------------- streaming
     async def research_stream(self, query: str, *, max_sources: Optional[int] = None,
-                              provider: Optional[str] = None,
-                              model: Optional[str] = None):
+                               provider: Optional[str] = None,
+                               model: Optional[str] = None,
+                               deadline: Optional[float] = None):
         """Yield SSE-friendly event dicts while running /ai/search."""
         max_sources = min(max_sources or self.max_sources, 20)
+        deadline = deadline or self.deadline_seconds or None
+        deadline_at = (time.monotonic() + deadline) if deadline else None
+        content_left = self.content_budget
         plan = await self._plan_queries(query, provider=provider, model=model,
                                         used_llm_flag=[False])
         query_list = plan["queries"]
@@ -405,6 +456,9 @@ class Agent:
         seen_links: Dict[str, Dict[str, Any]] = {}
         sources: List[Dict[str, Any]] = []
         for q in query_list[: self.max_steps]:
+            if self._deadline_exceeded(deadline_at):
+                yield {"type": "stop", "reason": "deadline_exceeded"}
+                break
             try:
                 resp = await self.orchestrator.search(
                     SearchRequest(q=q, num=min(10, max_sources), engine="auto")
@@ -425,9 +479,14 @@ class Agent:
         for src in list(seen_links.values())[: max_sources * 2]:
             if len(sources) >= max_sources:
                 break
+            if self._deadline_exceeded(deadline_at):
+                yield {"type": "stop", "reason": "deadline_exceeded"}
+                break
             try:
                 page = await self.scraper(src["url"])
                 content = (page.get("content") or "")[:3000]
+                content = content[: max(0, content_left)]
+                content_left -= len(content)
                 if not content.strip():
                     raise ValueError("empty content")
                 sources.append({

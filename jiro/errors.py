@@ -90,7 +90,19 @@ class ForbiddenError(JiroError):
     status_code = 403
 
 
-PermissionError = ForbiddenError
+# NOTE: do NOT shadow the builtin `PermissionError`. Use this explicit name.
+JiroPermissionError = ForbiddenError
+
+
+class SSRFError(JiroError, ValueError):
+    """Server-Side Request Forgery attempt blocked (private/metadata IP).
+
+    Subclasses :class:`ValueError` so callers that guard against a broad
+    ``ValueError`` (e.g. URL parsing) also catch it.
+    """
+
+    code = "ssrf_blocked"
+    status_code = 400
 
 
 class RateLimitError(JiroError):

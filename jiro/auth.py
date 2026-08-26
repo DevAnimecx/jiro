@@ -17,7 +17,12 @@ from typing import Any, Dict, List, Optional
 import jwt
 
 from jiro.config import Settings
-from jiro.errors import AuthError, PermissionError, RateLimitError
+from jiro.errors import (
+    AuthError,
+    ConfigError,
+    JiroPermissionError,
+    RateLimitError,
+)
 from jiro.db import Database
 
 KEY_PREFIX = "jsk_"
@@ -45,6 +50,42 @@ class AuthManager:
         self.settings = settings
         self.db = db
         self._windows: Dict[str, List[float]] = {}
+        # Redis-backed rate limiting (used when cache.type == "redis").
+        self._redis = None
+        self._redis_url = (
+            settings.get("cache.url", "redis://localhost:6379/0")
+            if settings.cache_type == "redis" else None
+        )
+        # JWT algorithm: HS256 (shared secret) or RS256 (asymmetric keys).
+        self.jwt_algorithm = settings.get("auth.jwt_algorithm", "HS256") or "HS256"
+
+    # ------------------------------------------------------ startup validation
+    def validate_security_config(self) -> None:
+        """Refuse to start with an insecure auth/JWT configuration.
+
+        Raises ``ConfigError`` when auth is enabled but the JWT secret is
+        missing or too short (HS256), or when RS256 is selected without keys.
+        """
+        if not self.settings.auth_enabled:
+            return
+        if self.jwt_algorithm == "HS256":
+            secret = self.settings.jwt_secret
+            if not secret:
+                raise ConfigError(
+                    "auth.jwt_secret is empty but auth is enabled",
+                    details={"hint": "set auth.jwt_secret to >=32 random bytes"},
+                )
+            if len(secret) < 32:
+                raise ConfigError(
+                    "auth.jwt_secret is shorter than 32 bytes",
+                    details={"hint": "use e.g. `openssl rand -hex 32`"},
+                )
+        elif self.jwt_algorithm == "RS256":
+            if not self.settings.get("auth.jwt_private_key"):
+                raise ConfigError(
+                    "auth.jwt_algorithm is RS256 but auth.jwt_private_key is missing")
+        else:
+            raise ConfigError(f"unsupported auth.jwt_algorithm: {self.jwt_algorithm}")
 
     # ------------------------------------------------------------------ keys
     async def create_key(self, name: str, role: str = "user",
@@ -79,27 +120,24 @@ class AuthManager:
         if record.get("role") == "admin":
             return
         if scope == "admin":
-            raise PermissionError(
+            raise JiroPermissionError(
                 "admin scope requires an admin role",
                 details={"required": scope, "role": record.get("role")},
             )
         scopes: List[str] = record.get("scopes") or []
         if scope not in scopes:
-            raise PermissionError(
+            raise JiroPermissionError(
                 f"API key lacks scope '{scope}'",
                 details={"required": scope, "scopes": scopes},
             )
 
     def require_admin(self, record: Dict[str, Any]) -> None:
         if record.get("role") != "admin":
-            raise PermissionError("admin role required")
+            raise JiroPermissionError("admin role required")
 
     # ------------------------------------------------------------------- jwt
     async def issue_token(self, api_key: str) -> Dict[str, Any]:
         record = await self.authenticate(api_key)
-        secret = self.settings.jwt_secret
-        if not secret:
-            raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
         ttl = self.settings.jwt_ttl_minutes * 60
         now = int(time.time())
         payload = {
@@ -109,16 +147,32 @@ class AuthManager:
             "exp": now + ttl,
             "jti": uuid.uuid4().hex,
         }
-        token = jwt.encode(payload, secret, algorithm="HS256")
+        if self.jwt_algorithm == "RS256":
+            key = self.settings.get("auth.jwt_private_key")
+            if not key:
+                raise AuthError("JWT RS256 private key not configured")
+            payload["kid"] = self.settings.get("auth.jwt_key_id", "jiro-default")
+            token = jwt.encode(payload, key, algorithm="RS256")
+        else:
+            secret = self.settings.jwt_secret
+            if not secret:
+                raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
+            token = jwt.encode(payload, secret, algorithm="HS256")
         return {"access_token": token, "token_type": "bearer",
                 "expires_in": ttl, "scope": record["role"]}
 
     def decode_token(self, token: str) -> Dict[str, Any]:
-        secret = self.settings.jwt_secret
-        if not secret:
-            raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
+        if self.jwt_algorithm == "RS256":
+            key = self.settings.get("auth.jwt_public_key")
+            if not key:
+                raise AuthError("JWT RS256 public key not configured")
+            verify_key = key
+        else:
+            verify_key = self.settings.jwt_secret
+            if not verify_key:
+                raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
         try:
-            return jwt.decode(token, secret, algorithms=["HS256"])
+            return jwt.decode(token, verify_key, algorithms=[self.jwt_algorithm])
         except jwt.ExpiredSignatureError as exc:
             raise AuthError("token expired") from exc
         except jwt.InvalidTokenError as exc:
@@ -126,7 +180,11 @@ class AuthManager:
 
     # ----------------------------------------------------------- rate limiting
     def check_rate_limit(self, bucket: str, rpm: Optional[int] = None) -> None:
-        """Sliding-window rate limit. bucket is e.g. 'key:abc123' or 'ip:1.2.3.4'."""
+        """In-memory sliding-window rate limit (single-worker / fallback).
+
+        For multi-worker deployments use :meth:`check_rate_limit_async`, which
+        stores the sliding window in Redis when ``cache.type == redis``.
+        """
         limit = rpm if rpm is not None else self.settings.rate_limit_rpm
         if limit <= 0:
             return
@@ -139,6 +197,54 @@ class AuthManager:
                 details={"bucket": bucket, "limit": limit},
             )
         window.append(now)
+
+    async def check_rate_limit_async(self, bucket: str,
+                                     rpm: Optional[int] = None) -> None:
+        """Rate limit that uses Redis when configured (correct across workers)."""
+        limit = rpm if rpm is not None else self.settings.rate_limit_rpm
+        if limit <= 0:
+            return
+        if self._redis_url:
+            await self._redis_sliding_window(bucket, limit)
+            return
+        self.check_rate_limit(bucket, rpm)
+
+    async def _redis_sliding_window(self, bucket: str, limit: int) -> None:
+        client = await self._get_redis()
+        if client is None:  # redis unreachable → fail open to in-memory
+            self.check_rate_limit(bucket, limit)
+            return
+        key = f"jiro:ratelimit:{bucket}"
+        now = time.time()
+        try:
+            async with client.pipeline() as pipe:
+                pipe.zremrangebyscore(key, 0, now - 60)
+                pipe.zcard(key)
+                pipe.zadd(key, {str(now): now})
+                pipe.expire(key, 65)
+                results = await pipe.execute()
+            count = results[1]
+            if count >= limit:
+                raise RateLimitError(
+                    f"rate limit exceeded: {limit} requests per minute",
+                    details={"bucket": bucket, "limit": limit},
+                )
+        except RateLimitError:
+            raise
+        except Exception:
+            # Never block traffic because of a cache hiccup.
+            self.check_rate_limit(bucket, limit)
+
+    async def _get_redis(self):
+        if self._redis is not None:
+            return self._redis
+        try:
+            import redis.asyncio as aioredis
+            self._redis = aioredis.from_url(self._redis_url, decode_responses=False)
+            return self._redis
+        except Exception:
+            self._redis = None
+            return None
 
     def reset_rate_limits(self) -> None:
         self._windows.clear()

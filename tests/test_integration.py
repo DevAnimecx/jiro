@@ -52,7 +52,7 @@ class TestContainers:
             .with_env("JIRO_SCRAPING__DEFAULT_ENGINE", "duckduckgo") \
             .with_env("JIRO_SCRAPING__ENGINES", '["duckduckgo", "bing"]') \
             .with_exposed_ports(8000) \
-            .with_command("pip install jiro-search && jiro serve --host 0.0.0.0")
+            .with_command("pip install jiro-search && jiro serve --host 0.0.0.0 --insecure")
         container.start()
         yield container
         container.stop()

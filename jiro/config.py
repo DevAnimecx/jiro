@@ -30,6 +30,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "host": "127.0.0.1",
         "port": 8000,
         "workers": 1,
+        "insecure": False,        # allow binding to 0.0.0.0 with auth disabled (DANGER)
         "cors": {
             "enabled": False,
             "origins": ["*"],
@@ -106,6 +107,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "jwt_secret": "",
         "jwt_ttl_minutes": 720,
         "rate_limit_rpm": 60,
+        "jwt_algorithm": "HS256",   # HS256 (shared secret) or RS256 (asymmetric keys)
+        "jwt_key_id": "jiro-default",
+        "jwt_private_key": "",
+        "jwt_public_key": "",
     },
     "agent": {
         "max_steps": 5,
@@ -113,6 +118,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "llm_provider": "",
         "llm_model": "",
         "max_snippets_per_source": 3,
+        "deadline_seconds": 0,      # 0 = no hard deadline; recommended 60-120 for /ai/agent
+        "content_budget_chars": 200000,  # cap on accumulated scraped content per run
     },
     "logging": {"level": "info", "file": ""},
     "privacy": {"log_queries": False, "log_payloads": False},
@@ -189,6 +196,10 @@ class Settings:
     @property
     def workers(self) -> int:
         return int(self.raw["server"].get("workers", 1))
+
+    @property
+    def server_insecure(self) -> bool:
+        return bool(self.raw["server"].get("insecure", False))
 
     @property
     def cors(self) -> Dict[str, Any]:
@@ -298,10 +309,26 @@ class Settings:
     def rate_limit_rpm(self) -> int:
         return int(self.raw["auth"].get("rate_limit_rpm", 60))
 
+    @property
+    def jwt_algorithm(self) -> str:
+        return str(self.raw["auth"].get("jwt_algorithm", "HS256"))
+
+    @property
+    def jwt_key_id(self) -> str:
+        return str(self.raw["auth"].get("jwt_key_id", "jiro-default"))
+
     # -- agent ---------------------------------------------------------------
     @property
     def agent(self) -> Dict[str, Any]:
         return self.raw.get("agent", {})
+
+    @property
+    def agent_deadline_seconds(self) -> float:
+        return float(self.agent.get("deadline_seconds", 0) or 0)
+
+    @property
+    def agent_content_budget_chars(self) -> int:
+        return int(self.agent.get("content_budget_chars", 200000) or 200000)
 
     @property
     def logging(self) -> Dict[str, Any]:

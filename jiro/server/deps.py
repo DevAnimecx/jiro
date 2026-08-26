@@ -60,8 +60,8 @@ async def get_auth_context(
     if not settings.auth_enabled:
         return AuthContext(bucket=f"ip:{request.client.host if request.client else 'anon'}")
     ctx = await build_auth_context(request, auth, require=True)
-    # rate limit after identity resolution
-    auth.check_rate_limit(ctx.bucket)
+    # rate limit after identity resolution (Redis-backed across workers)
+    await auth.check_rate_limit_async(ctx.bucket)
     return ctx
 
 

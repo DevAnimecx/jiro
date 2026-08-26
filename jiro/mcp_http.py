@@ -236,7 +236,7 @@ async def _authenticate(request: Request, mcp_server: JiroMCPServer,
     if ctx.record is not None:
         # per-key rate limit (sliding window, shared with REST API)
         try:
-            auth_manager.check_rate_limit(ctx.bucket)
+            await auth_manager.check_rate_limit_async(ctx.bucket)
         except RateLimitError:
             raise
     return ctx if ctx.record is not None else None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Dict, List
 
@@ -92,19 +93,24 @@ async def scrape_batch(
     if len(items) > 50:
         return {"error": "batch limited to 50 URLs", "results": []}
     started = time.perf_counter()
-    results = []
-    for item in items:
-        try:
-            payload = await scrape_url(item.url, client, fmt=item.format,
-                                       include_metadata=True)
-            if item.extract_schema:
-                payload["extracted"] = await _extract_with_schema(
-                    llm, item.url, payload, item.extract_schema
-                )
-            payload["time_taken"] = round(time.perf_counter() - started, 3)
-            results.append(payload)
-        except Exception as exc:
-            results.append({"url": item.url, "error": str(exc)})
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def _scrape_one(item: "BatchScrapeItem") -> Dict[str, Any]:
+        async with semaphore:
+            try:
+                payload = await scrape_url(item.url, client, fmt=item.format,
+                                           include_metadata=True)
+                if item.extract_schema:
+                    payload["extracted"] = await _extract_with_schema(
+                        llm, item.url, payload, item.extract_schema
+                    )
+                payload["time_taken"] = round(time.perf_counter() - started, 3)
+                return payload
+            except Exception as exc:
+                return {"url": item.url, "error": str(exc)}
+
+    results = await asyncio.gather(*[_scrape_one(item) for item in items])
     await record_usage(request, endpoint="/scrape/batch", status=200,
                        latency_ms=(time.perf_counter() - started) * 1000)
     return {"count": len(results), "results": results}

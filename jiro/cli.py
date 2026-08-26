@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 import warnings
@@ -63,12 +64,19 @@ def serve(
     port: int = typer.Option(None, help="Bind port (default: from config)"),
     workers: int = typer.Option(None, help="Number of workers"),
     reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes"),
+    insecure: bool = typer.Option(
+        False, "--insecure",
+        help="Allow binding to 0.0.0.0 with auth DISABLED (dangerous; only for sandboxes)",
+    ),
     config: str = typer.Option(None, "--config", "-c", help="Path to config.yaml"),
 ) -> None:
     settings = Settings.load(config)
     _host = host or settings.host
     _port = port or settings.port
     _workers = workers or settings.workers
+    if insecure:
+        # Propagate to the app via env so create_app() sees server.insecure.
+        os.environ["JIRO_SERVER__INSECURE"] = "true"
     console.print(f"[bold green]jiro[/] v{__version__} serving on "
                   f"http://{_host}:{_port}  (docs: /docs)")
     uvicorn.run(
@@ -78,6 +86,7 @@ def serve(
         port=_port,
         workers=1 if reload else _workers,
         reload=reload,
+        timeout_graceful_shutdown=30,
         log_level=settings.logging.get("level", "info"),
     )
 

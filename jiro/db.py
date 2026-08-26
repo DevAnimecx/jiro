@@ -10,6 +10,7 @@ Tables:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -125,53 +126,133 @@ CREATE INDEX IF NOT EXISTS idx_tos_user_engine ON tos_acknowledgments(user_id, e
 
 
 class Database:
-    """Small async wrapper around aiosqlite."""
+    """Async SQLite wrapper with a small connection pool.
 
-    def __init__(self, path: str) -> None:
+    SQLite allows many concurrent *readers* but only one *writer* at a time.
+    We keep a pool of connections (so reads can run concurrently) and serialize
+    writes through a single async lock. For horizontally-scaled (multi-replica)
+    deployments use PostgreSQL — see the roadmap — and run the Helm chart with a
+    single replica when using the built-in SQLite backend.
+    """
+
+    # Schema migrations are applied in order, once each, tracked by `schema_version`.
+    MIGRATIONS: List[str] = [
+        # Future ALTER TABLE statements go here, e.g.:
+        # "ALTER TABLE api_keys ADD COLUMN notes TEXT NOT NULL DEFAULT '';",
+    ]
+
+    def __init__(self, path: str, *, pool_size: int = 4) -> None:
         self.path = path
-        self._conn: Optional[aiosqlite.Connection] = None
+        # `:memory:` databases are per-connection; force a single shared
+        # connection so writes are visible to subsequent reads.
+        self._is_memory = path == ":memory:"
+        self._pool_size = 1 if self._is_memory else max(1, pool_size)
+        self._pool: List[aiosqlite.Connection] = []
+        self._available: Optional["asyncio.Queue[aiosqlite.Connection]"] = None
+        self._writer_lock = asyncio.Lock()
+        self._connected = False
 
     async def connect(self) -> None:
-        if self._conn is not None:
+        if self._connected:
             return
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        if not self._is_memory:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._available = asyncio.Queue()
         try:
-            self._conn = await aiosqlite.connect(self.path)
-            self._conn.row_factory = aiosqlite.Row
-            await self._conn.execute("PRAGMA journal_mode=WAL")
-            await self._conn.execute("PRAGMA synchronous=NORMAL")
-            await self._conn.execute("PRAGMA foreign_keys=ON")
-            await self._conn.executescript(SCHEMA)
-            await self._conn.commit()
+            for _ in range(self._pool_size):
+                conn = await aiosqlite.connect(self.path)
+                conn.row_factory = aiosqlite.Row
+                if not self._is_memory:
+                    await conn.execute("PRAGMA journal_mode=WAL")
+                    await conn.execute("PRAGMA synchronous=NORMAL")
+                await conn.execute("PRAGMA foreign_keys=ON")
+                self._pool.append(conn)
+                await self._available.put(conn)
+            self._connected = True
+            # Apply schema + migrations on a single connection.
+            primary = await self._acquire()
+            try:
+                await primary.executescript(SCHEMA)
+                await self._apply_migrations(primary)
+                await primary.commit()
+            finally:
+                await self._release(primary)
         except Exception as exc:  # pragma: no cover - defensive
+            self._connected = False
             raise CacheError(f"failed to open database {self.path}: {exc}")
 
+    async def _apply_migrations(self, conn: "aiosqlite.Connection") -> None:
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version "
+            "(version INTEGER PRIMARY KEY, applied_at REAL NOT NULL)"
+        )
+        row = await (await conn.execute("SELECT MAX(version) AS v FROM schema_version")).fetchone()
+        current = int(row["v"]) if row and row["v"] is not None else 0
+        for idx, sql in enumerate(self.MIGRATIONS, start=1):
+            if idx <= current:
+                continue
+            await conn.executescript(sql)
+            await conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (idx, time.time()),
+            )
+
     async def close(self) -> None:
-        if self._conn is not None:
-            await self._conn.close()
-            self._conn = None
+        if self._available is None:
+            self._pool.clear()
+            self._connected = False
+            return
+        while not self._available.empty():
+            try:
+                conn = self._available.get_nowait()
+            except Exception:
+                break
+            try:
+                await conn.close()
+            except Exception:
+                pass
+        self._pool.clear()
+        self._connected = False
+
+    async def _acquire(self) -> "aiosqlite.Connection":
+        if not self._connected:
+            raise CacheError("database not connected")
+        return await self._available.get()
+
+    async def _release(self, conn: "aiosqlite.Connection") -> None:
+        await self._available.put(conn)
 
     async def execute(self, sql: str, params: tuple = ()) -> None:
-        await self._require()
-        async with self._conn.execute(sql, params):  # type: ignore[union-attr]
-            await self._conn.commit()  # type: ignore[union-attr]
+        async with self._writer_lock:
+            conn = await self._acquire()
+            try:
+                async with conn.execute(sql, params):
+                    await conn.commit()
+            finally:
+                await self._release(conn)
 
     async def fetchone(self, sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
-        await self._require()
-        cur = await self._conn.execute(sql, params)  # type: ignore[union-attr]
-        row = await cur.fetchone()
-        await cur.close()
-        return dict(row) if row else None
+        conn = await self._acquire()
+        try:
+            cur = await conn.execute(sql, params)
+            row = await cur.fetchone()
+            await cur.close()
+            return dict(row) if row else None
+        finally:
+            await self._release(conn)
 
     async def fetchall(self, sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
-        await self._require()
-        cur = await self._conn.execute(sql, params)  # type: ignore[union-attr]
-        rows = await cur.fetchall()
-        await cur.close()
-        return [dict(r) for r in rows]
+        conn = await self._acquire()
+        try:
+            cur = await conn.execute(sql, params)
+            rows = await cur.fetchall()
+            await cur.close()
+            return [dict(r) for r in rows]
+        finally:
+            await self._release(conn)
 
     async def _require(self) -> None:
-        if self._conn is None:
+        if not self._connected:
             raise CacheError("database not connected")
 
     # ------------------------------------------------------------------ cache

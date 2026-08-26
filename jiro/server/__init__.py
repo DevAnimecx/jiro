@@ -38,6 +38,24 @@ def create_app(settings: Optional[Settings] = None,
                   file=settings.logging.get("file", ""))
     log.info("jiro starting", extra={"version": __version__})
 
+    # --- startup security guard -------------------------------------------
+    # Refuse to expose an *unauthenticated* API on a non-loopback interface.
+    host = settings.host
+    is_loopback = host in ("localhost", "127.0.0.1", "::1") or host.startswith("127.")
+    if not settings.auth_enabled and not settings.server_insecure:
+        if not is_loopback:
+            raise RuntimeError(
+                "Refusing to start: authentication is disabled (auth.enabled: false) "
+                f"but the server is bound to a non-loopback host ({host}). Either "
+                "enable auth, bind to 127.0.0.1, or pass `jiro serve --insecure` in a "
+                "trusted sandbox."
+            )
+        log.warning(
+            "authentication is DISABLED — the API is open to anyone who can reach "
+            f"{host}:{settings.port}. Enable auth (auth.enabled: true) before sharing "
+            "this instance. See https://github.com/DevAnimecx/jiro#security."
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # -- resources ------------------------------------------------------
@@ -58,6 +76,11 @@ def create_app(settings: Optional[Settings] = None,
         )
         scraper_client = ScrapingClient(settings)
         auth = AuthManager(settings, db)
+        try:
+            auth.validate_security_config()
+        except Exception as exc:  # ConfigError → hard fail before serving
+            log.error("security configuration invalid", extra={"error": str(exc)})
+            raise
         from jiro.semantic import SemanticCache
 
         semantic = SemanticCache(settings, db, cache=cache)
@@ -98,6 +121,14 @@ def create_app(settings: Optional[Settings] = None,
             "engines": settings.engines, "cache": settings.cache_type,
             "auth_enabled": settings.auth_enabled,
         })
+
+        # --- datacenter scraping caveat ------------------------------------
+        if settings.default_engine == "google" and not settings.proxy.get("enabled"):
+            log.warning(
+                "default engine is 'google' but no proxy is configured; from datacenter "
+                "IPs Google serves CAPTCHAs and Jiro will fall back to other engines. "
+                "Add a BYOK residential proxy (scraping.proxy) for reliable Google access."
+            )
         try:
             yield
         finally:
@@ -172,16 +203,24 @@ def _add_middleware(app: FastAPI, settings: Settings) -> None:
             response = JSONResponse(status_code=500, content={
                 "error": "internal server error", "error_code": "internal_error",
             })
-        latency = (time.perf_counter() - started) * 1000
+        latency = (time.perf_counter() - started)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Jiro-Version"] = __version__
-        log.info("request", extra={
+        auth_ctx = getattr(request.state, "auth", None)
+        log_extra = {
             "request_id": request_id,
             "method": request.method,
             "path": request.url.path,
             "status": response.status_code,
             "latency_ms": round(latency, 1),
-        })
+        }
+        if auth_ctx is not None and getattr(auth_ctx, "is_authenticated", False):
+            log_extra["key_id"] = auth_ctx.key_id
+            log_extra["role"] = auth_ctx.role
+        eng = request.query_params.get("engine")
+        if eng:
+            log_extra["engine"] = eng
+        log.info("request", extra=log_extra)
         return response
 
 

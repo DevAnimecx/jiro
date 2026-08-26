@@ -47,6 +47,40 @@ All notable changes to Jiro Search are documented here. This project adheres to
 
 ---
 
+## [0.1.1] — 2026-08-26 (security & reliability hardening)
+
+### Added
+- **SSRF protection** (`jiro/security.py`): blocks loopback, RFC1918 private,
+  link-local (incl. cloud metadata `169.254.169.254`), ULA and IPv6 link-local
+  scrape targets; refuses to scrape the server's own host; DNS-resolution
+  failures fail **open** so air-gapped/offline use still works.
+- `SSRFError` raised (HTTP 400) when a user-controlled scrape target is blocked.
+- **Startup security guard** (`jiro/server`): refuses to bind a non-loopback host
+  with auth disabled unless `--insecure`; warns when auth is disabled on loopback.
+- **JWT RS256 + `kid`** support and `validate_security_config()` startup check
+  that refuses to start when auth is enabled with a missing/short (`<32` char)
+  `jwt_secret`.
+- **Redis-backed rate limiting** (`check_rate_limit_async`) with in-memory
+  fallback; wired into REST and MCP HTTP transports.
+- **SQLite connection pool** (concurrent reads, serialized writes) + automatic
+  `schema_version` migrations.
+- **Agent hardening**: `deadline_seconds`, `content_budget_chars` truncation and
+  LLM-call timeouts via `asyncio.wait_for`.
+- **robots.txt enforcement** for scrape targets (best-effort, fail-open).
+- **`/health/engines`** status endpoint; concurrent batch scrape with a
+  `Semaphore(10)`; enriched structured request logging (`key_id`/`engine`).
+- `--insecure` flag on `jiro serve`; graceful-shutdown timeout on uvicorn runs.
+- Regression tests for the SSRF validator (`tests/test_security.py`).
+
+### Changed
+- `PermissionError` builtin shadow renamed to `JiroPermissionError`.
+- Cookie jar logs warnings instead of silently swallowing.
+
+### Tests
+- 390 passing, 10 skipped, 8 network-deselected (0 failures).
+
+---
+
 ## [Unreleased]
 
 - Jiro Cloud (managed SaaS) — roadmap.

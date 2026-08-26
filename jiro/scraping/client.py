@@ -45,7 +45,18 @@ except ImportError:
     _HTTP2_AVAILABLE = False
 
 from jiro.config import Settings
-from jiro.errors import EngineBlockedError, EngineError, EngineTimeoutError
+from jiro.errors import (
+    EngineBlockedError,
+    EngineError,
+    EngineTimeoutError,
+    ScrapeError,
+    SSRFError,
+)
+from jiro.security import async_validate_target_url
+from jiro.log import get_logger as _get_logger
+
+_ssrf_log = _get_logger("jiro.security")
+_cookies_log = _get_logger("jiro.cookies")
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
@@ -311,16 +322,18 @@ class EngineCookieJar:
             try:
                 loaded = await self._db.cookie_load_all()
                 self._cookies.update(loaded)
-            except Exception:
-                pass
+            except Exception as exc:  # signal but never crash the client
+                _cookies_log.warning("cookie load failed",
+                                     extra={"engine": "*", "error": str(exc)})
 
     async def save(self, engine: str) -> None:
         """Persist current engine cookies to SQLite."""
         if self._db is not None and engine in self._cookies:
             try:
                 await self._db.cookie_save(engine, self._cookies[engine])
-            except Exception:
-                pass
+            except Exception as exc:  # signal but never crash the client
+                _cookies_log.warning("cookie save failed",
+                                     extra={"engine": engine, "error": str(exc)})
 
     def update(self, engine: str, set_cookie_headers: List[str]) -> None:
         """Parse Set-Cookie headers and store cookies per engine."""
@@ -360,6 +373,19 @@ class ScrapingClient:
         self._client = None  # httpx fallback
         self._db = db  # for proxy cost tracking
         self._proxy_costs: Dict[str, List[float]] = {}  # per-proxy latencies
+        # SSRF guard: refuse to scrape the server's own host.
+        host = settings.host
+        own_hosts = []
+        if host and host not in ("0.0.0.0", "::", "*"):
+            own_hosts.append(host)
+        own_hosts.append("localhost")
+        self._own_hosts = own_hosts
+        # robots.txt enforcement for user-supplied scrape targets.
+        robots_cfg = settings.robots_txt
+        self._respect_robots = bool(robots_cfg.get("enabled", True))
+        self._robots_strict = bool(robots_cfg.get("strict_mode", False))
+        self._robots_cache: Dict[str, tuple] = {}
+        self._robots_cache_ttl = float(robots_cfg.get("cache_ttl_seconds", 3600))
 
     def _next_proxy(self) -> Optional[str]:
         return self.proxies.next()
@@ -433,6 +459,15 @@ class ScrapingClient:
                   extra_headers: Optional[Dict[str, str]] = None,
                   raw: bool = False) -> Tuple[str, Any]:
         """GET with retries + backoff + proxy rotation + block detection."""
+        # SSRF + robots defenses apply only to user-controlled scrape targets.
+        if engine == "scrape":
+            try:
+                await async_validate_target_url(url, own_hosts=self._own_hosts)
+            except ValueError as exc:
+                raise SSRFError(str(exc), details={"url": url})
+            if self._respect_robots:
+                await self._enforce_robots(url)
+
         if self.breaker.is_open(engine):
             raise EngineBlockedError(
                 f"engine '{engine}' circuit open (recent failures); cooling down",
@@ -491,6 +526,57 @@ class ScrapingClient:
         assert last_error is not None
         self.breaker.record_failure(engine)
         raise last_error
+
+    async def _enforce_robots(self, url: str) -> None:
+        """Best-effort robots.txt gate for user-supplied scrape targets.
+
+        Fails *open* on network/parse errors (logs a warning) so legitimate
+        scraping still works offline; only an explicit ``Disallow`` blocks the
+        request, and only hard-blocks when ``strict_mode`` is enabled.
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        host = parsed.netloc or parsed.hostname or ""
+        if not host:
+            return
+        scheme = parsed.scheme or "https"
+        now = time.time()
+        if host in self._robots_cache:
+            allowed, expires = self._robots_cache[host]
+            if expires > now:
+                if not allowed and self._robots_strict:
+                    raise ScrapeError(
+                        f"robots.txt disallows scraping {host}",
+                        status_code=403, details={"host": host},
+                    )
+                return
+        try:
+            robots_url = f"{scheme}://{host}/robots.txt"
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=5.0, follow_redirects=True,
+                                          trust_env=False) as c:
+                resp = await c.get(robots_url)
+            text = resp.text if resp.status_code == 200 else ""
+        except Exception as exc:
+            _ssrf_log.warning("robots.txt fetch failed; allowing",
+                              extra={"host": host, "error": str(exc)})
+            self._robots_cache[host] = (True, now + self._robots_cache_ttl)
+            return
+
+        allowed = _robots_path_allowed(
+            _robots_rules_for(text, self.settings.robots_txt.get("user_agent", "")),
+            parsed.path or "/",
+        )
+        self._robots_cache[host] = (allowed, now + self._robots_cache_ttl)
+        if not allowed:
+            _ssrf_log.info("robots.txt disallows path",
+                           extra={"host": host, "path": parsed.path or "/"})
+            if self._robots_strict:
+                raise ScrapeError(
+                    f"robots.txt disallows scraping {host}",
+                    status_code=403, details={"host": host},
+                )
 
     async def _do_request(self, url: str, *, params: Optional[Dict[str, Any]],
                           engine: str, extra_headers: Optional[Dict[str, str]],
@@ -624,6 +710,62 @@ class _CurlResponseAdapter:
 
 def parse_html(html: str) -> HTMLParser:
     return HTMLParser(html)
+
+
+def _robots_rules_for(robots_text: str, user_agent: str) -> List[Tuple[str, str]]:
+    """Parse robots.txt and return allow/disallow rules for the given UA.
+
+    Only the most recently activated matching group is used (robots.txt
+    semantics: a specific UA group overrides the ``*`` group).
+    """
+    ua = (user_agent or "").lower()
+    rules: List[Tuple[str, str]] = []
+    active = False
+    saw_matching = False
+    for raw_line in robots_text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        field, _, value = line.partition(":")
+        field = field.strip().lower()
+        value = value.strip()
+        if field == "user-agent":
+            low_ua = value.lower()
+            matches = (low_ua == "*" or low_ua in ua or ua in low_ua)
+            if matches and not saw_matching:
+                active, rules, saw_matching = True, [], True
+            elif matches and saw_matching:
+                active, rules = True, []
+            else:
+                active = False
+        elif active and field in ("disallow", "allow"):
+            rules.append(("allow" if field == "allow" else "disallow", value))
+    return rules
+
+
+def _robots_path_allowed(rules: List[Tuple[str, str]], path: str) -> bool:
+    """Apply collected allow/disallow rules to a concrete path."""
+    allowed = True
+    for kind, pattern in rules:
+        if not pattern:
+            continue
+        if _robots_match(pattern, path):
+            allowed = (kind == "allow")
+    return allowed
+
+
+def _robots_match(pattern: str, path: str) -> bool:
+    """Wildcard-ish robots pattern match (``*`` = any sequence)."""
+    if pattern == "":
+        return True
+    if pattern.startswith("/"):
+        pat = pattern
+    else:
+        pat = "/" + pattern
+    # Build a regex: escape, then turn \* into .*
+    import re as _re
+    rx = _re.escape(pat).replace(r"\*", ".*")
+    return _re.match(rx, path) is not None
 
 
 def normalize_url(raw: str) -> str:

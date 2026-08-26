@@ -6,7 +6,7 @@ import pytest
 
 from jiro.auth import AuthManager, generate_api_key, hash_key, key_prefix_of
 from jiro.db import Database
-from jiro.errors import AuthError, PermissionError, RateLimitError
+from jiro.errors import AuthError, JiroPermissionError, RateLimitError
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_key_lifecycle(settings):
         assert record["id"] == created["id"]
         assert record["role"] == "user"
         await auth.authorize(record, scope="search")  # allowed
-        with pytest.raises(PermissionError):
+        with pytest.raises(JiroPermissionError):
             await auth.authorize(record, scope="admin")
         # revoke
         await db.key_revoke(created["id"])

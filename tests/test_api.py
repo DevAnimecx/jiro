@@ -121,6 +121,7 @@ def test_auth_disabled_by_default_allows_access(client):
 
 def test_auth_enabled_requires_key(settings):
     settings.raw["auth"]["enabled"] = True
+    settings.raw["auth"]["jwt_secret"] = "test-secret-this-is-long-enough-32b"
     with TestClient(create_app(settings)) as client:
         r = client.get("/search.json", params={"q": "x", "engine": "google"})
         assert r.status_code == 401

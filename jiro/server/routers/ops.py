@@ -11,10 +11,67 @@ from fastapi import APIRouter, Depends, Request
 
 from jiro.auth import AuthContext
 from jiro.captcha import CaptchaSolver
-from jiro.errors import PermissionError
+from jiro.errors import JiroPermissionError
 from jiro.server.deps import get_auth_context, record_usage
 
 router = APIRouter(tags=["ops"])
+
+# Base URL used to probe reachability of each search engine.
+ENGINE_BASE_URLS = {
+    "google": "https://www.google.com",
+    "bing": "https://www.bing.com",
+    "duckduckgo": "https://duckduckgo.com",
+    "brave": "https://search.brave.com",
+    "youtube": "https://www.youtube.com",
+    "amazon": "https://www.amazon.com",
+    "ebay": "https://www.ebay.com",
+    "yandex": "https://yandex.com",
+    "baidu": "https://www.baidu.com",
+}
+
+
+@router.get("/health/engines", summary="Probe reachability of configured engines")
+async def engine_health(request: Request) -> Dict[str, Any]:
+    """Lightweight reachability probe for each configured engine.
+
+    Useful to detect that, e.g., Google is serving CAPTCHAs from a datacenter
+    IP before relying on it in production. Performs a single GET per engine
+    with a short timeout; failures are reported, never raised.
+    """
+    settings = request.app.state.settings
+    engines = settings.engines or list(ENGINE_BASE_URLS)
+    results = []
+    for engine in engines:
+        url = ENGINE_BASE_URLS.get(engine)
+        if not url:
+            results.append({"engine": engine, "reachable": None,
+                            "note": "no probe URL known"})
+            continue
+        start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0),
+                                         follow_redirects=True,
+                                         trust_env=False) as c:
+                resp = await c.get(url)
+            latency_ms = round((time.perf_counter() - start) * 1000, 1)
+            results.append({
+                "engine": engine,
+                "reachable": 200 <= resp.status_code < 400,
+                "status_code": resp.status_code,
+                "latency_ms": latency_ms,
+            })
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - start) * 1000, 1)
+            results.append({
+                "engine": engine,
+                "reachable": False,
+                "error": str(exc)[:200],
+                "latency_ms": latency_ms,
+            })
+    reachable = sum(1 for r in results if r.get("reachable"))
+    await record_usage(request, endpoint="/health/engines", status=200)
+    return {"total": len(results), "reachable": reachable,
+            "engines": results}
 
 
 async def admin_or_open(request: Request,
@@ -22,9 +79,9 @@ async def admin_or_open(request: Request,
     """Require admin only when auth is enabled; open otherwise (local use)."""
     request.state.auth = ctx
     if request.app.state.settings.auth_enabled and ctx.record is None:
-        raise PermissionError("admin role required")
+        raise JiroPermissionError("admin role required")
     if request.app.state.settings.auth_enabled and ctx.role != "admin":
-        raise PermissionError("admin role required")
+        raise JiroPermissionError("admin role required")
     return ctx
 
 
