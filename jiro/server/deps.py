@@ -41,7 +41,42 @@ def get_auth_manager(request: Request) -> AuthManager:
 
 
 def get_llm(request: Request) -> Any:
-    return request.app.state.llm
+    """Return LLM instance, with per-request overrides from headers if present.
+
+    jiro-cloud passes LLM config via X-LLM-* headers so the admin panel
+    can manage API keys centrally without touching jiro-search config.
+    """
+    base_llm = request.app.state.llm
+    headers = request.headers
+
+    api_key = headers.get("x-llm-api-key")
+    provider = headers.get("x-llm-provider")
+    model = headers.get("x-llm-model")
+    base_url = headers.get("x-llm-base-url")
+
+    if not any([api_key, provider, model, base_url]):
+        return base_llm
+
+    from jiro.ai.llm import LLM
+
+    settings = request.app.state.settings
+    overridden_config = dict(settings.llm)
+    if api_key:
+        overridden_config["api_key"] = api_key
+    if provider:
+        overridden_config["provider"] = provider
+    if model:
+        overridden_config["model"] = model
+    if base_url:
+        overridden_config["base_url"] = base_url
+
+    class _OverrideSettings:
+        def __init__(self, llm_cfg: dict):
+            self.llm = llm_cfg
+            self.scraping = settings.scraping
+            self.cache = settings.cache
+
+    return LLM(_OverrideSettings(overridden_config))
 
 
 def get_agent(request: Request) -> Any:
