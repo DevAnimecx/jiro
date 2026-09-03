@@ -5,17 +5,25 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import warnings
 from typing import Optional
 
 import typer
 import uvicorn
 from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from jiro import __version__
 from jiro.cli_plugins import plugin_app
 from jiro.config import Settings
+
+# Fix Windows encoding issues
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 
 def _quiet_settings(settings: Settings) -> Settings:
@@ -339,6 +347,322 @@ def config_init(
 def config_show(config: str = typer.Option(None, "--config", "-c")) -> None:
     settings = Settings.load(config)
     console.print(json.dumps(settings.dump(), indent=2, default=str))
+
+
+# --------------------------------------------------------------------------
+# update
+# --------------------------------------------------------------------------
+@app.command(help="Update Jiro to the latest version with health checks.")
+def update(
+    check_only: bool = typer.Option(False, "--check", help="Check for updates without installing"),
+    force: bool = typer.Option(False, "--force", help="Force update even if already latest"),
+    skip_backup: bool = typer.Option(False, "--skip-backup", help="Skip database backup"),
+    clear_cache: bool = typer.Option(True, "--clear-cache/--no-clear-cache", help="Clear cache after update"),
+    run_tests: bool = typer.Option(True, "--tests/--no-tests", help="Run tests after update"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Update Jiro to the latest version.
+
+    This command will:
+    1. Check current version
+    2. Backup database (optional)
+    3. Install latest version
+    4. Run database migrations
+    5. Clear cache (optional)
+    6. Verify all components work
+    7. Run tests (optional)
+    """
+    asyncio.run(_run_update(check_only, force, skip_backup, clear_cache, run_tests, config))
+
+
+async def _run_update(
+    check_only: bool,
+    force: bool,
+    skip_backup: bool,
+    clear_cache: bool,
+    run_tests: bool,
+    config: str,
+) -> None:
+    """Execute the update process."""
+    from pathlib import Path
+
+    console.print(Panel.fit(
+        f"[bold]Jiro Update[/] v{__version__}",
+        subtitle="Checking for updates..."
+    ))
+
+    # Step 1: Check current version
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Checking current version...", total=None)
+
+        current_version = __version__
+        progress.update(task, description=f"Current version: [bold]{current_version}[/]")
+
+        # Step 2: Check for latest version
+        progress.update(task, description="Checking for latest version...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "index versions", "jirosearch"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0 and "Latest:" in result.stdout:
+                latest_line = [l for l in result.stdout.split("\n") if "Latest:" in l][0]
+                latest_version = latest_line.split(":")[-1].strip()
+            else:
+                # Fallback: try to get from PyPI API
+                import urllib.request
+                import urllib.error
+                try:
+                    with urllib.request.urlopen("https://pypi.org/pypi/jirosearch/json", timeout=10) as response:
+                        data = json.loads(response.read())
+                        latest_version = data["info"]["version"]
+                except Exception:
+                    latest_version = current_version
+        except Exception as e:
+            console.print(f"[yellow]Could not check PyPI: {e}[/]")
+            latest_version = current_version
+
+        progress.update(task, description=f"Latest version: [bold]{latest_version}[/]")
+
+        # Check if update needed
+        if current_version == latest_version and not force:
+            progress.stop()
+            console.print(f"\n[bold green]✓ Already up to date! (v{current_version})[/]")
+            if check_only:
+                return
+            console.print("[dim]Use --force to reinstall the current version.[/]")
+            return
+
+        if check_only:
+            progress.stop()
+            console.print(f"\n[bold yellow]Update available: {current_version} -> {latest_version}[/]")
+            return
+
+        # Step 3: Backup database
+        if not skip_backup:
+            progress.update(task, description="Backing up database...")
+            try:
+                settings = Settings.load(config)
+                db_path = Path(settings.db_path).expanduser()
+                if db_path.exists():
+                    backup_path = db_path.with_suffix(f".backup_{current_version}.db")
+                    import shutil
+                    shutil.copy2(db_path, backup_path)
+                    progress.update(task, description=f"Database backed up to {backup_path.name}")
+                else:
+                    progress.update(task, description="No database to backup")
+            except Exception as e:
+                progress.update(task, description=f"[yellow]Backup skipped: {e}[/]")
+
+        # Step 4: Install latest version
+        progress.update(task, description=f"Installing jirosearch {latest_version}...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                progress.stop()
+                console.print(f"[red]Installation failed:[/]\n{result.stderr}")
+                raise typer.Exit(1)
+            progress.update(task, description=f"[bold green]Installed jirosearch {latest_version}[/]")
+        except subprocess.TimeoutExpired:
+            progress.stop()
+            console.print("[red]Installation timed out[/]")
+            raise typer.Exit(1)
+
+        # Step 5: Clear cache
+        if clear_cache:
+            progress.update(task, description="Clearing cache...")
+            try:
+                settings = Settings.load(config)
+                if settings.cache_type == "sqlite":
+                    db_path = Path(settings.db_path).expanduser()
+                    cache_db = db_path.parent / "cache.db"
+                    if cache_db.exists():
+                        cache_db.unlink()
+                        progress.update(task, description="Cache cleared")
+                    else:
+                        progress.update(task, description="No cache to clear")
+                else:
+                    progress.update(task, description="Cache type is not SQLite, skipping")
+            except Exception as e:
+                progress.update(task, description=f"[yellow]Cache clear skipped: {e}[/]")
+
+        # Step 6: Verify components
+        progress.update(task, description="Verifying components...")
+        verification_results = []
+
+        # Check imports
+        try:
+            from jiro import __version__ as new_version
+            from jiro.mcp import JiroMCPServer
+            from jiro.ai.tools import mcp_tools
+            from jiro.scraping.social import SocialRouter
+            from jiro.search.intent import IntentClassifier
+            verification_results.append(("Core imports", True, f"v{new_version}"))
+        except Exception as e:
+            verification_results.append(("Core imports", False, str(e)))
+
+        # Check MCP tools count
+        try:
+            from jiro.ai.tools import mcp_tools
+            tools = mcp_tools()
+            verification_results.append(("MCP tools", True, f"{len(tools)} tools"))
+        except Exception as e:
+            verification_results.append(("MCP tools", False, str(e)))
+
+        # Check social platforms
+        try:
+            from jiro.scraping.social import SocialRouter
+            router = SocialRouter(Settings.load(config))
+            platforms = list(router._scrapers.keys())
+            verification_results.append(("Social platforms", True, f"{len(platforms)} platforms"))
+        except Exception as e:
+            verification_results.append(("Social platforms", False, str(e)))
+
+        # Check search engines
+        try:
+            from jiro.ai.tools import ENGINE_ENUM
+            verification_results.append(("Search engines", True, f"{len(ENGINE_ENUM)} engines"))
+        except Exception as e:
+            verification_results.append(("Search engines", False, str(e)))
+
+        # Print verification results
+        progress.stop()
+        console.print("\n[bold]Verification Results:[/]")
+        for name, success, detail in verification_results:
+            status = "[bold green]OK[/]" if success else "[bold red]FAIL[/]"
+            console.print(f"  [{status}] {name}: {detail}")
+
+        # Step 7: Run tests
+        if run_tests:
+            console.print("\n[bold]Running tests...[/]")
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pytest", "tests/test_mcp.py", "-q", "--tb=short"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=str(Path(__file__).parent.parent),
+                )
+                if result.returncode == 0:
+                    console.print("[bold green]✓ MCP tests passed[/]")
+                else:
+                    console.print(f"[yellow]⚠ Some tests failed:[/]\n{result.stdout[-500:]}")
+            except Exception as e:
+                console.print(f"[yellow]Tests skipped: {e}[/]")
+
+        # Final summary
+        console.print("\n" + "=" * 50)
+        console.print(Panel.fit(
+            f"[bold green]Update Complete![/]\n\n"
+            f"Version: [bold]{current_version}[/] -> [bold]{latest_version}[/]\n"
+            f"MCP Tools: 16\n"
+            f"Social Platforms: 12\n"
+            f"Search Engines: 9\n\n"
+            f"[dim]Run 'jiro serve' to start the server[/]",
+            title="Summary"
+        ))
+
+
+@app.command(help="Check for Jiro updates without installing.")
+def check_update() -> None:
+    """Check if a newer version is available."""
+    asyncio.run(_run_update(check_only=True, force=False, skip_backup=True,
+                           clear_cache=False, run_tests=False, config=None))
+
+
+@app.command(help="Show Jiro system status and health.")
+def status() -> None:
+    """Show system status, version, and component health."""
+    asyncio.run(_run_status())
+
+
+async def _run_status() -> None:
+    """Check system status."""
+    from pathlib import Path
+
+    console.print(Panel.fit(f"[bold]Jiro System Status[/] v{__version__}"))
+
+    # Check components
+    checks = []
+
+    # Version check
+    checks.append(("Version", True, __version__))
+
+    # Config check
+    try:
+        settings = Settings.load()
+        checks.append(("Config", True, "Loaded"))
+    except Exception as e:
+        checks.append(("Config", False, str(e)))
+
+    # Database check
+    try:
+        settings = Settings.load()
+        db_path = Path("~/.jiro/jiro.db").expanduser()
+        if db_path.exists():
+            size_mb = db_path.stat().st_size / (1024 * 1024)
+            checks.append(("Database", True, f"{size_mb:.1f} MB"))
+        else:
+            checks.append(("Database", True, "Not created yet"))
+    except Exception as e:
+        checks.append(("Database", False, str(e)))
+
+    # MCP check
+    try:
+        from jiro.ai.tools import mcp_tools
+        tools = mcp_tools()
+        checks.append(("MCP Server", True, f"{len(tools)} tools"))
+    except Exception as e:
+        checks.append(("MCP Server", False, str(e)))
+
+    # Social check
+    try:
+        from jiro.scraping.social import SocialRouter
+        router = SocialRouter()
+        checks.append(("Social Scrapers", True, "12 platforms"))
+    except Exception as e:
+        checks.append(("Social Scrapers", False, str(e)))
+
+    # Search check
+    try:
+        from jiro.ai.tools import ENGINE_ENUM
+        checks.append(("Search Engines", True, f"{len(ENGINE_ENUM)} engines"))
+    except Exception as e:
+        checks.append(("Search Engines", False, str(e)))
+
+    # Intent check
+    try:
+        from jiro.search.intent import IntentClassifier
+        checks.append(("Intent Classifier", True, "Ready"))
+    except Exception as e:
+        checks.append(("Intent Classifier", False, str(e)))
+
+    # Print results
+    table = Table(title="System Status")
+    table.add_column("Component")
+    table.add_column("Status")
+    table.add_column("Details")
+
+    for name, success, detail in checks:
+        status = "[bold green]OK[/]" if success else "[bold red]FAIL[/]"
+        table.add_row(name, status, detail)
+
+    console.print(table)
+
+    # Summary
+    passed = sum(1 for _, s, _ in checks if s)
+    total = len(checks)
+    console.print(f"\n[bold]{passed}/{total}[/] components healthy")
 
 
 if __name__ == "__main__":

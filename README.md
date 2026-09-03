@@ -45,12 +45,29 @@
 ### Installation
 
 ```bash
-# Clone the repository
+# Install from PyPI
+pip install jirosearch
+
+# Or clone and install from source
 git clone https://github.com/DevAnimecx/jiro.git
 cd jiro-search
-
-# Install dependencies
 pip install -e .
+```
+
+### Update
+
+```bash
+# Check for updates
+jiro check-update
+
+# Update to latest version with health checks
+jiro update
+
+# Update without running tests
+jiro update --no-tests
+
+# Force reinstall current version
+jiro update --force
 ```
 
 ### Run Server

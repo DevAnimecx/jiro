@@ -43,7 +43,13 @@ async def test_tools_list(settings):
     server = JiroMCPServer(settings)
     resp = await server.dispatch({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = [t["name"] for t in resp["result"]["tools"]]
-    assert names == ["search", "scrape", "ai_search"]
+    expected = [
+        "search", "scrape", "ai_search", "search_hybrid", "search_structured",
+        "social_scrape", "social_search", "social_batch", "smart_search", "smart_classify",
+        "compare_engines", "monitor_status", "health_check", "cache_stats", "list_engines",
+        "list_social_platforms"
+    ]
+    assert names == expected
 
 
 @pytest.mark.asyncio
@@ -55,7 +61,9 @@ async def test_tools_list_schemas(settings):
         assert "description" in tool
         assert "inputSchema" in tool
         assert tool["inputSchema"]["type"] == "object"
-        assert "required" in tool["inputSchema"]
+        # Most tools have required fields, but some like list_engines don't
+        # Just verify inputSchema is a valid object
+        assert isinstance(tool["inputSchema"], dict)
 
 
 @pytest.mark.asyncio

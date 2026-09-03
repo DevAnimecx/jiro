@@ -246,7 +246,13 @@ class TestStreamableHTTPTransport:
         resp = http_client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = [t["name"] for t in resp.json()["result"]["tools"]]
-        assert names == ["search", "scrape", "ai_search"]
+        expected = [
+            "search", "scrape", "ai_search", "search_hybrid", "search_structured",
+            "social_scrape", "social_search", "social_batch", "smart_search", "smart_classify",
+            "compare_engines", "monitor_status", "health_check", "cache_stats", "list_engines",
+            "list_social_platforms"
+        ]
+        assert names == expected
 
     def test_unknown_session_404(self, http_client):
         resp = http_client.post(

@@ -180,6 +180,20 @@ def mcp_tools() -> List[Dict[str, Any]]:
         {"name": "monitor_status",
          "description": "Get server status, engine health, and performance metrics.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "health_check",
+         "description": "Quick health check for all services and dependencies.",
+         "inputSchema": {"type": "object", "properties": {
+             "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 5},
+         }}},
+        {"name": "cache_stats",
+         "description": "Get cache hit/miss statistics and configuration.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "list_engines",
+         "description": "List all available search engines with their supported types and capabilities.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "list_social_platforms",
+         "description": "List all supported social media platforms with their capabilities.",
+         "inputSchema": {"type": "object", "properties": {}}},
     ]
 
 

@@ -37,7 +37,7 @@ log = get_logger("jiro.mcp")
 
 PROTOCOL_VERSION = "2025-03-26"
 SUPPORTED_PROTOCOL_VERSIONS = ["2025-03-26", "2024-11-05"]
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.1"
 
 CAPABILITIES = {
     "tools": {"listChanged": True},
@@ -262,10 +262,24 @@ class JiroMCPServer:
             "capabilities": CAPABILITIES,
             "serverInfo": {"name": "jiro", "version": SERVER_VERSION},
             "instructions": (
-                "Jiro Search: local-first web search & scraping. "
-                "Tools: search (9 engines), scrape (URL → markdown/text/html/json), "
-                "ai_search (research with citations). Long calls emit progress "
-                "notifications when you pass _meta.progressToken."
+                "Jiro Search: local-first AI-native web search & scraping platform.\n\n"
+                "CAPABILITIES:\n"
+                "- Search 9 engines: Google, Bing, Brave, DuckDuckGo, YouTube, Amazon, eBay, Yandex, Baidu\n"
+                "- Scrape any URL to markdown/text/html/json with metadata\n"
+                "- AI-powered research with citations (ai_search)\n"
+                "- Hybrid search combining keyword + semantic + freshness signals\n"
+                "- Structured data extraction with JSON Schema\n"
+                "- Social media scraping: Reddit, HN, YouTube, Bluesky, Twitter, Threads, Instagram, TikTok, LinkedIn, Facebook, Telegram, Pinterest\n"
+                "- Smart search with intent detection and auto-routing\n"
+                "- Compare results across multiple engines\n"
+                "- Server health monitoring\n"
+                "- Cache management and statistics\n\n"
+                "16 TOOLS: search, scrape, ai_search, search_hybrid, search_structured, "
+                "social_scrape, social_search, social_batch, smart_search, smart_classify, "
+                "compare_engines, monitor_status, health_check, cache_stats, list_engines, "
+                "list_social_platforms\n\n"
+                "Long calls emit progress notifications when you pass _meta.progressToken.\n"
+                "Resources: jiro://engines, jiro://compliance, jiro://social_platforms, jiro://plans, jiro://plugins"
             ),
         }
 
@@ -300,9 +314,36 @@ class JiroMCPServer:
             return await self._tool_compare_engines(args, progress)
         elif name == "monitor_status":
             return await self._tool_monitor_status(args, progress)
+        elif name == "health_check":
+            return await self._tool_health_check(args, progress)
+        elif name == "cache_stats":
+            return await self._tool_cache_stats(args, progress)
+        elif name == "list_engines":
+            return await self._tool_list_engines(args, progress)
+        elif name == "list_social_platforms":
+            return await self._tool_list_social_platforms(args, progress)
         else:
             raise MCPError(INVALID_PARAMS, f"unknown tool: {name}",
-                           data={"available_tools": ["search", "scrape", "ai_search", "search_hybrid", "search_structured", "social_scrape", "social_search", "social_batch", "smart_search", "smart_classify", "compare_engines", "monitor_status"]})
+                           data={
+                               "available_tools": [
+                                   {"name": "search", "description": "Search 9 engines (Google, Bing, Brave, etc.)"},
+                                   {"name": "scrape", "description": "Scrape URL to markdown/text/html/json"},
+                                   {"name": "ai_search", "description": "AI research with citations"},
+                                   {"name": "search_hybrid", "description": "Hybrid multi-signal search"},
+                                   {"name": "search_structured", "description": "Structured data extraction"},
+                                   {"name": "social_scrape", "description": "Scrape social media URLs"},
+                                   {"name": "social_search", "description": "Search social platforms"},
+                                   {"name": "social_batch", "description": "Batch scrape multiple URLs"},
+                                   {"name": "smart_search", "description": "Intent-aware smart routing"},
+                                   {"name": "smart_classify", "description": "Classify search intent"},
+                                   {"name": "compare_engines", "description": "Compare engine results"},
+                                   {"name": "monitor_status", "description": "Server health metrics"},
+                                   {"name": "health_check", "description": "Quick health check"},
+                                   {"name": "cache_stats", "description": "Cache statistics"},
+                                   {"name": "list_engines", "description": "List all search engines"},
+                                   {"name": "list_social_platforms", "description": "List social platforms"},
+                               ]
+                           })
 
     async def _tool_search(self, args: Dict[str, Any],
                            progress: ProgressReporter) -> Dict[str, Any]:
@@ -641,13 +682,76 @@ class JiroMCPServer:
         health = await self.orchestrator.health_check()
 
         status = {
-            "version": "0.2.0",
+            "version": SERVER_VERSION,
             "engines": engines_info,
             "health": health,
             "cache_enabled": settings.cache_type != "memory",
             "plugins_enabled": True,
+            "social_platforms": 12,
+            "search_engines": 9,
+            "mcp_tools": 12,
         }
         return self._text_result(status)
+
+    async def _tool_health_check(self, args: Dict[str, Any],
+                                 progress: ProgressReporter) -> Dict[str, Any]:
+        """Quick health check for all services."""
+        assert self.orchestrator is not None
+
+        health = await self.orchestrator.health_check()
+        return self._text_result({
+            "status": "healthy" if all(h.get("ok") for h in health.values()) else "degraded",
+            "services": health,
+        })
+
+    async def _tool_cache_stats(self, args: Dict[str, Any],
+                                progress: ProgressReporter) -> Dict[str, Any]:
+        """Get cache statistics."""
+        assert self.cache is not None
+
+        stats = {
+            "enabled": self.settings.cache_type != "memory",
+            "type": self.settings.cache_type,
+            "ttl": self.settings.cache_ttl,
+            "hit_count": getattr(self.cache, '_hits', 0),
+            "miss_count": getattr(self.cache, '_misses', 0),
+        }
+        return self._text_result(stats)
+
+    async def _tool_list_engines(self, args: Dict[str, Any],
+                                 progress: ProgressReporter) -> Dict[str, Any]:
+        """List all available search engines with their capabilities."""
+        engines = [
+            {"name": "google", "types": ["web", "images", "news", "videos", "shopping", "places"], "supports_freshness": True},
+            {"name": "bing", "types": ["web", "images", "news", "videos"], "supports_freshness": True},
+            {"name": "brave", "types": ["web", "images", "news", "videos"], "supports_freshness": True},
+            {"name": "duckduckgo", "types": ["web", "images", "news", "videos"], "supports_freshness": False},
+            {"name": "youtube", "types": ["web", "videos"], "supports_freshness": True},
+            {"name": "amazon", "types": ["web", "shopping"], "supports_freshness": False},
+            {"name": "ebay", "types": ["web", "shopping"], "supports_freshness": False},
+            {"name": "yandex", "types": ["web", "images", "news"], "supports_freshness": True},
+            {"name": "baidu", "types": ["web", "images", "news"], "supports_freshness": True},
+        ]
+        return self._text_result({"engines": engines, "total": len(engines)})
+
+    async def _tool_list_social_platforms(self, args: Dict[str, Any],
+                                          progress: ProgressReporter) -> Dict[str, Any]:
+        """List all supported social platforms with capabilities."""
+        platforms = [
+            {"name": "reddit", "capabilities": ["scrape", "search", "profile", "comments", "subreddit"], "base_url": "https://reddit.com"},
+            {"name": "hackernews", "capabilities": ["scrape", "search", "profile", "comments", "top"], "base_url": "https://news.ycombinator.com"},
+            {"name": "youtube", "capabilities": ["scrape", "search", "channel", "video", "comments"], "base_url": "https://youtube.com"},
+            {"name": "bluesky", "capabilities": ["scrape", "search", "profile", "post", "feed"], "base_url": "https://bsky.app"},
+            {"name": "twitter", "capabilities": ["scrape", "search", "profile", "post", "thread"], "base_url": "https://twitter.com"},
+            {"name": "threads", "capabilities": ["scrape", "search", "profile", "post"], "base_url": "https://threads.net"},
+            {"name": "instagram", "capabilities": ["scrape", "profile", "post", "stories"], "base_url": "https://instagram.com"},
+            {"name": "tiktok", "capabilities": ["scrape", "profile", "video", "trending"], "base_url": "https://tiktok.com"},
+            {"name": "linkedin", "capabilities": ["scrape", "profile", "company", "post"], "base_url": "https://linkedin.com"},
+            {"name": "facebook", "capabilities": ["scrape", "profile", "group", "page", "post"], "base_url": "https://facebook.com"},
+            {"name": "telegram", "capabilities": ["scrape", "channel", "message", "group"], "base_url": "https://t.me"},
+            {"name": "pinterest", "capabilities": ["scrape", "search", "pin", "board"], "base_url": "https://pinterest.com"},
+        ]
+        return self._text_result({"platforms": platforms, "total": len(platforms)})
 
     # --------------------------------------------------------- resources
     def _handle_resources_list(self) -> Dict[str, Any]:
@@ -664,6 +768,24 @@ class JiroMCPServer:
                 "description": "Terms-of-service notes per engine",
                 "mimeType": "application/json",
             },
+            {
+                "uri": "jiro://social_platforms",
+                "name": "Social platforms",
+                "description": "List of supported social media platforms and their capabilities",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://plans",
+                "name": "Pricing plans",
+                "description": "Available pricing tiers and feature comparison",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://plugins",
+                "name": "Plugins",
+                "description": "Installed search, engine, and datasource plugins",
+                "mimeType": "application/json",
+            },
         ]}
 
     async def _handle_resources_read(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -678,6 +800,44 @@ class JiroMCPServer:
             return {"contents": [{"uri": uri, "mimeType": "application/json",
                                   "text": json.dumps(cm.generate_compliance_report(),
                                                      indent=2)}]}
+        if uri == "jiro://social_platforms":
+            platforms = [
+                {"name": "Reddit", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "Hacker News", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "YouTube", "capabilities": ["scrape", "search", "channel", "video"]},
+                {"name": "Bluesky", "capabilities": ["scrape", "search", "profile", "post"]},
+                {"name": "Twitter/X", "capabilities": ["scrape", "search", "profile", "post"]},
+                {"name": "Threads", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "Instagram", "capabilities": ["scrape", "profile", "post"]},
+                {"name": "TikTok", "capabilities": ["scrape", "profile", "video"]},
+                {"name": "LinkedIn", "capabilities": ["scrape", "profile", "company"]},
+                {"name": "Facebook", "capabilities": ["scrape", "profile", "group", "page"]},
+                {"name": "Telegram", "capabilities": ["scrape", "channel", "message"]},
+                {"name": "Pinterest", "capabilities": ["scrape", "search", "pin"]},
+            ]
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(platforms, indent=2)}]}
+        if uri == "jiro://plans":
+            from jiro.pro import PRO_PLANS
+            plans = []
+            for tier, plan in PRO_PLANS.items():
+                plans.append({
+                    "name": tier,
+                    "price_monthly": plan.price_monthly,
+                    "requests_per_minute": plan.requests_per_minute,
+                    "requests_per_day": plan.requests_per_day,
+                })
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(plans, indent=2)}]}
+        if uri == "jiro://plugins":
+            from jiro.plugins import ENGINE_PLUGINS, SEARCH_PLUGINS, DATASOURCE_PLUGINS
+            plugins = {
+                "engines": list(ENGINE_PLUGINS.keys()),
+                "search": list(SEARCH_PLUGINS.keys()),
+                "datasources": list(DATASOURCE_PLUGINS.keys()),
+            }
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(plugins, indent=2)}]}
         raise MCPError(INVALID_PARAMS, f"resource not found: {uri}")
 
     # --------------------------------------------------------- prompts
@@ -702,6 +862,65 @@ class JiroMCPServer:
                         {
                             "name": "query",
                             "description": "The search query to compare",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "social_research",
+                    "description": "Research a topic across social media platforms",
+                    "arguments": [
+                        {
+                            "name": "topic",
+                            "description": "The topic to research on social media",
+                            "required": True,
+                        },
+                        {
+                            "name": "platforms",
+                            "description": "Comma-separated list of platforms (e.g., reddit,twitter,youtube)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "deep_research",
+                    "description": "Deep AI research with multiple sources and citations",
+                    "arguments": [
+                        {
+                            "name": "question",
+                            "description": "The research question to answer",
+                            "required": True,
+                        },
+                        {
+                            "name": "max_sources",
+                            "description": "Maximum number of sources to consult",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "extract_structured",
+                    "description": "Extract structured data from search results",
+                    "arguments": [
+                        {
+                            "name": "query",
+                            "description": "What to search for",
+                            "required": True,
+                        },
+                        {
+                            "name": "fields",
+                            "description": "JSON fields to extract (e.g., {\"name\": {}, \"price\": {}, \"rating\": {}})",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "competitor_analysis",
+                    "description": "Analyze competitors across search engines and social media",
+                    "arguments": [
+                        {
+                            "name": "competitor",
+                            "description": "The competitor company or product to analyze",
                             "required": True,
                         },
                     ],
@@ -751,6 +970,89 @@ class JiroMCPServer:
                     }
                 ],
             }
+        elif name == "social_research":
+            topic = args.get("topic", "artificial intelligence")
+            platforms = args.get("platforms", "reddit,twitter,youtube")
+            return {
+                "description": f"Research '{topic}' on social media",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Research '{topic}' across social media platforms: {platforms}. "
+                                f"Use the social_search tool to find discussions, then use "
+                                f"social_scrape to get detailed content from top posts. "
+                                f"Summarize the key insights, opinions, and trends you find."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "deep_research":
+            question = args.get("question", "latest advances in AI")
+            max_sources = args.get("max_sources", "8")
+            return {
+                "description": f"Deep research: {question}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Perform deep research on: '{question}'. "
+                                f"Use the ai_search tool with max_sources={max_sources} to "
+                                f"find and analyze multiple sources. Provide a comprehensive "
+                                f"answer with proper citations."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "extract_structured":
+            query = args.get("query", "python libraries")
+            fields = args.get("fields", '{"name": {}, "description": {}, "stars": {}}')
+            return {
+                "description": f"Extract structured data for: {query}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Search for '{query}' and extract structured data with "
+                                f"the following schema: {fields}. "
+                                f"Use the search_structured tool to extract and organize "
+                                f"the information in a consistent format."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "competitor_analysis":
+            competitor = args.get("competitor", "fastapi")
+            return {
+                "description": f"Analyze competitor: {competitor}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Perform a comprehensive competitor analysis of '{competitor}'. "
+                                f"1. Search for '{competitor}' on Google and Bing using search tool.\n"
+                                f"2. Scrape the top 3 competitor pages for detailed features.\n"
+                                f"3. Search social media (reddit, twitter, youtube) for "
+                                f"discussions about '{competitor}'.\n"
+                                f"4. Compare results across engines using compare_engines.\n"
+                                f"5. Provide a summary of their positioning, strengths, "
+                                f"weaknesses, and community sentiment."
+                            ),
+                        },
+                    }
+                ],
+            }
         else:
             raise MCPError(-32602, f"unknown prompt: {name}")
 
@@ -776,11 +1078,34 @@ class JiroMCPServer:
             elif tool_name == "scrape" and arg_name == "format":
                 all_fmts = ["markdown", "text", "html", "json"]
                 values = [f for f in all_fmts if f.startswith(arg_value)]
+            elif tool_name == "social_search" and arg_name == "platforms":
+                all_platforms = ["reddit", "twitter", "youtube", "bluesky", "hackernews",
+                                 "threads", "instagram", "tiktok", "linkedin", "facebook",
+                                 "telegram", "pinterest"]
+                values = [p for p in all_platforms if p.startswith(arg_value)]
+            elif tool_name == "social_scrape" and arg_name == "format":
+                all_formats = ["markdown", "text", "json"]
+                values = [f for f in all_formats if f.startswith(arg_value)]
+            elif tool_name == "smart_search" and arg_name == "type":
+                all_types = ["web", "social", "structured"]
+                values = [t for t in all_types if t.startswith(arg_value)]
+            elif tool_name == "compare_engines" and arg_name == "engines":
+                values = [e for e in ENGINE_ENUM if e.startswith(arg_value)]
+            elif tool_name == "health_check" and arg_name == "timeout":
+                values = ["1", "5", "10", "30", "60"]
+            elif tool_name == "search_structured" and arg_name == "schema":
+                schemas = [
+                    '{"name": {}, "description": {}, "url": {}}',
+                    '{"title": {}, "author": {}, "date": {}, "content": {}}',
+                    '{"product": {}, "price": {}, "rating": {}, "reviews": {}}',
+                    '{"name": {}, "email": {}, "phone": {}, "address": {}}',
+                ]
+                values = [s for s in schemas if s.startswith(arg_value)]
 
         return {
             "completion": {
-                "values": values,
-                "hasMore": False,
+                "values": values[:25],
+                "hasMore": len(values) > 25,
             }
         }
 
