@@ -231,12 +231,14 @@ def _add_error_handlers(app: FastAPI) -> None:
 
 
 def _mount_routers(app: FastAPI) -> None:
-    from jiro.server.routers import admin, ai, analytics, compliance, jobs, ops, plugins, scrape, search, stream, system
+    from jiro.server.routers import admin, ai, analytics, compliance, jobs, ops, plugins, scrape, search, smart, social, stream, system
 
     app.include_router(system.router)
     app.include_router(search.router)
     app.include_router(scrape.router)
     app.include_router(ai.router)
+    app.include_router(smart.router)
+    app.include_router(social.router)
     app.include_router(stream.router)
     app.include_router(admin.router)
     app.include_router(jobs.router)

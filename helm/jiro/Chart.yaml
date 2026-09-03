@@ -1,0 +1,15 @@
+apiVersion: v2
+name: jiro
+description: Jiro Search Intelligence Platform
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+maintainers:
+  - name: Jiro Team
+    email: team@jiro.dev
+keywords:
+  - search
+  - scraping
+  - social-media
+  - intelligence
+  - api

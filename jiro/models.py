@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 # --------------------------------------------------------------------------
 class SearchRequest(BaseModel):
     q: str = Field(..., min_length=1, max_length=500, description="Search query")
-    engine: str = Field("google", description="google | bing | duckduckgo | brave | youtube | amazon | ebay | yandex | baidu")
+    engine: str = Field("google", description="google | bing | duckduckgo | brave | youtube | amazon | ebay | yandex | baidu | auto")
     type: str = Field("web", description="web | images | news | videos | shopping | places")
     location: str = Field("us", description="Country/region code")
     language: str = Field("en", description="Language code")
@@ -24,6 +24,30 @@ class SearchRequest(BaseModel):
     gl: str = Field("us", description="Google country parameter")
     hl: str = Field("en", description="Google language parameter")
     fresh: bool = Field(False, description="Force refresh (bypass cache)")
+    
+    # v0.2: Hybrid search parameters
+    mode: str = Field("auto", description="auto | keyword | hybrid")
+    depth: str = Field("basic", description="instant | fast | basic | advanced | deep")
+    
+    # v0.2: Domain filtering
+    include_domains: Optional[List[str]] = Field(None, description="Only include results from these domains")
+    exclude_domains: Optional[List[str]] = Field(None, description="Exclude results from these domains")
+    bias_domains: Optional[Dict[str, float]] = Field(None, description="Soft-rank boost for domains")
+    
+    # v0.2: Date range filtering (absolute)
+    start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
+    
+    # v0.2: Category-specific search
+    category: Optional[str] = Field(None, description="publication | financial_report | people | shopping | github | news | code | academic")
+    
+    # v0.2: Content highlights
+    highlights: bool = Field(False, description="Extract token-efficient highlights")
+    max_highlight_chars: int = Field(500, ge=100, le=2000, description="Max characters for highlights")
+    
+    # v0.2: Answer synthesis
+    include_answer: Optional[str] = Field(None, description="none | extractive | advanced")
+    output_schema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for structured output")
 
     @field_validator("num")
     @classmethod
@@ -34,6 +58,21 @@ class SearchRequest(BaseModel):
     @classmethod
     def engine_lower(cls, v: str) -> str:
         return v.strip().lower()
+
+    @field_validator("mode")
+    @classmethod
+    def mode_lower(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("depth")
+    @classmethod
+    def depth_lower(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("include_answer")
+    @classmethod
+    def answer_lower(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip().lower() if v else None
 
 
 class OrganicResult(BaseModel):
@@ -65,6 +104,10 @@ class OrganicResult(BaseModel):
     seller: Optional[str] = None
     shipping: Optional[str] = None
     prime: Optional[bool] = None
+    # v0.2: Relevance scoring
+    relevance: Optional[Dict[str, Any]] = Field(None, description="Relevance score with breakdown")
+    # v0.2: Content highlights
+    highlights: Optional[List[str]] = Field(None, description="Token-efficient content excerpts")
 
 
 class SearchResponse(BaseModel):
@@ -77,6 +120,42 @@ class SearchResponse(BaseModel):
     related_searches: List[Dict[str, Any]] = Field(default_factory=list)
     pagination: Dict[str, Any] = Field(default_factory=dict)
     raw: Dict[str, Any] = Field(default_factory=dict, exclude=True)
+    # v0.2: Answer synthesis
+    answer: Optional[Dict[str, Any]] = Field(None, description="Synthesized answer with citations")
+
+
+# v0.2: Structured output extraction
+class StructuredExtractRequest(BaseModel):
+    url: Optional[str] = None
+    text: Optional[str] = None
+    html: Optional[str] = None
+    schema: Dict[str, Any] = Field(..., description="JSON Schema for extraction")
+    mode: str = Field("auto", description="auto | extractive | llm")
+
+
+class StructuredExtractResponse(BaseModel):
+    extracted: Dict[str, Any] = Field(default_factory=dict)
+    provider: str = ""
+    model: Optional[str] = None
+    confidence: float = 0.0
+
+
+# v0.2: Multi-query search
+class MultiQuerySearchRequest(BaseModel):
+    queries: List[str] = Field(..., min_length=1, max_length=10)
+    merge: bool = True
+    deduplicate: bool = True
+    rerank: bool = True
+    max_results: int = Field(20, ge=1, le=100)
+    depth: str = Field("basic", description="instant | fast | basic | advanced | deep")
+    engine: str = Field("auto")
+
+
+# v0.2: Smart router request
+class SmartRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500, description="Natural language query")
+    max_results: int = Field(10, ge=1, le=50)
+    include_social: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -188,6 +267,52 @@ class AIExtractRequest(BaseModel):
         description="Field name → type ('string' | 'number' | 'date' | 'text' | 'list')",
         alias="schema",
     )
+
+
+# --------------------------------------------------------------------------
+# Social endpoints (v0.2)
+# --------------------------------------------------------------------------
+class SocialScrapeRequest(BaseModel):
+    url: str = Field(..., description="Social media URL to scrape")
+    platform: Optional[str] = Field(None, description="Force specific platform (auto-detect if omitted)")
+    action: Optional[str] = Field(None, description="Action type: post, profile, timeline, etc.")
+
+
+class SocialScrapeResponse(BaseModel):
+    platform: str
+    type: str
+    url: str
+    data: Dict[str, Any]
+    scraped_at: str
+    credits_charged: int
+    latency_ms: Optional[float] = None
+
+
+class SocialBatchRequest(BaseModel):
+    urls: List[str] = Field(..., min_length=1, max_length=10, description="List of social URLs to scrape")
+    parallel: bool = True
+    max_concurrent: int = Field(5, ge=1, le=10)
+
+
+class SocialSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    platform: str = Field(..., description="Platform to search: twitter, reddit, youtube, etc.")
+    limit: int = Field(25, ge=1, le=100)
+    extra_params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SocialSearchEverywhereRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    limit: int = Field(10, ge=1, le=50)
+    platforms: Optional[List[str]] = Field(None, description="Specific platforms (default: all supported)")
+
+
+class SocialPlatformInfo(BaseModel):
+    platform: str
+    url_patterns: List[str]
+    supported_actions: List[str]
+    requires_auth: bool
+    rate_limit_rpm: int
 
 
 # --------------------------------------------------------------------------

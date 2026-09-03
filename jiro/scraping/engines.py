@@ -243,6 +243,18 @@ class SearchOrchestrator:
         self.semantic = semantic
         self.registry = _build_registry()
         self.robots = RobotsManager(settings, cache) if settings.robots_txt.get("enabled", True) else None
+        
+        # Lazy import hybrid searcher
+        self._hybrid_searcher = None
+    
+    @property
+    def hybrid_searcher(self):
+        if self._hybrid_searcher is None:
+            from jiro.search.hybrid import HybridSearcher
+            self._hybrid_searcher = HybridSearcher(
+                self.settings, self, self.cache, self.semantic
+            )
+        return self._hybrid_searcher
 
     @staticmethod
     def _is_relevant(query: str, result: SearchResponse) -> bool:
@@ -286,11 +298,16 @@ class SearchOrchestrator:
 
     async def search(self, req: SearchRequest, *, fresh: bool = False) -> SearchResponse:
         """Search with engine fallback. Returns the first successful engine's result."""
+        
+        # Handle hybrid mode
+        if getattr(req, "mode", "auto") == "hybrid":
+            return await self.hybrid_searcher.search(req)
+        
         engines = self.available_engines(req.engine)
         cache_key = self.cache.make_key(
             "search", req.engine, req.q, req.type, req.num, req.start,
             req.location, req.language, req.safe, req.time_range, req.device,
-            req.gl, req.hl,
+            req.gl, req.hl, req.mode, getattr(req, "depth", "basic"),
         )
 
         if not fresh:

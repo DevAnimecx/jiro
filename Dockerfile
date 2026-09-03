@@ -1,29 +1,32 @@
-# Jiro Search API — container image (PRD §6.6.4)
-FROM python:3.12-slim
-
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    JIRO_CONFIG=/etc/jiro/config.yaml
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching
-COPY pyproject.toml README.md ./
-RUN pip install --upgrade pip && pip install .
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Default config (override with env vars or mount your own at /etc/jiro/config.yaml)
-RUN mkdir -p /etc/jiro /data/jiro && \
-    python -c "from jiro.config import DEFAULT_CONFIG; import yaml; open('/etc/jiro/config.yaml','w').write(yaml.safe_dump(DEFAULT_CONFIG, sort_keys=False))"
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-ENV JIRO_DB__PATH=/data/jiro/jiro.db \
-    JIRO_CACHE__PATH=/data/jiro/cache.db \
-    JIRO_SERVER__HOST=0.0.0.0
+# Copy application code
+COPY jiro/ ./jiro/
+COPY scripts/ ./scripts/
 
-VOLUME ["/data/jiro"]
+# Create data directory
+RUN mkdir -p /data
+
+# Set environment variables
+ENV JIRO_DB_PATH=/data/jiro.db
+ENV JIRO_HOST=0.0.0.0
+ENV JIRO_PORT=8000
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)" || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/v1/monitor/health')" || exit 1
 
-CMD ["jiro", "serve", "--host", "0.0.0.0"]
+CMD ["python", "-m", "uvicorn", "jiro.server:create_app", "--host", "0.0.0.0", "--port", "8000"]

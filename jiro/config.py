@@ -33,7 +33,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "insecure": False,        # allow binding to 0.0.0.0 with auth disabled (DANGER)
         "cors": {
             "enabled": False,
-            "origins": ["*"],
+            "origins": [],        # SECURITY: Empty by default - add allowed origins explicitly
             "allow_credentials": False,
             "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["*"],
@@ -84,6 +84,36 @@ DEFAULT_CONFIG: Dict[str, Any] = {
                                 "amazon", "ebay", "yandex", "baidu", "auto"],
             "allowed_types": ["web", "images", "news", "videos", "shopping", "places"],
         },
+        "hybrid": {
+            "enabled": True,
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "rrf_k": 60,
+            "rerank_top_n": 20,
+            "semantic_weight": 0.4,
+            "keyword_weight": 0.6,
+        },
+        "depths": {
+            "instant": {"engines": 1, "scrape": False, "rerank": False, "credits": 1},
+            "fast": {"engines": 1, "scrape": False, "rerank": False, "credits": 1},
+            "basic": {"engines": 1, "scrape": "snippet", "rerank": False, "credits": 1},
+            "advanced": {"engines": 3, "scrape": 5, "rerank": True, "credits": 2},
+            "deep": {"engines": 5, "scrape": 10, "rerank": True, "semantic": True, "credits": 5},
+        },
+        "filters": {
+            "default_time_range": None,
+            "default_max_results": 10,
+            "safe_search": True,
+        },
+        "bias_domains": {},
+        "answer": {
+            "max_sources": 5,
+            "max_snippet_chars": 600,
+        },
+        "highlights": {
+            "max_characters": 500,
+            "max_per_result": 3,
+        },
     },
     "cache": {
         "type": "sqlite",           # sqlite | memory | redis
@@ -93,7 +123,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_size_mb": 1024,
         "semantic": False,          # semantic cache (needs embeddings via llm key)
     },
-    "db": {"path": "~/.jiro/jiro.db"},
+    "db": {
+        "type": "sqlite",           # sqlite | postgresql
+        "path": "~/.jiro/jiro.db",
+        "url": "",                  # SECURITY: Required for postgresql - no default credentials
+        "pool_size": 10,
+    },
     "llm": {
         "provider": "openai",       # openai | anthropic | gemini | openrouter | ollama
         "api_key": "",
@@ -103,14 +138,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_tokens": 1024,
     },
     "auth": {
-        "enabled": False,           # False → open access for local use; enable for teams
-        "jwt_secret": "",
+        "enabled": True,            # SECURITY: Enabled by default for safety
+        "jwt_secret": "",           # SECURITY: Must be set when auth enabled
         "jwt_ttl_minutes": 720,
         "rate_limit_rpm": 60,
         "jwt_algorithm": "HS256",   # HS256 (shared secret) or RS256 (asymmetric keys)
         "jwt_key_id": "jiro-default",
         "jwt_private_key": "",
         "jwt_public_key": "",
+        "api_key_header": "X-API-Key",  # SECURITY: Header-only auth
+        "allow_query_param": False,      # SECURITY: Never accept API keys in query strings
     },
     "agent": {
         "max_steps": 5,
@@ -120,6 +157,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_snippets_per_source": 3,
         "deadline_seconds": 0,      # 0 = no hard deadline; recommended 60-120 for /ai/agent
         "content_budget_chars": 200000,  # cap on accumulated scraped content per run
+    },
+    "social": {
+        "twitter": {"auth_token": "", "backend": "auto", "nitter_url": "https://nitter.net"},
+        "instagram": {"sessionid": ""},
+        "facebook": {"sessionid": "", "c_user": ""},
+        "tiktok": {"use_browser": True},
+    },
+    "dashboard": {
+        "enabled": True,
     },
     "logging": {"level": "info", "file": ""},
     "privacy": {"log_queries": False, "log_payloads": False},
@@ -329,6 +375,50 @@ class Settings:
     @property
     def agent_content_budget_chars(self) -> int:
         return int(self.agent.get("content_budget_chars", 200000) or 200000)
+
+    # -- search hybrid ---------------------------------------------------------
+    @property
+    def search_hybrid(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("hybrid", {})
+
+    @property
+    def search_depths(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("depths", {})
+
+    @property
+    def search_filters(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("filters", {})
+
+    @property
+    def search_answer(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("answer", {})
+
+    @property
+    def search_highlights(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("highlights", {})
+
+    # -- social ---------------------------------------------------------------
+    @property
+    def social(self) -> Dict[str, Any]:
+        return self.raw.get("social", {})
+
+    # -- dashboard ------------------------------------------------------------
+    @property
+    def dashboard_enabled(self) -> bool:
+        return bool(self.raw.get("dashboard", {}).get("enabled", True))
+
+    # -- db -------------------------------------------------------------------
+    @property
+    def db_type(self) -> str:
+        return self.raw.get("db", {}).get("type", "sqlite")
+
+    @property
+    def db_url(self) -> str:
+        return self.raw.get("db", {}).get("url", "")
+
+    @property
+    def db_pool_size(self) -> int:
+        return int(self.raw.get("db", {}).get("pool_size", 10))
 
     @property
     def logging(self) -> Dict[str, Any]:

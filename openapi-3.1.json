@@ -1,0 +1,1111 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Jiro Search API",
+    "version": "0.2.0",
+    "description": "Local-first web search, scraping, and social media intelligence platform. Supports 9+ search engines, 12 social platforms, hybrid search, structured extraction, and smart intent routing.",
+    "contact": {
+      "name": "Jiro Team",
+      "url": "https://github.com/DevAnimecx/jiro"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development"
+    },
+    {
+      "url": "https://api.jiro.dev",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "search",
+      "description": "Web search across multiple engines"
+    },
+    {
+      "name": "scrape",
+      "description": "URL content extraction"
+    },
+    {
+      "name": "social",
+      "description": "Social media scraping and search"
+    },
+    {
+      "name": "smart",
+      "description": "Smart search with intent routing"
+    },
+    {
+      "name": "structured",
+      "description": "Structured data extraction"
+    },
+    {
+      "name": "plugins",
+      "description": "Plugin management"
+    },
+    {
+      "name": "monitor",
+      "description": "Server monitoring and health"
+    }
+  ],
+  "paths": {
+    "/v1/search": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search the web",
+        "description": "Search across multiple engines with filtering, biasing, and hybrid ranking.",
+        "operationId": "search",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        }
+      }
+    },
+    "/v1/search/multi": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Multi-query search",
+        "description": "Execute multiple search queries in parallel.",
+        "operationId": "searchMulti",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiQueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Multi-query results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiQueryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scrape": {
+      "post": {
+        "tags": [
+          "scrape"
+        ],
+        "summary": "Scrape a URL",
+        "description": "Extract content from a URL as markdown, text, or structured data.",
+        "operationId": "scrape",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScrapeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scraped content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrapeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid URL"
+          }
+        }
+      }
+    },
+    "/v1/social": {
+      "post": {
+        "tags": [
+          "social"
+        ],
+        "summary": "Scrape social media URL",
+        "description": "Scrape a social media post, profile, or thread from 12 supported platforms.",
+        "operationId": "socialScrape",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialScrapeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Social content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported platform"
+          }
+        }
+      }
+    },
+    "/v1/social/batch": {
+      "post": {
+        "tags": [
+          "social"
+        ],
+        "summary": "Batch scrape social URLs",
+        "description": "Scrape multiple social media URLs in parallel.",
+        "operationId": "socialBatch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialBatchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/social/platforms": {
+      "get": {
+        "tags": [
+          "social"
+        ],
+        "summary": "List supported social platforms",
+        "operationId": "socialPlatforms",
+        "responses": {
+          "200": {
+            "description": "Platform list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/social/search": {
+      "post": {
+        "tags": [
+          "social"
+        ],
+        "summary": "Search social platforms",
+        "description": "Search across multiple social platforms simultaneously.",
+        "operationId": "socialSearch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialSearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialSearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/social/search/everywhere": {
+      "post": {
+        "tags": [
+          "social"
+        ],
+        "summary": "Search all social platforms",
+        "description": "Search across all 12 supported social platforms.",
+        "operationId": "socialSearchEverywhere",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialSearchEverywhereRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialSearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/smart": {
+      "post": {
+        "tags": [
+          "smart"
+        ],
+        "summary": "Smart search with intent routing",
+        "description": "Automatically detect search intent and route to the appropriate handler.",
+        "operationId": "smartSearch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Smart search result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/smart/classify": {
+      "post": {
+        "tags": [
+          "smart"
+        ],
+        "summary": "Classify search intent",
+        "description": "Classify the intent of a search query without executing it.",
+        "operationId": "smartClassify",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartClassifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Intent classification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartClassifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/structured/extract": {
+      "post": {
+        "tags": [
+          "structured"
+        ],
+        "summary": "Extract structured data",
+        "description": "Extract structured data from search results using JSON schema.",
+        "operationId": "structuredExtract",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuredExtractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extracted data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredExtractResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/plugins": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List plugins",
+        "operationId": "listPlugins",
+        "responses": {
+          "200": {
+            "description": "Plugin list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/plugins/{name}": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Get plugin info",
+        "operationId": "getPlugin",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plugin info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plugin not found"
+          }
+        }
+      }
+    },
+    "/v1/monitor/status": {
+      "get": {
+        "tags": [
+          "monitor"
+        ],
+        "summary": "Get server status",
+        "operationId": "monitorStatus",
+        "responses": {
+          "200": {
+            "description": "Server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/monitor/health": {
+      "get": {
+        "tags": [
+          "monitor"
+        ],
+        "summary": "Health check",
+        "operationId": "monitorHealth",
+        "responses": {
+          "200": {
+            "description": "Health status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "SearchRequest": {
+      "type": "object",
+      "required": [
+        "q"
+      ],
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Search query"
+        },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "google",
+            "bing",
+            "brave",
+            "duckduckgo",
+            "youtube",
+            "amazon",
+            "ebay",
+            "yandex",
+            "baidu"
+          ],
+          "default": "google"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "web",
+            "images",
+            "news",
+            "videos",
+            "shopping",
+            "places"
+          ],
+          "default": "web"
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10
+        },
+        "language": {
+          "type": "string",
+          "default": "en"
+        },
+        "location": {
+          "type": "string",
+          "default": "us"
+        },
+        "time_range": {
+          "type": "string",
+          "enum": [
+            "any",
+            "day",
+            "week",
+            "month",
+            "year"
+          ],
+          "default": "any"
+        },
+        "safe_search": {
+          "type": "boolean",
+          "default": true
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Crawl depth"
+        },
+        "include_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bias_domains": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "any",
+            "day",
+            "week",
+            "month",
+            "year"
+          ]
+        },
+        "category": {
+          "type": "string"
+        },
+        "hybrid": {
+          "type": "boolean",
+          "description": "Enable hybrid search"
+        },
+        "answer": {
+          "type": "boolean",
+          "description": "Generate synthesized answer"
+        },
+        "highlights": {
+          "type": "boolean",
+          "description": "Include highlights"
+        }
+      }
+    },
+    "SearchResponse": {
+      "type": "object",
+      "properties": {
+        "search_metadata": {
+          "type": "object"
+        },
+        "organic_results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/OrganicResult"
+          }
+        },
+        "answer": {
+          "type": "string",
+          "description": "Synthesized answer"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "multi_query": {
+          "type": "object",
+          "description": "Multi-query results"
+        }
+      }
+    },
+    "OrganicResult": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri"
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "position": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "relevance": {
+          "type": "number",
+          "description": "Relevance score 0-1"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "MultiQueryRequest": {
+      "type": "object",
+      "required": [
+        "q"
+      ],
+      "properties": {
+        "q": {
+          "type": "string"
+        },
+        "num_variations": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 10,
+          "default": 3
+        },
+        "engine": {
+          "type": "string"
+        },
+        "max_results": {
+          "type": "integer"
+        }
+      }
+    },
+    "MultiQueryResponse": {
+      "type": "object",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/SearchResponse"
+          }
+        },
+        "merged": {
+          "$ref": "#/components/schemas/SearchResponse"
+        }
+      }
+    },
+    "ScrapeRequest": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "text",
+            "html",
+            "json"
+          ],
+          "default": "markdown"
+        },
+        "include_metadata": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "ScrapeResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "SocialScrapeRequest": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Social media URL"
+        }
+      }
+    },
+    "SocialResponse": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "post",
+            "profile",
+            "thread",
+            "comment"
+          ]
+        },
+        "data": {
+          "type": "object"
+        },
+        "scraped_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SocialBatchRequest": {
+      "type": "object",
+      "required": [
+        "urls"
+      ],
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "maxItems": 50
+        }
+      }
+    },
+    "SocialBatchResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/SocialResponse"
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "failed": {
+          "type": "integer"
+        }
+      }
+    },
+    "SocialSearchRequest": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        }
+      }
+    },
+    "SocialSearchEverywhereRequest": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        }
+      }
+    },
+    "SocialSearchResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/SocialResponse"
+          }
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "SmartRequest": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "web",
+            "images",
+            "news",
+            "videos",
+            "shopping"
+          ],
+          "default": "web"
+        },
+        "max_results": {
+          "type": "integer",
+          "default": 10
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema for structured extraction"
+        }
+      }
+    },
+    "SmartResponse": {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "results": {
+          "type": "object"
+        }
+      }
+    },
+    "SmartClassifyRequest": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "SmartClassifyResponse": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string"
+        },
+        "social_platform": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        }
+      }
+    },
+    "StructuredExtractRequest": {
+      "type": "object",
+      "required": [
+        "query",
+        "schema"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema for desired output"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "max_results": {
+          "type": "integer"
+        }
+      }
+    },
+    "StructuredExtractResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array"
+        },
+        "schema": {
+          "type": "object"
+        },
+        "extraction_method": {
+          "type": "string"
+        }
+      }
+    },
+    "PluginInfo": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "homepage": {
+          "type": "string"
+        }
+      }
+    },
+    "ServerStatus": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "engines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/PluginInfo"
+          }
+        },
+        "health": {
+          "type": "object"
+        },
+        "cache_enabled": {
+          "type": "boolean"
+        },
+        "plugins_enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    },
+    {
+      "BearerAuth": []
+    }
+  ]
+}

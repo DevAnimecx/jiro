@@ -16,7 +16,7 @@ from jiro.audit import AuditEventType, ComplianceLogger
 from jiro.auth import AuthContext
 from jiro.cache import CacheManager
 from jiro.errors import EngineError
-from jiro.models import SearchRequest, SearchResponse
+from jiro.models import SearchRequest, SearchResponse, MultiQuerySearchRequest
 from jiro.server.deps import (
     get_auth_context,
     get_audit_logger_dep,
@@ -57,6 +57,16 @@ async def search_get(
     hl: str = Query("en"),
     fresh: bool = Query(False, description="Bypass cache"),
     format: str = Query("json", description="json | csv | xml | rss", alias="format"),
+    # v0.2 parameters
+    mode: str = Query("auto", description="auto | keyword | hybrid"),
+    depth: str = Query("basic", description="instant | fast | basic | advanced | deep"),
+    include_domains: str = Query("", description="Comma-separated domains to include"),
+    exclude_domains: str = Query("", description="Comma-separated domains to exclude"),
+    start_date: str = Query("", description="Start date YYYY-MM-DD"),
+    end_date: str = Query("", description="End date YYYY-MM-DD"),
+    category: str = Query("", description="publication | financial_report | people | shopping | github | news"),
+    highlights: bool = Query(False, description="Extract token-efficient highlights"),
+    include_answer: str = Query("", description="none | extractive | advanced"),
     ctx: AuthContext = Depends(get_auth_context),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
@@ -67,7 +77,14 @@ async def search_get(
     req = SearchRequest(q=q, engine=engine, type=type, location=location,
                         language=language, num=num, start=start, safe=safe,
                         time_range=time_range, device=device, gl=gl, hl=hl,
-                        fresh=fresh)
+                        fresh=fresh, mode=mode, depth=depth,
+                        include_domains=include_domains.split(",") if include_domains else None,
+                        exclude_domains=exclude_domains.split(",") if exclude_domains else None,
+                        start_date=start_date or None,
+                        end_date=end_date or None,
+                        category=category or None,
+                        highlights=highlights,
+                        include_answer=include_answer or None)
     ip = request.client.host if request.client else None
     key_id = ctx.key_id
 
@@ -222,7 +239,9 @@ async def search_batch(
             data["query"] = q
             return data
         except Exception as exc:
-            return {"query": q, "error": str(exc)}
+            # SECURITY: Log full exception server-side only, return generic message to client
+            log.exception("Batch search failed", extra={"query": q, "engine": engine})
+            return {"query": q, "error": "Search failed"}
 
     tasks = [_search_one(item) for item in items]
     results = await asyncio.gather(*tasks, return_exceptions=False)
@@ -305,3 +324,59 @@ async def search_stream(
     await record_usage(request, endpoint="/search/stream", status=200, query=q)
     return StreamingResponse(gen(), headers=SSE_HEADERS,
                              media_type="text/event-stream")
+
+
+# ── Multi-Query Search ─────────────────────────────────────────────────────
+
+@router.post("/search/multi", summary="Multi-query search: break, parallelize, merge, deduplicate, rerank")
+async def search_multi(
+    request: Request,
+    body: MultiQuerySearchRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    orchestrator: Any = Depends(get_orchestrator),
+    cache: CacheManager = Depends(get_cache),
+) -> Dict[str, Any]:
+    """Execute multiple search queries in parallel with merging and deduplication.
+    
+    Request body:
+    - queries: list of query strings (max 10)
+    - merge: whether to merge results (default true)
+    - deduplicate: whether to deduplicate by URL (default true)
+    - rerank: whether to rerank merged results (default true)
+    - max_results: maximum results to return (default 20)
+    - depth: search depth for each query (default basic)
+    - engine: engine to use for each query (default auto)
+    """
+    request.state.auth = ctx
+    
+    if len(body.queries) > 10:
+        return {"error": "multi-query limited to 10 queries", "results": []}
+    if not body.queries:
+        return {"error": "empty query list", "results": []}
+    
+    from jiro.search.multiquery import MultiQuerySearcher, MultiQueryRequest
+    
+    multi_searcher = MultiQuerySearcher(
+        orchestrator.settings, orchestrator, cache,
+        getattr(orchestrator, 'hybrid_searcher', None)
+    )
+    
+    mq_req = MultiQueryRequest(
+        queries=body.queries,
+        merge=body.merge,
+        deduplicate=body.deduplicate,
+        rerank=body.rerank,
+        max_results=body.max_results,
+        depth=body.depth,
+        engine=body.engine,
+    )
+    
+    started = time.perf_counter()
+    result = await multi_searcher.search(mq_req)
+    latency_ms = (time.perf_counter() - started) * 1000
+    
+    result.search_metadata["latency_ms"] = round(latency_ms, 1)
+    
+    await record_usage(request, endpoint="/search/multi", status=200, latency_ms=latency_ms)
+    
+    return result.model_dump()

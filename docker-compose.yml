@@ -1,39 +1,63 @@
-# Jiro Search API — self-hosted with persistent data volume.
-#
-#   docker compose up -d
-#   curl http://localhost:8000/health
-#
-# Bring your own keys via environment variables (never commit secrets):
-#   OPENAI_API_KEY, ANTHROPIC_API_KEY, CAPSOLVER_API_KEY, BRIGHTDATA_API_KEY ...
-#
-# Optional: add a Redis service and set JIRO_CACHE__TYPE=redis for a shared
-# team cache (Redis backend is on the Phase-2 roadmap).
+version: '3.8'
 
 services:
   jiro:
     build: .
-    image: jiro-search:0.1.0
     container_name: jiro
-    restart: unless-stopped
     ports:
       - "8000:8000"
-    environment:
-      JIRO_SERVER__HOST: "0.0.0.0"
-      JIRO_SERVER__PORT: "8000"
-      JIRO_DB__PATH: "/data/jiro/jiro.db"
-      JIRO_CACHE__PATH: "/data/jiro/cache.db"
-      # Secrets — pass through from the host environment:
-      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
-      # ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
     volumes:
-      - jiro-data:/data/jiro
+      - jiro-data:/data
+    environment:
+      - JIRO_DB_PATH=/data/jiro.db
+      - JIRO_CACHE_TYPE=sqlite
+      - JIRO_SECRET_KEY=${JIRO_SECRET_KEY:-change-me-in-production}
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/v1/monitor/health')"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 10s
+
+  dashboard:
+    build: .
+    container_name: jiro-dashboard
+    ports:
+      - "3000:3000"
+    volumes:
+      - jiro-data:/data
+    environment:
+      - JIRO_API_URL=http://jiro:8000
+    command: python -m jiro.dashboard
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for production
+  postgres:
+    image: postgres:15-alpine
+    container_name: jiro-postgres
+    environment:
+      POSTGRES_DB: jiro
+      POSTGRES_USER: jiro
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jiro-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    profiles:
+      - postgres
+
+  # Optional: Redis for distributed caching
+  redis:
+    image: redis:7-alpine
+    container_name: jiro-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    profiles:
+      - redis
 
 volumes:
   jiro-data:
+  postgres-data:
+  redis-data:

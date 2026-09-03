@@ -254,15 +254,28 @@ class AuthManager:
 # FastAPI dependency helpers
 # --------------------------------------------------------------------------
 def _extract_key(request: Any) -> Optional[str]:
+    """Extract API key from request. SECURITY: Header-only authentication.
+    
+    Accepts:
+    - X-API-Key header (preferred)
+    - Authorization: Bearer <key> header (alternative)
+    
+    SECURITY: Query parameter authentication is disabled to prevent
+    credential leakage in logs, browser history, and Referer headers.
+    """
+    # Primary: X-API-Key header
     header = request.headers.get("X-API-Key")
     if header:
         return header
-    query = request.query_params.get("api_key")
-    if query:
-        return query
-    body = getattr(request, "_json_body", None)
-    if isinstance(body, dict) and body.get("api_key"):
-        return body["api_key"]
+    
+    # Secondary: Authorization: Bearer header (for API key as bearer token)
+    authz = request.headers.get("Authorization", "")
+    if authz.lower().startswith("bearer "):
+        token = authz[7:].strip()
+        # Only treat as API key if it doesn't look like a JWT (JWT has 3 parts separated by dots)
+        if token.count(".") != 2:
+            return token
+    
     return None
 
 

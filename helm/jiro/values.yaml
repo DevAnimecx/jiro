@@ -1,0 +1,61 @@
+# Jiro Helm Chart Values
+
+replicaCount: 1
+
+image:
+  repository: jiro/jiro
+  pullPolicy: IfNotPresent
+  tag: "0.2.0"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: jiro.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+postgresql:
+  enabled: false
+  host: jiro-postgres
+  port: 5432
+  database: jiro
+  username: jiro
+  password: ""
+
+redis:
+  enabled: false
+  host: jiro-redis
+  port: 6379
+
+env:
+  JIRO_CACHE_TYPE: sqlite
+  JIRO_SECRET_KEY: "change-me"
+  JIRO_HOST: "0.0.0.0"
+  JIRO_PORT: "8000"
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: standard

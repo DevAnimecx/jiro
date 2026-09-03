@@ -124,6 +124,62 @@ def mcp_tools() -> List[Dict[str, Any]]:
          "description": "Answer a research question by searching the web, reading multiple pages, "
                         "and synthesizing a cited answer. Returns a comprehensive answer with source citations.",
          "inputSchema": JIRO_AI_SEARCH_SCHEMA},
+        {"name": "search_hybrid",
+         "description": "Hybrid search combining multiple search strategies (keyword + semantic + freshness). "
+                        "Provides enhanced relevance scoring and multi-signal ranking.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
+             "engine": {"type": "string", "description": "Primary engine to use"},
+             "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+         }, "required": ["query"]}},
+        {"name": "search_structured",
+         "description": "Extract structured data from search results using a JSON schema. "
+                        "Returns data conforming to the provided schema.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "schema": {"type": "object", "description": "JSON Schema for desired output structure"},
+         }, "required": ["query", "schema"]}},
+        {"name": "social_scrape",
+         "description": "Scrape a social media URL (Reddit, YouTube, Twitter/X, TikTok, Instagram, LinkedIn, "
+                        "Bluesky, Threads, Facebook, Telegram, Pinterest). Returns normalized post/profile data.",
+         "inputSchema": {"type": "object", "properties": {
+             "url": {"type": "string", "format": "uri", "description": "Social media URL"},
+         }, "required": ["url"]}},
+        {"name": "social_search",
+         "description": "Search across multiple social platforms simultaneously. Returns normalized results.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "platforms": {"type": "array", "items": {"type": "string"}, "default": ["twitter", "reddit", "youtube"]},
+         }, "required": ["query"]}},
+        {"name": "social_batch",
+         "description": "Batch scrape multiple social media URLs in parallel.",
+         "inputSchema": {"type": "object", "properties": {
+             "urls": {"type": "array", "items": {"type": "string"}, "description": "List of social URLs"},
+         }, "required": ["urls"]}},
+        {"name": "smart_search",
+         "description": "Smart search with automatic intent detection and routing. "
+                        "Classifies query intent and routes to appropriate handler.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
+             "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+             "schema": {"type": "object", "description": "JSON Schema for structured extraction"},
+         }, "required": ["query"]}},
+        {"name": "smart_classify",
+         "description": "Classify search intent for a query without executing it.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query to classify"},
+         }, "required": ["query"]}},
+        {"name": "compare_engines",
+         "description": "Compare search results across multiple engines side by side.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "engines": {"type": "array", "items": {"type": "string"}, "default": ["google", "bing", "brave"]},
+         }, "required": ["query"]}},
+        {"name": "monitor_status",
+         "description": "Get server status, engine health, and performance metrics.",
+         "inputSchema": {"type": "object", "properties": {}}},
     ]
 
 

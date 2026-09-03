@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  sdk-generator:
+    image: openapitools/openapi-generator-cli:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      sh -c "
+        openapi-generator-cli generate -i openapi-3.1.json -g python -o sdk/python --package-name jiro_client &&
+        openapi-generator-cli generate -i openapi-3.1.json -g typescript-fetch -o sdk/typescript --additional-properties=npmName=@jiro/client &&
+        openapi-generator-cli generate -i openapi-3.1.json -g go -o sdk/go --package-name jiro
+      "
