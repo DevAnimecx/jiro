@@ -146,7 +146,7 @@ def test_cors_config_defaults():
     s = Settings.load()
     cors = s.cors
     assert cors["enabled"] is False
-    assert cors["origins"] == ["*"]
+    assert cors["origins"] == []  # SECURITY: empty by default
     assert cors["allow_credentials"] is False
 
 
@@ -154,8 +154,8 @@ def test_cors_enabled_via_env(tmp_path, monkeypatch):
     monkeypatch.setenv("JIRO_SERVER__CORS__ENABLED", "true")
     s = Settings.load()
     assert s.cors_enabled is True
-    # Origins come from defaults when not overridden via env
-    assert s.cors_origins == ["*"]
+    # Origins default to empty (must be set explicitly)
+    assert s.cors_origins == []
 
 
 # --------------------------------------------------------------------------

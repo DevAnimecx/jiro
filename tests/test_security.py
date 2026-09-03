@@ -67,10 +67,11 @@ def test_validate_target_url_rejects_own_host():
             )
 
 
-def test_validate_target_url_fails_open_without_dns():
-    # When DNS is unavailable we must NOT block the request (air-gapped use).
+def test_validate_target_url_fails_closed_without_dns():
+    # When DNS resolution fails we MUST reject (fail-closed security).
     with patch.object(security, "_resolve", side_effect=OSError("no dns")):
-        assert security.validate_target_url("http://example.com/") == "http://example.com/"
+        with pytest.raises(SSRFError, match="DNS resolution failed"):
+            security.validate_target_url("http://example.com/")
 
 
 def test_async_validate_target_url_rejects_resolved_private():
@@ -83,11 +84,12 @@ def test_async_validate_target_url_rejects_resolved_private():
             )
 
 
-def test_async_validate_target_url_fails_open_without_dns():
+def test_async_validate_target_url_fails_closed_without_dns():
+    # When DNS resolution fails we MUST reject (fail-closed security).
     with patch.object(
         security, "resolve_hostname", new=AsyncMock(side_effect=OSError("no dns"))
     ):
-        result = asyncio.run(
-            security.async_validate_target_url("http://example.com/")
-        )
-        assert result == "http://example.com/"
+        with pytest.raises(SSRFError, match="DNS resolution failed"):
+            asyncio.run(
+                security.async_validate_target_url("http://example.com/")
+            )

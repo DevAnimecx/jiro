@@ -347,9 +347,10 @@ class JiroMCPServer:
 
     async def _tool_search(self, args: Dict[str, Any],
                            progress: ProgressReporter) -> Dict[str, Any]:
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
         req = SearchRequest(**{k: v for k, v in args.items()
-                               if k in SearchRequest.model_fields})
+                                if k in SearchRequest.model_fields})
         if progress.enabled:
             progress.report(0.1, total=1.0, message="searching")
         result = await self.orchestrator.search(req, fresh=bool(args.get("fresh", False)))
@@ -368,14 +369,20 @@ class JiroMCPServer:
     async def _tool_scrape(self, args: Dict[str, Any],
                            progress: ProgressReporter) -> Dict[str, Any]:
         from jiro.extract import scrape_url
+        from jiro.security import async_validate_target_url
         url = args.get("url", "")
         if not url:
             raise MCPError(INVALID_PARAMS, "url is required")
+        # SECURITY: Validate URL against SSRF before scraping
+        try:
+            await async_validate_target_url(url)
+        except Exception as e:
+            raise MCPError(INVALID_PARAMS, f"URL validation failed: {e}")
         fmt = args.get("format", "markdown")
         if progress.enabled:
             progress.report(0.2, total=1.0, message=f"fetching {url}")
         payload = await scrape_url(url, self.client, fmt=fmt,
-                                   include_metadata=args.get("include_metadata", True))
+                                    include_metadata=args.get("include_metadata", True))
         if progress.enabled:
             progress.report(1.0, total=1.0, message="done")
         # For markdown/text, return content directly for better LLM consumption
@@ -387,8 +394,9 @@ class JiroMCPServer:
         return self._text_result(payload)
 
     async def _tool_ai_search(self, args: Dict[str, Any],
-                              progress: ProgressReporter) -> Dict[str, Any]:
-        assert self.agent is not None
+                               progress: ProgressReporter) -> Dict[str, Any]:
+        if self.agent is None:
+            raise MCPError(INTERNAL_ERROR, "AI agent not initialized")
         query = args.get("query", "")
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
@@ -421,12 +429,13 @@ class JiroMCPServer:
         return self._text_result(result)
 
     async def _tool_search_hybrid(self, args: Dict[str, Any],
-                                  progress: ProgressReporter) -> Dict[str, Any]:
+                                   progress: ProgressReporter) -> Dict[str, Any]:
         """Hybrid search combining multiple signals."""
         query = args.get("query", "")
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
 
         if progress.enabled:
             progress.report(0.1, message="initializing hybrid search")
@@ -459,25 +468,32 @@ class JiroMCPServer:
         if progress.enabled:
             progress.report(0.1, message="extracting structured data")
 
-        extractor = StructuredExtractor(ConfigSettings.load())
+        extractor = StructuredExtractor(self.settings)
         result = await extractor.extract(query, schema)
         if progress.enabled:
             progress.report(1.0, message="done")
         return self._text_result(result)
 
     async def _tool_social_scrape(self, args: Dict[str, Any],
-                                  progress: ProgressReporter) -> Dict[str, Any]:
+                                   progress: ProgressReporter) -> Dict[str, Any]:
         """Scrape a social media URL."""
+        from jiro.scraping.social import SocialRouter
+        from jiro.security import async_validate_target_url
+
         url = args.get("url", "")
         if not url:
             raise MCPError(INVALID_PARAMS, "url is required")
 
-        from jiro.scraping.social import SocialRouter
+        # SECURITY: Validate URL against SSRF before scraping
+        try:
+            await async_validate_target_url(url)
+        except Exception as e:
+            raise MCPError(INVALID_PARAMS, f"URL validation failed: {e}")
 
         if progress.enabled:
             progress.report(0.1, message=f"detecting platform: {url}")
 
-        router = SocialRouter(self.settings)
+        router = SocialRouter()
         platform = router.detect_platform(url)
         if not platform:
             raise MCPError(INVALID_PARAMS, f"unsupported platform for URL: {url}")
@@ -499,17 +515,16 @@ class JiroMCPServer:
         return self._text_result(result)
 
     async def _tool_social_search(self, args: Dict[str, Any],
-                                  progress: ProgressReporter) -> Dict[str, Any]:
+                                   progress: ProgressReporter) -> Dict[str, Any]:
         """Search across social platforms."""
+        from jiro.scraping.social import SocialRouter
+
         query = args.get("query", "")
         platforms = args.get("platforms", ["twitter", "reddit", "youtube"])
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
 
-        from jiro.scraping.social import SocialRouter
-        from jiro.config import Settings as ConfigSettings
-
-        router = SocialRouter(ConfigSettings.load())
+        router = SocialRouter()
         all_results = []
 
         if progress.enabled:
@@ -529,16 +544,15 @@ class JiroMCPServer:
         return self._text_result({"results": all_results, "total": len(all_results)})
 
     async def _tool_social_batch(self, args: Dict[str, Any],
-                                 progress: ProgressReporter) -> Dict[str, Any]:
+                                  progress: ProgressReporter) -> Dict[str, Any]:
         """Batch scrape multiple social URLs."""
+        from jiro.scraping.social import SocialRouter
+
         urls = args.get("urls", [])
         if not urls:
             raise MCPError(INVALID_PARAMS, "urls is required")
 
-        from jiro.scraping.social import SocialRouter
-        from jiro.config import Settings as ConfigSettings
-
-        router = SocialRouter(ConfigSettings.load())
+        router = SocialRouter()
         results = []
 
         if progress.enabled:
@@ -562,18 +576,16 @@ class JiroMCPServer:
         return self._text_result({"results": results, "total": len(results)})
 
     async def _tool_smart_search(self, args: Dict[str, Any],
-                                 progress: ProgressReporter) -> Dict[str, Any]:
+                                  progress: ProgressReporter) -> Dict[str, Any]:
         """Smart search with intent detection and auto-routing."""
+        from jiro.search.intent import IntentClassifier
+        from jiro.search.structured import StructuredExtractor
+
         query = args.get("query", "")
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
 
-        from jiro.search.intent import IntentClassifier
-        from jiro.search.structured import StructuredExtractor
-        from jiro.config import Settings as ConfigSettings
-
-        settings = ConfigSettings.load()
-        classifier = IntentClassifier(settings)
+        classifier = IntentClassifier(self.settings)
 
         if progress.enabled:
             progress.report(0.1, message="classifying intent")
@@ -588,7 +600,7 @@ class JiroMCPServer:
         # Route based on intent
         if target == "social":
             from jiro.scraping.social import SocialRouter
-            router = SocialRouter(settings)
+            router = SocialRouter()
             platform = classifier.social_platform
             if platform:
                 scraper = router.get_scraper(platform, self.client)
@@ -596,14 +608,15 @@ class JiroMCPServer:
                     result = await scraper.scrape(query)
                     return self._text_result(result)
         elif target == "structured":
-            extractor = StructuredExtractor(settings)
+            extractor = StructuredExtractor(self.settings)
             schema = args.get("schema", classifier.suggested_schema)
             if schema:
                 result = await extractor.extract(query, schema)
                 return self._text_result(result)
 
         # Default: regular search
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
         req = SearchRequest(
             q=query,
             type=args.get("type", "web"),
@@ -616,16 +629,15 @@ class JiroMCPServer:
         return self._text_result(payload, summary=f"Intent: {intent_name}")
 
     async def _tool_smart_classify(self, args: Dict[str, Any],
-                                   progress: ProgressReporter) -> Dict[str, Any]:
+                                    progress: ProgressReporter) -> Dict[str, Any]:
         """Classify search intent for a query."""
+        from jiro.search.intent import IntentClassifier
+
         query = args.get("query", "")
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
 
-        from jiro.search.intent import IntentClassifier
-        from jiro.config import Settings as ConfigSettings
-
-        classifier = IntentClassifier(ConfigSettings.load())
+        classifier = IntentClassifier(self.settings)
         intent = classifier.classify(query)
 
         result = {
@@ -641,14 +653,15 @@ class JiroMCPServer:
         return self._text_result(result)
 
     async def _tool_compare_engines(self, args: Dict[str, Any],
-                                    progress: ProgressReporter) -> Dict[str, Any]:
+                                     progress: ProgressReporter) -> Dict[str, Any]:
         """Compare search results across multiple engines."""
         query = args.get("query", "")
         engines = args.get("engines", ["google", "bing", "brave"])
         if not query:
             raise MCPError(INVALID_PARAMS, "query is required")
 
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
         comparison = {"query": query, "results": {}}
 
         if progress.enabled:
@@ -671,13 +684,11 @@ class JiroMCPServer:
         return self._text_result(comparison, summary=f"Compared {len(engines)} engines for: {query}")
 
     async def _tool_monitor_status(self, args: Dict[str, Any],
-                                   progress: ProgressReporter) -> Dict[str, Any]:
+                                    progress: ProgressReporter) -> Dict[str, Any]:
         """Get server/scraper status and metrics."""
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
 
-        from jiro.config import Settings as ConfigSettings
-
-        settings = ConfigSettings.load()
         engines_info = await self.orchestrator.engines_info()
         health = await self.orchestrator.health_check()
 
@@ -685,18 +696,19 @@ class JiroMCPServer:
             "version": SERVER_VERSION,
             "engines": engines_info,
             "health": health,
-            "cache_enabled": settings.cache_type != "memory",
+            "cache_enabled": self.settings.cache_type != "memory",
             "plugins_enabled": True,
             "social_platforms": 12,
             "search_engines": 9,
-            "mcp_tools": 12,
+            "mcp_tools": len(mcp_tools()),
         }
         return self._text_result(status)
 
     async def _tool_health_check(self, args: Dict[str, Any],
-                                 progress: ProgressReporter) -> Dict[str, Any]:
+                                  progress: ProgressReporter) -> Dict[str, Any]:
         """Quick health check for all services."""
-        assert self.orchestrator is not None
+        if self.orchestrator is None:
+            raise MCPError(INTERNAL_ERROR, "server not fully started")
 
         health = await self.orchestrator.health_check()
         return self._text_result({
@@ -705,9 +717,10 @@ class JiroMCPServer:
         })
 
     async def _tool_cache_stats(self, args: Dict[str, Any],
-                                progress: ProgressReporter) -> Dict[str, Any]:
+                                 progress: ProgressReporter) -> Dict[str, Any]:
         """Get cache statistics."""
-        assert self.cache is not None
+        if self.cache is None:
+            raise MCPError(INTERNAL_ERROR, "cache not initialized")
 
         stats = {
             "enabled": self.settings.cache_type != "memory",
@@ -816,28 +829,28 @@ class JiroMCPServer:
                 {"name": "Pinterest", "capabilities": ["scrape", "search", "pin"]},
             ]
             return {"contents": [{"uri": uri, "mimeType": "application/json",
-                                  "text": json.dumps(platforms, indent=2)}]}
+                                  "text": json.dumps({"platforms": platforms}, indent=2)}]}
         if uri == "jiro://plans":
-            from jiro.pro import PRO_PLANS
+            from jiro.pro import PlanTier, PLAN_LIMITS
             plans = []
-            for tier, plan in PRO_PLANS.items():
+            for tier, limits in PLAN_LIMITS.items():
                 plans.append({
-                    "name": tier,
-                    "price_monthly": plan.price_monthly,
-                    "requests_per_minute": plan.requests_per_minute,
-                    "requests_per_day": plan.requests_per_day,
+                    "name": tier.value,
+                    "requests_per_minute": limits.rpm,
+                    "requests_per_day": limits.rpd,
+                    "max_results": limits.max_results,
                 })
             return {"contents": [{"uri": uri, "mimeType": "application/json",
-                                  "text": json.dumps(plans, indent=2)}]}
+                                  "text": json.dumps({"plans": plans}, indent=2)}]}
         if uri == "jiro://plugins":
-            from jiro.plugins import ENGINE_PLUGINS, SEARCH_PLUGINS, DATASOURCE_PLUGINS
+            from jiro.plugins import engine_registry, search_plugin_registry, datasource_registry
             plugins = {
-                "engines": list(ENGINE_PLUGINS.keys()),
-                "search": list(SEARCH_PLUGINS.keys()),
-                "datasources": list(DATASOURCE_PLUGINS.keys()),
+                "engines": engine_registry.names(),
+                "search": search_plugin_registry.names(),
+                "datasources": datasource_registry.names(),
             }
             return {"contents": [{"uri": uri, "mimeType": "application/json",
-                                  "text": json.dumps(plugins, indent=2)}]}
+                                  "text": json.dumps({"plugins": plugins}, indent=2)}]}
         raise MCPError(INVALID_PARAMS, f"resource not found: {uri}")
 
     # --------------------------------------------------------- prompts

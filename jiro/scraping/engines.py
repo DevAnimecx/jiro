@@ -415,3 +415,16 @@ class SearchOrchestrator:
         for item in info:
             item["default"] = item["name"] == self.settings.default_engine
         return info
+
+    async def health_check(self) -> Dict[str, Dict[str, Any]]:
+        """Check health of all registered engines."""
+        health: Dict[str, Dict[str, Any]] = {}
+        for name in self.registry.names():
+            try:
+                engine_cls = self.registry.get(name)
+                engine = engine_cls(self.settings, self.client)
+                ok = await engine.health_check() if hasattr(engine, 'health_check') else True
+                health[name] = {"ok": ok}
+            except Exception as exc:
+                health[name] = {"ok": False, "error": str(exc)}
+        return health

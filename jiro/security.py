@@ -109,10 +109,9 @@ def validate_target_url(
     try:
         addresses = _resolve(host)
     except (socket.gaierror, UnicodeError, OSError) as exc:
-        # DNS unavailable: fail OPEN (see async variant).
-        _log.warning("SSRF check: could not resolve %s (%s); allowing request",
-                     host, exc)
-        return url
+        # SECURITY: Fail CLOSED - reject when DNS resolution fails
+        # This prevents attackers from bypassing SSRF via DNS manipulation
+        raise SSRFError(f"DNS resolution failed for {host}: {exc}")
     if not addresses:
         raise SSRFError(f"no addresses for host {host!r}")
     for addr in addresses:
@@ -156,12 +155,9 @@ async def async_validate_target_url(
     try:
         addresses = await resolve_hostname(host)
     except Exception as exc:
-        # DNS unavailable (offline / air-gapped / captive portal): fail OPEN so
-        # legitimate scraping still works; the IP-literal + already-resolved
-        # checks above remain the primary SSRF defense.
-        _log.warning("SSRF check: could not resolve %s (%s); allowing request",
-                     host, exc)
-        return url
+        # SECURITY: Fail CLOSED - reject when DNS resolution fails
+        # This prevents attackers from bypassing SSRF via DNS manipulation
+        raise SSRFError(f"DNS resolution failed for {host}: {exc}")
     if not addresses:
         raise SSRFError(f"no addresses for host {host!r}")
     for addr in addresses:

@@ -176,16 +176,31 @@ class SessionStore:
                 s.out_queues.clear()
             return s is not None
 
-    async def cleanup(self) -> int:
-        """Drop expired sessions. Returns count removed."""
-        cutoff = time.time() - self._ttl
-        removed = 0
+    async def list_all(self) -> List[MCPSession]:
+        """Return all active sessions (thread-safe)."""
         async with self._lock:
-            for sid in [sid for sid, s in self._sessions.items()
-                        if s.last_seen < cutoff]:
-                await self.delete(sid)
-                removed += 1
-        return removed
+            return list(self._sessions.values())
+
+    async def cleanup(self) -> int:
+        """Drop expired sessions. Returns count removed.
+
+        SECURITY: Inline delete logic to avoid deadlock (asyncio.Lock is not
+        reentrant). We collect expired sessions first, then clean them up.
+        """
+        cutoff = time.time() - self._ttl
+        async with self._lock:
+            expired = [sid for sid, s in self._sessions.items()
+                       if s.last_seen < cutoff]
+            for sid in expired:
+                s = self._sessions.pop(sid, None)
+                if s:
+                    for q in list(s.out_queues):
+                        try:
+                            q.put_nowait(None)  # sentinel to close streams
+                        except Exception:
+                            pass
+                    s.out_queues.clear()
+        return len(expired)
 
 
 def _sse(event: Optional[str], data: Any, event_id: Optional[int] = None) -> str:
@@ -298,7 +313,8 @@ def create_mcp_router() -> APIRouter:
             # when they are stateful. We stay permissive but anonymous.
             session = await store.create(ctx.key_id if ctx else None)
 
-        assert session is not None
+        if session is None:
+            raise RuntimeError("failed to create MCP session")
         headers = {"Mcp-Session-Id": session.id}
 
         # progress sink: forward notifications into the session (and thus to

@@ -326,3 +326,209 @@ async def test_error_response_format(settings):
     assert "error" in resp
     assert "code" in resp["error"]
     assert "message" in resp["error"]
+
+
+@pytest.mark.asyncio
+async def test_resources_list_has_new_resources(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({"jsonrpc": "2.0", "id": 1, "method": "resources/list"})
+    uris = [r["uri"] for r in resp["result"]["resources"]]
+    assert "jiro://social_platforms" in uris
+    assert "jiro://plans" in uris
+    assert "jiro://plugins" in uris
+
+
+@pytest.mark.asyncio
+async def test_resources_read_social_platforms(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+        "params": {"uri": "jiro://social_platforms"},
+    })
+    contents = resp["result"]["contents"]
+    assert contents[0]["uri"] == "jiro://social_platforms"
+    data = json.loads(contents[0]["text"])
+    assert "platforms" in data
+    assert len(data["platforms"]) == 12
+
+
+@pytest.mark.asyncio
+async def test_resources_read_plans(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+        "params": {"uri": "jiro://plans"},
+    })
+    contents = resp["result"]["contents"]
+    data = json.loads(contents[0]["text"])
+    assert "plans" in data
+    assert len(data["plans"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_resources_read_plugins(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+        "params": {"uri": "jiro://plugins"},
+    })
+    contents = resp["result"]["contents"]
+    data = json.loads(contents[0]["text"])
+    assert "plugins" in data
+
+
+@pytest.mark.asyncio
+async def test_prompts_list_has_new_prompts(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({"jsonrpc": "2.0", "id": 1, "method": "prompts/list"})
+    names = [p["name"] for p in resp["result"]["prompts"]]
+    assert "social_research" in names
+    assert "deep_research" in names
+    assert "extract_structured" in names
+    assert "competitor_analysis" in names
+
+
+@pytest.mark.asyncio
+async def test_prompts_get_social_research(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+        "params": {"name": "social_research",
+                   "arguments": {"topic": "AI news", "platforms": "twitter,reddit"}},
+    })
+    assert "messages" in resp["result"]
+    assert "AI news" in resp["result"]["messages"][0]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_prompts_get_deep_research(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+        "params": {"name": "deep_research",
+                   "arguments": {"question": "quantum computing"}},
+    })
+    assert "messages" in resp["result"]
+    assert "quantum computing" in resp["result"]["messages"][0]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_prompts_get_extract_structured(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+        "params": {"name": "extract_structured",
+                   "arguments": {"query": "python web scraping libraries",
+                                  "fields": '{"name": {}, "stars": {}}'}},
+    })
+    assert "messages" in resp["result"]
+    assert "python web scraping libraries" in resp["result"]["messages"][0]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_prompts_get_competitor_analysis(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+        "params": {"name": "competitor_analysis",
+                   "arguments": {"competitor": "openai", "focus": "products"}},
+    })
+    assert "messages" in resp["result"]
+    assert "openai" in resp["result"]["messages"][0]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tools_list_has_new_tools(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    names = [t["name"] for t in resp["result"]["tools"]]
+    assert "health_check" in names
+    assert "cache_stats" in names
+    assert "list_engines" in names
+    assert "list_social_platforms" in names
+    assert len(names) == 16
+
+
+@pytest.mark.asyncio
+async def test_tools_call_health_check(settings):
+    server = JiroMCPServer(settings)
+    await server.start()
+    try:
+        resp = await server.dispatch({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "health_check", "arguments": {}},
+        })
+        assert "error" not in resp
+        text = resp["result"]["content"][0]["text"]
+        data = json.loads(text.split("---\n\n", 1)[1] if "---\n\n" in text else text)
+        assert "status" in data
+        assert data["status"] in ("healthy", "degraded")
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_tools_call_cache_stats(settings):
+    server = JiroMCPServer(settings)
+    await server.start()
+    try:
+        resp = await server.dispatch({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "cache_stats", "arguments": {}},
+        })
+        assert "error" not in resp
+        text = resp["result"]["content"][0]["text"]
+        data = json.loads(text.split("---\n\n", 1)[1] if "---\n\n" in text else text)
+        assert "enabled" in data
+        assert "type" in data
+        assert "ttl" in data
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_tools_call_list_engines(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "list_engines", "arguments": {}},
+    })
+    assert "error" not in resp
+    text = resp["result"]["content"][0]["text"]
+    data = json.loads(text.split("---\n\n", 1)[1] if "---\n\n" in text else text)
+    assert "engines" in data
+    assert len(data["engines"]) == 9
+    engine_names = [e["name"] for e in data["engines"]]
+    assert "google" in engine_names
+    assert "bing" in engine_names
+
+
+@pytest.mark.asyncio
+async def test_tools_call_list_social_platforms(settings):
+    server = JiroMCPServer(settings)
+    resp = await server.dispatch({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "list_social_platforms", "arguments": {}},
+    })
+    assert "error" not in resp
+    text = resp["result"]["content"][0]["text"]
+    data = json.loads(text.split("---\n\n", 1)[1] if "---\n\n" in text else text)
+    assert "platforms" in data
+    assert len(data["platforms"]) == 12
+
+
+@pytest.mark.asyncio
+async def test_tools_call_scrape_rejects_internal_url(settings):
+    server = JiroMCPServer(settings)
+    await server.start()
+    try:
+        resp = await server.dispatch({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "scrape",
+                       "arguments": {"url": "http://169.254.169.254/metadata"}},
+        })
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
+        assert "validation" in resp["error"]["message"].lower() or "blocked" in resp["error"]["message"].lower()
+    finally:
+        await server.stop()
