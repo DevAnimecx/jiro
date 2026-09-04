@@ -246,7 +246,7 @@ def keys_create(
             console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
             raise typer.Exit(1)
         data = resp.json()
-        console.print(f"[bold green]✓[/] key created: [bold]{data['api_key']}[/]")
+        console.print(f"[bold green]+[/] key created: [bold]{data['api_key']}[/]")
         console.print("[yellow]Store it now — it will not be shown again.[/]")
 
 
@@ -291,7 +291,7 @@ def keys_revoke(
         if resp.status_code != 200:
             console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
             raise typer.Exit(1)
-        console.print(f"[bold green]✓[/] key {key_id} revoked")
+        console.print(f"[bold green]+[/] key {key_id} revoked")
 
 
 # --------------------------------------------------------------------------
@@ -340,7 +340,7 @@ def config_init(
     target.parent.mkdir(parents=True, exist_ok=True)
     import yaml
     target.write_text(yaml.safe_dump(settings.dump(), sort_keys=False))
-    console.print(f"[bold green]✓[/] wrote {target}")
+    console.print(f"[bold green]+[/] wrote {target}")
 
 
 @config_app.command("show", help="Show the effective configuration.")
@@ -432,7 +432,7 @@ async def _run_update(
         # Check if update needed
         if current_version == latest_version and not force:
             progress.stop()
-            console.print(f"\n[bold green]✓ Already up to date! (v{current_version})[/]")
+            console.print(f"\n[bold green]+ Already up to date! (v{current_version})[/]")
             if check_only:
                 return
             console.print("[dim]Use --force to reinstall the current version.[/]")
@@ -554,9 +554,9 @@ async def _run_update(
                     cwd=str(Path(__file__).parent.parent),
                 )
                 if result.returncode == 0:
-                    console.print("[bold green]✓ MCP tests passed[/]")
+                    console.print("[bold green]+ MCP tests passed[/]")
                 else:
-                    console.print(f"[yellow]⚠ Some tests failed:[/]\n{result.stdout[-500:]}")
+                    console.print(f"[yellow]! Some tests failed:[/]\n{result.stdout[-500:]}")
             except Exception as e:
                 console.print(f"[yellow]Tests skipped: {e}[/]")
 

@@ -145,16 +145,23 @@ class RobotsManager:
                 return robots
 
         # Check persistent cache
-        if not force_refresh and self.cache is not None:
-            try:
-                cached = await self.cache.get(f"robots:{host}")
-                if cached:
-                    robots = RobotsTxt(**cached)
-                    if time.time() - robots.fetched_at < 3600:
-                        self._cache[host] = robots
-                        return robots
-            except Exception:
-                pass
+            if not force_refresh and self.cache is not None:
+                try:
+                    cached = await self.cache.get(f"robots:{host}")
+                    if cached:
+                        rules = [RobotsRule(**r) for r in cached.get("rules", [])]
+                        robots = RobotsTxt(
+                            host=cached["host"],
+                            rules=rules,
+                            sitemaps=cached.get("sitemaps", []),
+                            fetched_at=cached.get("fetched_at", time.time()),
+                            raw=cached.get("raw", ""),
+                        )
+                        if time.time() - robots.fetched_at < 3600:
+                            self._cache[host] = robots
+                            return robots
+                except Exception:
+                    pass
 
         # Fetch with lock to avoid duplicate requests
         async with self._get_lock(host):
