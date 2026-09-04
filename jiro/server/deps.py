@@ -49,6 +49,10 @@ def get_llm(request: Request) -> Any:
     base_llm = request.app.state.llm
     headers = request.headers
 
+    trusted = headers.get("x-trusted-proxy", "").lower() == "jiro-cloud"
+    if not trusted:
+        return base_llm
+
     api_key = headers.get("x-llm-api-key")
     provider = headers.get("x-llm-provider")
     model = headers.get("x-llm-model")
