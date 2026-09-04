@@ -67,13 +67,16 @@ def _get_local_ip() -> str:
 ALLOWED_DEV_IP = "192.168.1.3"
 
 
-def _require_dev_ip() -> None:
+def _require_dev_ip():
     """Restrict dev commands to the developer's IP address."""
     current_ip = _get_local_ip()
     if current_ip != ALLOWED_DEV_IP:
         console.print(f"[red]Dev commands are restricted to the developer's IP.[/]")
         console.print(f"[dim]Your IP: {current_ip}[/]")
         raise typer.Exit(1)
+    def decorator(func):
+        return func
+    return decorator
 
 
 def version_callback(value: bool) -> None:
@@ -437,7 +440,10 @@ async def _run_update(
         progress.update(task, description="Checking for latest version...")
         latest_version = current_version
 
-        if dev:
+        # --force without --dev means "get the absolute latest from GitHub"
+        use_github = dev or force
+
+        if use_github:
             # Dev mode: get latest commit info from GitHub
             try:
                 result = subprocess.run(
@@ -457,7 +463,7 @@ async def _run_update(
                 raise typer.Exit(1)
             progress.update(task, description=f"Latest: [bold]{latest_version}[/]")
 
-            if not force and not check_only:
+            if dev and not force and not check_only:
                 progress.stop()
                 console.print(f"\n[bold yellow]Dev version will be installed from GitHub main.[/]")
                 if not typer.confirm("Continue?"):
@@ -504,10 +510,13 @@ async def _run_update(
             console.print(f"\n[bold yellow]Update available: {current_version} -> {latest_version}[/]")
             return
 
-        # For dev mode, skip the version comparison check above
-        if dev:
+        # For --force or --dev, skip the version comparison check above
+        if use_github:
             progress.stop()
-            console.print(f"\n[bold yellow]Installing dev version from GitHub...[/]")
+            if dev:
+                console.print(f"\n[bold yellow]Installing dev version from GitHub...[/]")
+            else:
+                console.print(f"\n[bold yellow]Force updating from GitHub...[/]")
 
         # Step 3: Backup database
         if not skip_backup:
@@ -526,8 +535,8 @@ async def _run_update(
                 progress.update(task, description=f"[yellow]Backup skipped: {e}[/]")
 
         # Step 4: Install latest version
-        if dev:
-            progress.update(task, description="Installing latest dev version from GitHub...")
+        if use_github:
+            progress.update(task, description="Installing latest version from GitHub...")
             try:
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", "--upgrade",
@@ -540,7 +549,7 @@ async def _run_update(
                     progress.stop()
                     console.print(f"[red]GitHub install failed:[/]\n{result.stderr}")
                     raise typer.Exit(1)
-                progress.update(task, description="[bold green]Installed dev version from GitHub[/]")
+                progress.update(task, description="[bold green]Installed latest version from GitHub[/]")
             except subprocess.TimeoutExpired:
                 progress.stop()
                 console.print("[red]GitHub install timed out[/]")

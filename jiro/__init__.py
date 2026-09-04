@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.2.4"  # Fix SocialRouter, add dev command, restrict dev IP
+__version__ = "0.2.5"  # --force uses GitHub, dev command IP-restricted
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 
