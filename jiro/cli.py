@@ -520,55 +520,69 @@ async def _run_update(
                 progress.update(task, description=f"[yellow]Backup skipped: {e}[/]")
 
         # Step 4: Install latest version
-        if use_github:
-            progress.update(task, description="Installing latest version from GitHub...")
-            try:
-                cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
-                       "git+https://github.com/DevAnimecx/jiro.git@main"]
-                if sys.platform == "win32":
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = subprocess.SW_HIDE
-                    creation = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
-                    proc = subprocess.Popen(
-                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        startupinfo=si, creationflags=creation
-                    )
-                    result = proc.communicate()
-                    result = subprocess.CompletedProcess(cmd, proc.returncode, result[0], result[1])
-                else:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-                if result.returncode != 0:
-                    progress.stop()
-                    console.print(f"[red]GitHub install failed:[/]\n{result.stderr}")
-                    raise typer.Exit(1)
-                progress.update(task, description="[bold green]Installed latest version from GitHub[/]")
-            except subprocess.TimeoutExpired:
-                progress.stop()
-                console.print("[red]GitHub install timed out[/]")
-                raise typer.Exit(1)
+        # On Windows, we must exit jiro first then run pip from a separate process
+        # because jiro.exe holds a lock on itself
+        if sys.platform == "win32":
+            import tempfile
+            import time
+
+            # Build pip command
+            if use_github:
+                pip_args = [sys.executable, "-m", "pip", "install", "--upgrade",
+                            "git+https://github.com/DevAnimecx/jiro.git@main"]
+            else:
+                pip_args = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
+
+            # Write updater batch script
+            bat_path = Path(tempfile.gettempdir()) / "jiro_updater.bat"
+            pip_cmd = " ".join(f'"{a}"' for a in pip_args)
+            bat_content = f"""@echo off
+echo Waiting for jiro.exe to release...
+timeout /t 2 /nobreak >nul
+echo Installing update...
+{pip_cmd}
+if %errorlevel%==0 (
+    echo Update complete!
+    echo.
+    jiro --version
+) else (
+    echo Update FAILED. Try: python -m pip install --upgrade jirosearch
+    pause
+)
+"""
+            bat_path.write_text(bat_content, encoding="utf-8")
+
+            progress.stop()
+            console.print(f"\n[bold yellow]Launching updater after jiro exits...[/]")
+            console.print(f"[dim]Updater script: {bat_path}[/]")
+
+            # Start the batch file detached - it will run after jiro.exe releases
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = subprocess.SW_HIDE
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", str(bat_path)],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                startupinfo=si,
+            )
+            console.print("[green]Updater launched. Jiro will exit now.[/]")
+            raise typer.Exit(0)
+
         else:
-            progress.update(task, description=f"Installing jirosearch {latest_version}...")
+            # Linux/Mac: detached subprocess works fine
+            progress.update(task, description="Installing latest version...")
             try:
-                cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
-                if sys.platform == "win32":
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = subprocess.SW_HIDE
-                    creation = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
-                    proc = subprocess.Popen(
-                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        startupinfo=si, creationflags=creation
-                    )
-                    result = proc.communicate()
-                    result = subprocess.CompletedProcess(cmd, proc.returncode, result[0], result[1])
+                if use_github:
+                    cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
+                           "git+https://github.com/DevAnimecx/jiro.git@main"]
                 else:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode != 0:
                     progress.stop()
                     console.print(f"[red]Installation failed:[/]\n{result.stderr}")
                     raise typer.Exit(1)
-                progress.update(task, description=f"[bold green]Installed jirosearch {latest_version}[/]")
+                progress.update(task, description="[bold green]Installed successfully[/]")
             except subprocess.TimeoutExpired:
                 progress.stop()
                 console.print("[red]Installation timed out[/]")
