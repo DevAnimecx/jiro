@@ -522,8 +522,8 @@ async def _run_update(
         # Check social platforms
         try:
             from jiro.scraping.social import SocialRouter
-            router = SocialRouter(Settings.load(config))
-            platforms = list(router._scrapers.keys())
+            router = SocialRouter()
+            platforms = list(set(p for p, _ in router._platform_patterns))
             verification_results.append(("Social platforms", True, f"{len(platforms)} platforms"))
         except Exception as e:
             verification_results.append(("Social platforms", False, str(e)))
