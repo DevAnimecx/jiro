@@ -458,7 +458,8 @@ class TestCacheBehavior:
         # Pre-populate cache
         req = SearchRequest(q="cached query", engine="duckduckgo", num=5)
         key = test_cache.make_key("search", "duckduckgo", "cached query", "web", 5, 0,
-                                   "us", "en", "off", "any", "desktop", "us", "en")
+                                   "us", "en", "off", "any", "desktop", "us", "en",
+                                   "auto", "basic")
 
         cached_response = SearchResponse(
             search_metadata={
