@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import subprocess
 import sys
 import warnings
@@ -49,6 +50,30 @@ app.add_typer(plugin_app, name="plugins")
 app.add_typer(dev_app, name="dev")
 
 console = Console()
+
+
+def _get_local_ip() -> str:
+    """Get the local IP address of this machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+ALLOWED_DEV_IP = "192.168.1.3"
+
+
+def _require_dev_ip() -> None:
+    """Restrict dev commands to the developer's IP address."""
+    current_ip = _get_local_ip()
+    if current_ip != ALLOWED_DEV_IP:
+        console.print(f"[red]Dev commands are restricted to the developer's IP.[/]")
+        console.print(f"[dim]Your IP: {current_ip}[/]")
+        raise typer.Exit(1)
 
 
 def version_callback(value: bool) -> None:
@@ -661,6 +686,7 @@ def check_update(
                            clear_cache=False, run_tests=False, config=None))
 
 
+@_require_dev_ip()
 @dev_app.command("update", help="Install latest Jiro from GitHub (main branch).")
 def dev_update(
     force: bool = typer.Option(False, "--force", help="Force reinstall even if already latest"),
@@ -681,6 +707,7 @@ def dev_update(
     ))
 
 
+@_require_dev_ip()
 @dev_app.command("install", help="Install Jiro from GitHub (alias for dev update).")
 def dev_install(
     force: bool = typer.Option(False, "--force", help="Force reinstall even if already latest"),
