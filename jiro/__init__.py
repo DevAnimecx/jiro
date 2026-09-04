@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.2.1"  # Security patch release
+__version__ = "0.2.3"  # CLI fixes: robots.txt cache, Unicode output
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 
