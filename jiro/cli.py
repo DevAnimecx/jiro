@@ -444,23 +444,8 @@ async def _run_update(
         use_github = dev or force
 
         if use_github:
-            # Dev mode: get latest commit info from GitHub
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade",
-                     "git+https://github.com/DevAnimecx/jiro.git@main#subdirectory=jiro-search"],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-                if result.returncode == 0:
-                    latest_version = "dev (main)"
-                else:
-                    console.print(f"[red]GitHub install failed:[/]\n{result.stderr}")
-                    raise typer.Exit(1)
-            except subprocess.TimeoutExpired:
-                console.print("[red]GitHub install timed out[/]")
-                raise typer.Exit(1)
+            # Dev/force mode: skip PyPI check, install from GitHub
+            latest_version = f"main (GitHub)"
             progress.update(task, description=f"Latest: [bold]{latest_version}[/]")
 
             if dev and not force and not check_only:
@@ -538,13 +523,21 @@ async def _run_update(
         if use_github:
             progress.update(task, description="Installing latest version from GitHub...")
             try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade",
-                     "git+https://github.com/DevAnimecx/jiro.git@main#subdirectory=jiro-search"],
-                    capture_output=True,
-                    text=True,
-                    timeout=180,
-                )
+                cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
+                       "git+https://github.com/DevAnimecx/jiro.git@main"]
+                if sys.platform == "win32":
+                    si = subprocess.STARTUPINFO()
+                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si.wShowWindow = subprocess.SW_HIDE
+                    creation = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                    proc = subprocess.Popen(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        startupinfo=si, creationflags=creation
+                    )
+                    result = proc.communicate()
+                    result = subprocess.CompletedProcess(cmd, proc.returncode, result[0], result[1])
+                else:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode != 0:
                     progress.stop()
                     console.print(f"[red]GitHub install failed:[/]\n{result.stderr}")
@@ -557,12 +550,20 @@ async def _run_update(
         else:
             progress.update(task, description=f"Installing jirosearch {latest_version}...")
             try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
+                cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
+                if sys.platform == "win32":
+                    si = subprocess.STARTUPINFO()
+                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si.wShowWindow = subprocess.SW_HIDE
+                    creation = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                    proc = subprocess.Popen(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        startupinfo=si, creationflags=creation
+                    )
+                    result = proc.communicate()
+                    result = subprocess.CompletedProcess(cmd, proc.returncode, result[0], result[1])
+                else:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
                 if result.returncode != 0:
                     progress.stop()
                     console.print(f"[red]Installation failed:[/]\n{result.stderr}")
