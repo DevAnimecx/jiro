@@ -41,10 +41,12 @@ app = typer.Typer(
 search_app = typer.Typer(help="Search the web from the CLI.", no_args_is_help=True)
 keys_app = typer.Typer(help="Manage API keys.", no_args_is_help=True)
 config_app = typer.Typer(help="Configuration management.", no_args_is_help=True)
+dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_is_help=True)
 app.add_typer(search_app, name="search")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
 app.add_typer(plugin_app, name="plugins")
+app.add_typer(dev_app, name="dev")
 
 console = Console()
 
@@ -657,6 +659,39 @@ def check_update(
     """Check if a newer version is available."""
     asyncio.run(_run_update(check_only=True, force=False, dev=dev, skip_backup=True,
                            clear_cache=False, run_tests=False, config=None))
+
+
+@dev_app.command("update", help="Install latest Jiro from GitHub (main branch).")
+def dev_update(
+    force: bool = typer.Option(False, "--force", help="Force reinstall even if already latest"),
+    skip_backup: bool = typer.Option(False, "--skip-backup", help="Skip database backup"),
+    clear_cache: bool = typer.Option(True, "--clear-cache/--no-clear-cache", help="Clear cache after update"),
+    run_tests: bool = typer.Option(True, "--tests/--no-tests", help="Run tests after update"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Install the latest development version from GitHub main branch.
+
+    This is the fastest way to get the latest fixes and features.
+    Equivalent to: jiro update --dev
+    """
+    asyncio.run(_run_update(
+        check_only=False, force=force, dev=True,
+        skip_backup=skip_backup, clear_cache=clear_cache,
+        run_tests=run_tests, config=config
+    ))
+
+
+@dev_app.command("install", help="Install Jiro from GitHub (alias for dev update).")
+def dev_install(
+    force: bool = typer.Option(False, "--force", help="Force reinstall even if already latest"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Install the latest development version from GitHub main branch."""
+    asyncio.run(_run_update(
+        check_only=False, force=force, dev=True,
+        skip_backup=False, clear_cache=True,
+        run_tests=True, config=config
+    ))
 
 
 @app.command(help="Show Jiro system status and health.")
