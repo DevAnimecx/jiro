@@ -140,19 +140,58 @@ def create_app(settings: Optional[Settings] = None,
     app = FastAPI(
         title="Jiro Search API",
         description=(
-            "Local-first, AI-native web search & scraping API — a drop-in, "
-            "self-hosted alternative to SerpAPI.\n\n"
-            "Endpoints: `/search` (web search), `/scrape` (URL extraction), "
-            "`/ai/search` (agentic research), `/api-keys` (team keys). "
-            "See the `/openapi.json` schema for full details."
+            "# Jiro — The Search Intelligence Platform\n\n"
+            "Local-first, AI-native web search & scraping API with **9 search engines**, "
+            "**12 social platforms**, and **MCP integration**. A self-hosted, drop-in "
+            "alternative to SerpAPI, ScraperAPI, and Bright Data.\n\n"
+            "## Quick Start\n"
+            "```bash\n"
+            "pip install jirosearch\n"
+            "jiro serve\n"
+            "```\n\n"
+            "## Key Endpoints\n"
+            "| Endpoint | Description |\n"
+            "|----------|-------------|\n"
+            "| `GET /search` | Web search across 9 engines |\n"
+            "| `POST /scrape` | Scrape any URL to markdown |\n"
+            "| `POST /social` | Scrape 12 social platforms |\n"
+            "| `POST /ai/search` | AI-powered research (Enterprise) |\n"
+            "| `POST /v1/smart` | Intent-aware smart routing |\n"
+            "| `GET /health` | Health check |\n"
+            "| `GET /metrics` | Prometheus metrics |\n\n"
+            "## Authentication\n"
+            "Free tier: API key via `Authorization: Bearer <key>` header.\n"
+            "Enterprise: License token via `Authorization: License <token>` header.\n\n"
+            "## Rate Limits\n"
+            "- **Free**: 100 RPM, 10,000 RPD\n"
+            "- **Enterprise**: 1,000 RPM, 1,000,000 RPD"
         ),
         version=__version__,
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
-        contact={"name": "Jiro", "url": "https://github.com/DevAnimecx/jiro"},
-        license_info={"name": "MIT"},
+        contact={
+            "name": "Jiro Support",
+            "url": "https://github.com/DevAnimecx/jiro",
+            "email": "webcrafterreal@gmail.com",
+        },
+        license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
+        openapi_tags=[
+            {"name": "search", "description": "Web search across 9 engines"},
+            {"name": "scrape", "description": "URL scraping to markdown/text/html/json"},
+            {"name": "social", "description": "Social media scraping (12 platforms)"},
+            {"name": "ai", "description": "AI-powered research and extraction (Enterprise)"},
+            {"name": "smart", "description": "Intent-aware smart search routing"},
+            {"name": "pro", "description": "API key management and usage tracking"},
+            {"name": "enterprise", "description": "Enterprise admin: tenants, SLA, compliance, webhooks"},
+            {"name": "analytics", "description": "Usage analytics and insights"},
+            {"name": "admin", "description": "Admin operations (API keys, usage)"},
+            {"name": "ops", "description": "Operations: health, metrics, engine status"},
+            {"name": "plugins", "description": "Plugin management and discovery"},
+            {"name": "compliance", "description": "GDPR, audit logging, data export"},
+            {"name": "system", "description": "System info and health checks"},
+        ],
     )
 
     _add_middleware(app, settings)
@@ -206,6 +245,13 @@ def _add_middleware(app: FastAPI, settings: Settings) -> None:
         latency = (time.perf_counter() - started)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Jiro-Version"] = __version__
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if not request.url.path.startswith("/docs") and request.url.path != "/openapi.json":
+            response.headers["Content-Security-Policy"] = "default-src 'self'"
 
         # Record Prometheus metrics
         try:

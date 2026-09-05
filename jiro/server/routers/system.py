@@ -20,16 +20,51 @@ async def index(request: Request) -> Dict[str, Any]:
     return {
         "name": "Jiro Search API",
         "version": __version__,
-        "tagline": "Local-first, AI-native search & scraping API",
-        "docs": "/docs",
-        "openapi": "/openapi.json",
-        "health": "/health",
-        "endpoints": {
-            "search": "/search.json?engine=google&q=hello&num=5",
-            "scrape": "POST /scrape",
-            "ai_search": "POST /ai/search",
-            "engines": "/engines",
+        "tagline": "One API. 9 search engines. 12 social platforms. AI-powered. Free forever.",
+        "links": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "openapi": "/openapi.json",
+            "health": "/health",
             "metrics": "/metrics",
+            "github": "https://github.com/DevAnimecx/jiro",
+            "pypi": "https://pypi.org/project/jirosearch/",
+            "landing": "https://jiro.ai",
+        },
+        "tiers": {
+            "free": {
+                "price": "$0/forever",
+                "rpm": 100,
+                "rpd": 10000,
+                "features": [
+                    "basic_search", "basic_scrape", "social_advanced", "social_search",
+                    "smart_search", "structured_extraction", "social_batch", "self_learning",
+                ],
+            },
+            "enterprise": {
+                "price": "$499/mo",
+                "rpm": 1000,
+                "rpd": 1000000,
+                "features": "all",
+            },
+        },
+        "engines": [
+            "google", "bing", "brave", "duckduckgo", "youtube",
+            "amazon", "ebay", "yandex", "baidu",
+        ],
+        "social_platforms": [
+            "reddit", "twitter", "youtube", "linkedin", "tiktok",
+            "instagram", "facebook", "threads", "hackernews",
+            "bluesky", "telegram", "pinterest",
+        ],
+        "endpoints": {
+            "search": "GET /search?q=query&engine=google",
+            "scrape": "POST /scrape",
+            "social": "POST /social",
+            "ai_search": "POST /ai/search (Enterprise)",
+            "smart": "POST /v1/smart",
+            "analytics": "GET /analytics",
+            "enterprise": "GET /enterprise/* (Enterprise)",
         },
     }
 
