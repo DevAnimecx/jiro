@@ -12,7 +12,7 @@
 [![Docker](https://img.shields.io/docker/pulls/devanimecx/jiro.svg)](https://hub.docker.com/r/devanimecx/jiro)
 [![Downloads](https://img.shields.io/pypi/dm/jirosearch.svg)](https://pypi.org/project/jirosearch/)
 
-[Get Started Free](#quick-start) · [API Docs](http://localhost:8000/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
+[Get Started Free](#quick-start) · [Website](https://jiro.dev) · [API Docs](https://jiro.dev/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
 
 </div>
 
@@ -56,14 +56,14 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 <tr>
 <td width="50%">
 
-### 🔍 Search Intelligence
+### Search Intelligence
 - **Hybrid Search** — keyword + semantic + freshness
 - **Multi-Query** — parallel query expansion
 - **Answer Synthesis** — extractive answers from results
 - **Search Filters** — domain, time range, category
 - **Highlights** — query-aware snippet extraction
 
-### 🌐 Social Scraping (12 Platforms)
+### Social Scraping (12 Platforms)
 - Reddit, Twitter/X, YouTube, LinkedIn
 - TikTok, Instagram, Facebook, Threads
 - Hacker News, Bluesky, Telegram, Pinterest
@@ -71,13 +71,13 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 </td>
 <td width="50%">
 
-### 🧠 AI-Powered
+### AI-Powered
 - **Smart Search** — intent-aware auto-routing
 - **Structured Extraction** — JSON schema-based data extraction
 - **AI Research** — agentic search with citations *(Enterprise)*
 - **Intent Classification** — 16 intent types
 
-### 🏢 Enterprise Ready
+### Enterprise Ready
 - **Tenant Management** — multi-tenant isolation
 - **SOC2 Compliance** — audit logging, data residency
 - **SLA Monitoring** — p50/p95/p99 latency tracking
@@ -231,7 +231,7 @@ Everything in Free, plus unlimited power.
 - Premium support
 - Commercial use license
 
-[Get Enterprise →](https://jiro.ai/pricing)
+[Get Enterprise →](mailto:sales@jiro.ai)
 
 ---
 
@@ -333,6 +333,7 @@ ruff check jiro/
 
 ## Community
 
+- [Website](https://jiro.dev) — Home
 - [GitHub](https://github.com/DevAnimecx/jiro) — Source code
 - [Discord](https://discord.gg/jiro) — Community chat
 - [Twitter](https://twitter.com/jirosearch) — Updates

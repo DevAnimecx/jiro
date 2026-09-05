@@ -4,6 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
+| 0.2.x   | ✅ |
 | 0.1.x   | ✅ |
 | < 0.1   | ❌ |
 
@@ -19,6 +20,19 @@ Instead, report it privately:
 
 We will acknowledge within **48 hours**, aim for a fix within **7 days** for
 critical issues, and coordinate a public disclosure after a patch is released.
+
+## Scope
+
+This policy covers the Jiro Search API (`jirosearch` PyPI package). For vulnerabilities in the landing page (jiro.dev), see the [landing page repository](https://github.com/DevAnimecx/jirosearch/security).
+
+## Security Features
+
+- **HMAC License Tokens** — Enterprise tier authentication via `Authorization: License <token>` header
+- **Rate Limiting** — Per-tier RPM/RPD enforcement
+- **SSRF Protection** — Internal network access blocked
+- **RBAC** — Role-based access control for multi-tenant deployments
+- **Audit Logging** — Full request/response audit chain (Enterprise)
+- **Encryption** — Field-level encryption for sensitive data (Enterprise)
 
 ## Responsible Use Note
 
