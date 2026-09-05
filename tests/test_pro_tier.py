@@ -19,50 +19,43 @@ class TestPlanLimits:
 
     def test_free_tier_limits(self):
         limits = PLAN_LIMITS[PlanTier.FREE]
-        assert limits.rpm == 10
-        assert limits.rpd == 100
-        assert limits.hybrid_search is False
-        assert limits.structured_extraction is False
-        assert limits.social_scraping is True
-        assert limits.smart_search is False
-
-    def test_starter_tier_limits(self):
-        limits = PLAN_LIMITS[PlanTier.STARTER]
-        assert limits.rpm == 60
-        assert limits.rpd == 5000
+        assert limits.rpm == 100
+        assert limits.rpd == 10000
         assert limits.hybrid_search is True
         assert limits.structured_extraction is True
         assert limits.social_scraping is True
         assert limits.smart_search is True
         assert limits.webhook_alerts is True
-
-    def test_pro_tier_limits(self):
-        limits = PLAN_LIMITS[PlanTier.PRO]
-        assert limits.rpm == 300
-        assert limits.rpd == 50000
-        assert limits.max_results == 50
-        assert limits.max_concurrent == 10
-        assert limits.custom_models is True
+        assert limits.feature_ai_search is False
+        assert limits.feature_white_label is False
+        assert limits.feature_social_batch is True
+        assert limits.feature_self_learning is True
 
     def test_enterprise_tier_limits(self):
         limits = PLAN_LIMITS[PlanTier.ENTERPRISE]
         assert limits.rpm == 1000
-        assert limits.rpd == 500000
-        assert limits.max_results == 100
-        assert limits.max_concurrent == 20
-        assert limits.priority == 3
+        assert limits.rpd == 1000000
+        assert limits.max_results == 200
+        assert limits.max_concurrent == 50
+        assert limits.priority == 10
+        assert limits.feature_ai_search is True
+        assert limits.feature_white_label is True
+        assert limits.feature_self_learning is True
 
     def test_all_tiers_have_limits(self):
         for tier in PlanTier:
             assert tier in PLAN_LIMITS
 
     def test_tiers_are_ordered_by_limits(self):
-        tiers = [PlanTier.FREE, PlanTier.STARTER, PlanTier.PRO, PlanTier.ENTERPRISE]
+        tiers = [PlanTier.FREE, PlanTier.ENTERPRISE]
         for i in range(len(tiers) - 1):
             current = PLAN_LIMITS[tiers[i]]
             next_tier = PLAN_LIMITS[tiers[i + 1]]
             assert current.rpm < next_tier.rpm
             assert current.rpd < next_tier.rpd
+
+    def test_only_two_tiers_exist(self):
+        assert list(PlanTier) == [PlanTier.FREE, PlanTier.ENTERPRISE]
 
 
 class TestRateLimiter:
@@ -80,7 +73,7 @@ class TestRateLimiter:
         await limiter.check("key1", PlanTier.FREE, "search")
         usage = await limiter.get_usage("key1", PlanTier.FREE)
         assert usage["tier"] == "free"
-        assert usage["rpm_limit"] == 10
+        assert usage["rpm_limit"] == 100
 
 
 class TestAPIKey:
@@ -104,11 +97,11 @@ class TestAPIKey:
             name="Test Key",
             key_hash="abc123",
             key_prefix="jiro_test",
-            tier=PlanTier.PRO,
+            tier=PlanTier.ENTERPRISE,
         )
         limits = key.limits
-        assert limits.rpm == 300
-        assert limits.rpd == 50000
+        assert limits.rpm == 1000
+        assert limits.rpd == 1000000
 
 
 class TestProManager:
@@ -128,9 +121,8 @@ class TestProManager:
 
     def test_plan_tier_enum(self):
         assert PlanTier.FREE.value == "free"
-        assert PlanTier.STARTER.value == "starter"
-        assert PlanTier.PRO.value == "pro"
         assert PlanTier.ENTERPRISE.value == "enterprise"
+        assert len(PlanTier) == 2
 
 
 class TestPlanInfo:

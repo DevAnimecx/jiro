@@ -123,3 +123,10 @@ class LLMError(JiroError):
 class ScrapeError(JiroError):
     code = "scrape_error"
     status_code = 502
+
+
+class LicenseError(JiroError):
+    """License validation or feature access failure."""
+
+    code = "license_error"
+    status_code = 403

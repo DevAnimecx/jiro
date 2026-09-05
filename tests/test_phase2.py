@@ -237,12 +237,9 @@ def test_ai_agent_endpoint(client):
         "goal": "what are the best python web scraping libraries",
         "max_steps": 2, "max_sources": 2, "max_sources_per_step": 2,
     })
-    assert r.status_code == 200
+    assert r.status_code == 403
     data = r.json()
-    assert data["reasoning_steps"]
-    assert data["citations"]
-    steps = [s["step"] for s in data["reasoning_steps"]]
-    assert "plan" in steps and "synthesize" in steps
+    assert data["error_code"] == "license_error"
 
 
 # --------------------------------------------------------------------------

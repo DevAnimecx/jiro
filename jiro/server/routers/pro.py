@@ -29,7 +29,7 @@ router = APIRouter(prefix="/v1/pro", tags=["pro"])
 
 class CreateKeyRequest(BaseModel):
     name: str = Field(..., description="Friendly name for the API key")
-    tier: str = Field("free", description="Plan tier: free, starter, pro, enterprise")
+    tier: str = Field("free", description="Plan tier: free or enterprise")
     scopes: List[str] = Field(default=["search", "scrape", "ai"], description="Allowed scopes")
 
 
@@ -44,7 +44,7 @@ class CreateKeyResponse(BaseModel):
 
 
 class UpgradeKeyRequest(BaseModel):
-    tier: str = Field(..., description="New plan tier: starter, pro, enterprise")
+    tier: str = Field(..., description="New plan tier: enterprise")
 
 
 class KeyInfo(BaseModel):
@@ -254,8 +254,6 @@ async def list_plans():
     plans = []
     prices = {
         PlanTier.FREE: 0.0,
-        PlanTier.STARTER: 29.0,
-        PlanTier.PRO: 99.0,
         PlanTier.ENTERPRISE: 499.0,
     }
 
@@ -284,13 +282,11 @@ async def get_plan_info(tier: str):
     try:
         plan_tier = PlanTier(tier)
     except ValueError:
-        raise HTTPException(400, f"Invalid tier: {tier}")
+        raise HTTPException(400, f"Invalid tier: {tier}. Valid tiers: free, enterprise")
 
     limits = PLAN_LIMITS[plan_tier]
     prices = {
         PlanTier.FREE: 0.0,
-        PlanTier.STARTER: 29.0,
-        PlanTier.PRO: 99.0,
         PlanTier.ENTERPRISE: 499.0,
     }
 

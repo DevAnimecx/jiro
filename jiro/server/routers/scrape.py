@@ -19,6 +19,7 @@ from jiro.server.deps import (
     get_client,
     get_llm,
     record_usage,
+    require_feature,
 )
 
 router = APIRouter(tags=["scrape"])
@@ -28,7 +29,7 @@ router = APIRouter(tags=["scrape"])
 async def scrape(
     request: Request,
     body: ScrapeRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("basic_scrape")),
     client: Any = Depends(get_client),
     cache: CacheManager = Depends(get_cache),
     llm: LLM = Depends(get_llm),
@@ -83,7 +84,7 @@ async def scrape(
 async def scrape_batch(
     request: Request,
     items: List[BatchScrapeItem],
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("smart_search")),
     client: Any = Depends(get_client),
     cache: CacheManager = Depends(get_cache),
     llm: LLM = Depends(get_llm),

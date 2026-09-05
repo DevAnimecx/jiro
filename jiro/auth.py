@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 
 import jwt
 
+from fastapi import Depends
+
 from jiro.config import Settings
 from jiro.errors import (
     AuthError,
@@ -24,6 +26,7 @@ from jiro.errors import (
     RateLimitError,
 )
 from jiro.db import Database
+from jiro.session import SessionManager
 
 KEY_PREFIX = "jsk_"
 KEY_ID_PREFIX = "key_"
@@ -50,14 +53,17 @@ class AuthManager:
         self.settings = settings
         self.db = db
         self._windows: Dict[str, List[float]] = {}
-        # Redis-backed rate limiting (used when cache.type == "redis").
         self._redis = None
         self._redis_url = (
             settings.get("cache.url", "redis://localhost:6379/0")
             if settings.cache_type == "redis" else None
         )
-        # JWT algorithm: HS256 (shared secret) or RS256 (asymmetric keys).
         self.jwt_algorithm = settings.get("auth.jwt_algorithm", "HS256") or "HS256"
+        self._session_manager = SessionManager(settings, db)
+        self._oidc_authenticator = None
+        if settings.get("auth.oidc"):
+            from jiro.auth_oidc import OIDCAuthenticator
+            self._oidc_authenticator = OIDCAuthenticator(settings)
 
     # ------------------------------------------------------ startup validation
     def validate_security_config(self) -> None:
@@ -135,17 +141,25 @@ class AuthManager:
         if record is None or record.get("role") != "admin":
             raise JiroPermissionError("admin role required")
 
-    # ------------------------------------------------------------------- jwt
+    # ------------------------------------------------------------------- RBAC
+    async def authorize_rbac(self, record: Dict[str, Any], permission: str) -> None:
+        """Check RBAC permission for a record."""
+        from jiro.rbac import get_rbac_manager
+        rbac = get_rbac_manager(self.db, self.settings)
+        identity = record.get("id", "")
+        await rbac.require_permission(identity, permission)
+
     async def issue_token(self, api_key: str) -> Dict[str, Any]:
         record = await self.authenticate(api_key)
         ttl = self.settings.jwt_ttl_minutes * 60
         now = int(time.time())
+        jti = str(uuid.uuid4())
         payload = {
             "sub": record["id"],
             "role": record["role"],
             "iat": now,
             "exp": now + ttl,
-            "jti": uuid.uuid4().hex,
+            "jti": jti,
         }
         if self.jwt_algorithm == "RS256":
             key = self.settings.get("auth.jwt_private_key")
@@ -158,6 +172,13 @@ class AuthManager:
             if not secret:
                 raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
             token = jwt.encode(payload, secret, algorithm="HS256")
+        
+        await self._session_manager.create_session(
+            key_id=record["id"],
+            jti=jti,
+            expires_at=now + ttl,
+        )
+        
         return {"access_token": token, "token_type": "bearer",
                 "expires_in": ttl, "scope": record["role"]}
 
@@ -172,19 +193,46 @@ class AuthManager:
             if not verify_key:
                 raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
         try:
-            return jwt.decode(token, verify_key, algorithms=[self.jwt_algorithm])
+            claims = jwt.decode(token, verify_key, algorithms=[self.jwt_algorithm])
+            jti = claims.get("jti")
+            if jti and not self._session_manager.is_session_valid(jti):
+                raise AuthError("token revoked (session invalid)")
+            return claims
         except jwt.ExpiredSignatureError as exc:
             raise AuthError("token expired") from exc
         except jwt.InvalidTokenError as exc:
             raise AuthError("invalid token") from exc
+    
+    async def revoke_token(self, token: str) -> None:
+        try:
+            claims = self.decode_token(token)
+            jti = claims.get("jti")
+            if jti:
+                await self._session_manager.revoke_session(jti)
+        except AuthError:
+            pass
+    
+    async def revoke_all_user_tokens(self, key_id: str) -> int:
+        return await self._session_manager.revoke_all_sessions(key_id)
+    
+    async def authenticate_oidc(self, token: str, provider: str) -> Dict[str, Any]:
+        if not self._oidc_authenticator:
+            raise AuthError("OIDC not configured")
+        
+        claims = await self._oidc_authenticator.validate_token(token, provider)
+        
+        user = await self._oidc_authenticator.provision_user(claims, provider)
+        
+        return {
+            "id": user["id"],
+            "name": user.get("name", ""),
+            "email": user.get("email", ""),
+            "role": "user",
+            "oidc_provider": provider,
+            "oidc_subject": user.get("subject", ""),
+        }
 
-    # ----------------------------------------------------------- rate limiting
     def check_rate_limit(self, bucket: str, rpm: Optional[int] = None) -> None:
-        """In-memory sliding-window rate limit (single-worker / fallback).
-
-        For multi-worker deployments use :meth:`check_rate_limit_async`, which
-        stores the sliding window in Redis when ``cache.type == redis``.
-        """
         limit = rpm if rpm is not None else self.settings.rate_limit_rpm
         if limit <= 0:
             return
@@ -200,7 +248,6 @@ class AuthManager:
 
     async def check_rate_limit_async(self, bucket: str,
                                      rpm: Optional[int] = None) -> None:
-        """Rate limit that uses Redis when configured (correct across workers)."""
         limit = rpm if rpm is not None else self.settings.rate_limit_rpm
         if limit <= 0:
             return
@@ -211,7 +258,7 @@ class AuthManager:
 
     async def _redis_sliding_window(self, bucket: str, limit: int) -> None:
         client = await self._get_redis()
-        if client is None:  # redis unreachable → fail open to in-memory
+        if client is None:
             self.check_rate_limit(bucket, limit)
             return
         key = f"jiro:ratelimit:{bucket}"
@@ -232,7 +279,6 @@ class AuthManager:
         except RateLimitError:
             raise
         except Exception:
-            # Never block traffic because of a cache hiccup.
             self.check_rate_limit(bucket, limit)
 
     async def _get_redis(self):
@@ -250,9 +296,6 @@ class AuthManager:
         self._windows.clear()
 
 
-# --------------------------------------------------------------------------
-# FastAPI dependency helpers
-# --------------------------------------------------------------------------
 def _extract_key(request: Any) -> Optional[str]:
     """Extract API key from request. SECURITY: Header-only authentication.
     
@@ -303,7 +346,7 @@ class AuthContext:
 
 async def build_auth_context(request: Any, auth: AuthManager,
                              require: bool = True) -> AuthContext:
-    """Resolve identity from API key header/param or Bearer JWT."""
+    """Resolve identity from API key header/param, Bearer JWT, or OIDC token."""
     api_key = _extract_key(request)
     if api_key:
         record = await auth.authenticate(api_key)
@@ -311,12 +354,35 @@ async def build_auth_context(request: Any, auth: AuthManager,
 
     authz = request.headers.get("Authorization", "")
     if authz.lower().startswith("bearer "):
-        claims = auth.decode_token(authz[7:].strip())
-        jwt_record = await auth.db.key_get(claims.get("sub", ""))
-        if jwt_record is None or jwt_record.get("revoked"):
-            raise AuthError("token subject revoked")
-        return AuthContext(jwt_record, via_jwt=True, bucket=f"key:{jwt_record['id']}")
+        token = authz[7:].strip()
+        
+        # Try JWT first (has 3 dot-separated parts)
+        if token.count(".") == 2:
+            try:
+                claims = auth.decode_token(token)
+                jwt_record = await auth.db.key_get(claims.get("sub", ""))
+                if jwt_record is None or jwt_record.get("revoked"):
+                    raise AuthError("token subject revoked")
+                return AuthContext(jwt_record, via_jwt=True, bucket=f"key:{jwt_record['id']}")
+            except AuthError:
+                raise
+            except Exception:
+                pass
+        
+        # Try OIDC token (opaque token or JWT with different format)
+        oidc_provider = request.headers.get("X-OIDC-Provider")
+        if oidc_provider:
+            try:
+                record = await auth.authenticate_oidc(token, oidc_provider)
+                return AuthContext(record, bucket=f"oidc:{record['id']}")
+            except AuthError:
+                raise
+            except Exception as exc:
+                raise AuthError(f"OIDC authentication failed: {exc}")
 
     if require:
         raise AuthError("missing credentials: send X-API-Key or Authorization: Bearer")
     return AuthContext(bucket=f"ip:{request.client.host if request.client else 'unknown'}")
+
+
+

@@ -118,7 +118,7 @@ class TestOpenAPISchemaContract:
             "/auth/token",
             "/health", "/metrics", "/engines",
             # new hardening surfaces
-            "/engines/compliance", "/compliance/report",
+            "/compliance/dsar/{user_id}", "/compliance/audit/export",
             "/plugins", "/mcp",
         ]
         for path in expected:

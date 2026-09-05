@@ -206,6 +206,24 @@ def _add_middleware(app: FastAPI, settings: Settings) -> None:
         latency = (time.perf_counter() - started)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Jiro-Version"] = __version__
+
+        # Record Prometheus metrics
+        try:
+            from jiro.telemetry import get_metrics
+            metrics = get_metrics()
+            path = request.url.path
+            method = request.method
+            status = str(response.status_code)
+
+            metrics.counter("jiro_http_requests_total", "Total HTTP requests",
+                           ["method", "path", "status"]).inc(
+                method=method, path=path, status=status)
+            metrics.histogram("jiro_http_request_duration_seconds", "Request latency",
+                             ["method", "path"]).observe(
+                latency, method=method, path=path)
+        except Exception:
+            pass
+
         auth_ctx = getattr(request.state, "auth", None)
         log_extra = {
             "request_id": request_id,
@@ -232,6 +250,8 @@ def _add_error_handlers(app: FastAPI) -> None:
 
 def _mount_routers(app: FastAPI) -> None:
     from jiro.server.routers import admin, ai, analytics, compliance, jobs, ops, plugins, scrape, search, smart, social, stream, system
+    from jiro.server.routers import enterprise
+    from jiro.server.routers import analytics_v2
 
     app.include_router(system.router)
     app.include_router(search.router)
@@ -246,5 +266,7 @@ def _mount_routers(app: FastAPI) -> None:
     app.include_router(analytics.router)
     app.include_router(compliance.router)
     app.include_router(plugins.router)
+    app.include_router(enterprise.router)
+    app.include_router(analytics_v2.router)
     # MCP remote transports (Streamable HTTP + legacy SSE)
     app.include_router(create_mcp_router())

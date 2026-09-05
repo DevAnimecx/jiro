@@ -30,6 +30,7 @@ from jiro.server.deps import (
     get_client,
     get_settings,
     record_usage,
+    require_feature,
     optional_auth_context,
 )
 
@@ -197,7 +198,7 @@ async def scrape_social(
 async def scrape_social_batch(
     request: Request,
     body: SocialBatchRequest,
-    ctx: AuthContext = Depends(optional_auth_context),
+    ctx: AuthContext = Depends(require_feature("social_batch")),
     client: ScrapingClient = Depends(get_client),
     settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
@@ -281,7 +282,7 @@ async def list_social_platforms(
 async def social_search(
     request: Request,
     body: SocialSearchRequest,
-    ctx: AuthContext = Depends(optional_auth_context),
+    ctx: AuthContext = Depends(require_feature("social_search")),
     client: ScrapingClient = Depends(get_client),
     settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
@@ -324,7 +325,7 @@ async def social_search(
 async def social_search_everywhere(
     request: Request,
     body: SocialSearchEverywhereRequest,
-    ctx: AuthContext = Depends(optional_auth_context),
+    ctx: AuthContext = Depends(require_feature("social_search")),
     client: ScrapingClient = Depends(get_client),
     settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:

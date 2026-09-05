@@ -17,6 +17,7 @@ from jiro.server.deps import (
     get_client,
     get_llm,
     record_usage,
+    require_feature,
 )
 
 router = APIRouter(tags=["ai"])
@@ -26,7 +27,7 @@ router = APIRouter(tags=["ai"])
 async def ai_agent(
     request: Request,
     body: AgentRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("ai_search")),
     agent: Agent = Depends(get_agent),
 ) -> Dict[str, Any]:
     request.state.auth = ctx
@@ -49,7 +50,7 @@ async def ai_agent(
 async def ai_search(
     request: Request,
     body: AISearchRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("ai_search")),
     agent: Agent = Depends(get_agent),
 ) -> Dict[str, Any]:
     request.state.auth = ctx
@@ -70,7 +71,7 @@ async def ai_search(
 async def ai_extract(
     request: Request,
     body: AIExtractRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("structured_extraction")),
     llm: LLM = Depends(get_llm),
     client: Any = Depends(get_client),
 ) -> Dict[str, Any]:

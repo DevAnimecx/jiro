@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from jiro.auth import AuthContext, AuthManager
+from jiro.auth import AuthContext
 from jiro.db import Database
 from jiro.models import ApiKeyCreate, ApiKeyCreated, ApiKeyOut, LoginRequest, TokenResponse
 from jiro.server.deps import get_auth_manager, get_db, require_scope
@@ -20,7 +20,7 @@ router = APIRouter(tags=["admin"])
 async def create_key(
     body: ApiKeyCreate,
     ctx: AuthContext = Depends(require_scope("admin")),
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
 ) -> Dict[str, Any]:
     auth.require_admin(ctx.record)
     created = await auth.create_key(
@@ -34,7 +34,7 @@ async def create_key(
             summary="List API keys (admin)")
 async def list_keys(
     ctx: AuthContext = Depends(require_scope("admin")),
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
     include_revoked: bool = False,
     db: Database = Depends(get_db),
 ) -> List[Dict[str, Any]]:
@@ -59,7 +59,7 @@ async def list_keys(
 async def revoke_key(
     key_id: str,
     ctx: AuthContext = Depends(require_scope("admin")),
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
     db: Database = Depends(get_db),
 ) -> Dict[str, Any]:
     auth.require_admin(ctx.record)
@@ -71,7 +71,7 @@ async def revoke_key(
              summary="Exchange an API key for a JWT")
 async def issue_token(
     body: LoginRequest,
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
 ) -> Dict[str, Any]:
     return await auth.issue_token(body.api_key)
 
@@ -79,7 +79,7 @@ async def issue_token(
 @router.get("/usage", summary="Usage statistics (admin)")
 async def usage(
     ctx: AuthContext = Depends(require_scope("admin")),
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
     db: Database = Depends(get_db),
     days: int = Query(7, ge=1, le=365),
     key_id: Optional[str] = None,

@@ -23,6 +23,7 @@ from jiro.server.deps import (
     get_cache,
     get_orchestrator,
     record_usage,
+    require_feature,
 )
 
 router = APIRouter(tags=["search"])
@@ -67,7 +68,7 @@ async def search_get(
     category: str = Query("", description="publication | financial_report | people | shopping | github | news"),
     highlights: bool = Query(False, description="Extract token-efficient highlights"),
     include_answer: str = Query("", description="none | extractive | advanced"),
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("basic_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
     audit: ComplianceLogger = Depends(get_audit_logger_dep),
@@ -145,7 +146,7 @@ async def search_get(
 async def search_post(
     request: Request,
     body: SearchRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("basic_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
     audit: ComplianceLogger = Depends(get_audit_logger_dep),
@@ -207,7 +208,7 @@ class BatchSearchItem:
 async def search_batch(
     request: Request,
     items: List[Dict[str, Any]],
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("smart_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
 ) -> Dict[str, Any]:
@@ -261,7 +262,7 @@ async def search_stream(
     engine: str = Query("google"),
     num: int = Query(10, ge=1, le=100),
     engines: str = Query("", description="Comma-separated engines for multi-engine search"),
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("smart_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
 ):
@@ -332,7 +333,7 @@ async def search_stream(
 async def search_multi(
     request: Request,
     body: MultiQuerySearchRequest,
-    ctx: AuthContext = Depends(get_auth_context),
+    ctx: AuthContext = Depends(require_feature("smart_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
 ) -> Dict[str, Any]:

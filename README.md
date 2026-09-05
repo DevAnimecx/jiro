@@ -1,210 +1,174 @@
-# Jiro v0.2 - Search Intelligence Platform
+<div align="center">
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/DevAnimecx/jiro)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
+<img src="assets/logo.png" alt="Jiro" width="120">
 
-> Local-first web search, scraping, and social media intelligence platform.
+# Jiro — The Search Intelligence Platform
+
+**One API. 9 search engines. 12 social platforms. AI-powered. Free forever.**
+
+[![PyPI version](https://img.shields.io/pypi/v/jirosearch.svg)](https://pypi.org/project/jirosearch/)
+[![Python](https://img.shields.io/pypi/pyversions/jirosearch.svg)](https://pypi.org/project/jirosearch/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/docker/pulls/devanimecx/jiro.svg)](https://hub.docker.com/r/devanimecx/jiro)
+[![Downloads](https://img.shields.io/pypi/dm/jirosearch.svg)](https://pypi.org/project/jirosearch/)
+
+[Get Started Free](#quick-start) · [API Docs](http://localhost:8000/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
+
+</div>
+
+---
+
+## Why Jiro?
+
+Jiro is a **local-first, AI-native search & scraping API** — a self-hosted alternative to SerpAPI, ScraperAPI, and Bright Data. It gives you:
+
+- **9 search engines** — Google, Bing, Brave, DuckDuckGo, YouTube, Amazon, eBay, Yandex, Baidu
+- **12 social platforms** — Reddit, Twitter/X, YouTube, LinkedIn, TikTok, Instagram, and more
+- **Hybrid search** — keyword + semantic + freshness signals combined
+- **AI-powered research** — agentic search with citations (Enterprise)
+- **MCP integration** — works with Claude Desktop, Cursor, Continue.dev
+- **Free forever** — generous free tier, no credit card required
+
+---
+
+## Quick Start (30 seconds)
+
+```bash
+# Install
+pip install jirosearch
+
+# Start server
+jiro serve
+
+# Search the web
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"q": "latest AI research", "engine": "google"}'
+```
+
+That's it. You're searching across 9 engines with hybrid ranking, caching, and structured extraction — all running locally on your machine.
+
+---
 
 ## Features
 
-### Phase 1: Search Intelligence
-- **Hybrid Search** - Combines keyword, semantic, and freshness signals
-- **Relevance Scoring** - Multi-signal ranking with configurable weights
-- **Search Filters** - Domain include/exclude, time range, category filters
-- **Highlights** - Query-aware snippet extraction
-- **Answer Synthesis** - Extractive answers from search results
-- **Multi-Query** - Parallel query expansion for complex topics
+<table>
+<tr>
+<td width="50%">
 
-### Phase 2: Social Scraping (12 Platforms)
-- Reddit, Hacker News, YouTube, Bluesky, Twitter/X
-- Threads, Instagram, TikTok, LinkedIn, Facebook
-- Telegram, Pinterest
+### 🔍 Search Intelligence
+- **Hybrid Search** — keyword + semantic + freshness
+- **Multi-Query** — parallel query expansion
+- **Answer Synthesis** — extractive answers from results
+- **Search Filters** — domain, time range, category
+- **Highlights** — query-aware snippet extraction
 
-### Phase 3: Advanced Features
-- **Structured Extraction** - JSON Schema-based data extraction
-- **Intent Classification** - Rule-based intent detection (16 types)
-- **Smart Search** - Auto-routing based on intent
-- **Plugin System** - 5 plugin types: engine, search, datasource, extractor, social
+### 🌐 Social Scraping (12 Platforms)
+- Reddit, Twitter/X, YouTube, LinkedIn
+- TikTok, Instagram, Facebook, Threads
+- Hacker News, Bluesky, Telegram, Pinterest
 
-### Phase 4: Pro Tier
-- **API Key Authentication** - Secure key-based access
-- **Rate Limiting** - Token bucket per API key
-- **Quota Management** - Daily request limits
-- **Usage Analytics** - Detailed usage tracking
-- **Tiered Plans** - Free, Starter ($29), Pro ($99), Enterprise ($499)
+</td>
+<td width="50%">
 
-### Phase 5: Production Ready
-- **Docker Support** - One-command deployment
-- **Kubernetes Helm Chart** - Production-ready orchestration
-- **OpenAPI 3.1 Spec** - Complete API documentation
-- **SDK Generation** - Python, TypeScript, Go clients
+### 🧠 AI-Powered
+- **Smart Search** — intent-aware auto-routing
+- **Structured Extraction** — JSON schema-based data extraction
+- **AI Research** — agentic search with citations *(Enterprise)*
+- **Intent Classification** — 16 intent types
 
-## Quick Start
+### 🏢 Enterprise Ready
+- **Tenant Management** — multi-tenant isolation
+- **SOC2 Compliance** — audit logging, data residency
+- **SLA Monitoring** — p50/p95/p99 latency tracking
+- **Webhooks & Batch Jobs** — event-driven automation
 
-### Installation
+</td>
+</tr>
+</table>
 
-```bash
-# Install from PyPI
-pip install jirosearch
+---
 
-# Or clone and install from source
-git clone https://github.com/DevAnimecx/jiro.git
-cd jiro-search
-pip install -e .
-```
+## Free vs Enterprise
 
-### Update
+| Feature | Free | Enterprise |
+|---------|:----:|:----------:|
+| **Rate Limits** | 100 RPM / 10K RPD | 1,000 RPM / 1M RPD |
+| **Search Engines** | 9 engines | 9 engines |
+| **Social Platforms** | 12 platforms | 12 platforms |
+| **Hybrid Search** | ✅ | ✅ |
+| **Smart Search** | ✅ | ✅ |
+| **Structured Extraction** | ✅ | ✅ |
+| **Social Batch** | ✅ (5/batch) | ✅ (500/batch) |
+| **Self-Learning** | ✅ (basic) | ✅ (advanced) |
+| **AI Research** | ❌ | ✅ |
+| **Advanced Healing** | ❌ | ✅ |
+| **Custom Models** | ❌ | ✅ |
+| **Commercial Use** | ❌ | ✅ |
+| **White Label** | ❌ | ✅ |
+| **Premium Support** | ❌ | ✅ |
+| **Price** | **$0 forever** | **$499/mo** |
 
-```bash
-# Check for updates
-jiro check-update
+---
 
-# Update to latest version with health checks
-jiro update
+## API Examples
 
-# Update without running tests
-jiro update --no-tests
-
-# Force reinstall current version
-jiro update --force
-```
-
-### Run Server
-
-```bash
-# Start the API server
-jiro serve
-
-# Or with specific host/port
-jiro serve --host 0.0.0.0 --port 8000
-```
-
-### Run Dashboard
+### Search the Web
 
 ```bash
-# Start the web dashboard on port 3000
-jiro dashboard
-```
-
-### Docker Deployment
-
-```bash
-# Build and run with Docker
-docker-compose up -d
-
-# Or build image manually
-docker build -t jiro .
-docker run -p 8000:8000 jiro
-```
-
-## API Usage
-
-### Basic Search
-
-```bash
-curl -X POST http://localhost:8000/v1/search \
+# Basic search
+curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
-  -d '{
-    "q": "python web scraping",
-    "engine": "google",
-    "max_results": 10
-  }'
+  -d '{"q": "python web scraping", "engine": "google", "num": 10}'
+
+# Hybrid search with answer synthesis
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"q": "latest AI research", "hybrid": true, "answer": true}'
 ```
 
-### Hybrid Search
+### Scrape Any URL
 
 ```bash
-curl -X POST http://localhost:8000/v1/search \
+# Scrape to markdown
+curl -X POST http://localhost:8000/scrape \
   -H "Content-Type: application/json" \
-  -d '{
-    "q": "latest AI research",
-    "hybrid": true,
-    "answer": true,
-    "highlights": true
-  }'
+  -d '{"url": "https://docs.python.org", "format": "markdown"}'
+
+# Batch scrape
+curl -X POST http://localhost:8000/scrape/batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com", "https://docs.python.org"]}'
 ```
 
-### Social Media Scraping
+### Social Media
 
 ```bash
 # Scrape a Reddit post
-curl -X POST http://localhost:8000/v1/social \
+curl -X POST http://localhost:8000/social \
   -H "Content-Type: application/json" \
   -d '{"url": "https://reddit.com/r/programming/comments/abc123"}'
 
-# Scrape a YouTube video
-curl -X POST http://localhost:8000/v1/social \
+# Search across platforms
+curl -X POST http://localhost:8000/social/search \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://youtube.com/watch?v=dQw4w9WgXcQ"}'
+  -d '{"query": "machine learning", "platform": "reddit", "limit": 10}'
 ```
 
-### Smart Search (Intent Routing)
+### Smart Search (Auto-Routing)
 
 ```bash
-# Auto-detect intent and route
+# Auto-detect intent and route to best engine
 curl -X POST http://localhost:8000/v1/smart \
   -H "Content-Type: application/json" \
   -d '{"query": "github.com/fastapi"}'
-
-# Classify intent without executing
-curl -X POST http://localhost:8000/v1/smart/classify \
-  -H "Content-Type: application/json" \
-  -d '{"query": "buy iphone 15 pro"}'
 ```
 
-### Structured Extraction
-
-```bash
-curl -X POST http://localhost:8000/v1/structured/extract \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "python web frameworks",
-    "schema": {
-      "type": "object",
-      "properties": {
-        "name": {"type": "string"},
-        "stars": {"type": "integer"},
-        "description": {"type": "string"}
-      }
-    }
-  }'
-```
-
-## Pro Tier & Pricing
-
-### Plans
-
-| Plan | Price | RPM | RPD | Features |
-|------|-------|-----|-----|----------|
-| **Free** | $0 | 10 | 100 | Basic search, social scraping |
-| **Starter** | $29/mo | 60 | 5,000 | Hybrid search, structured extraction |
-| **Pro** | $99/mo | 300 | 50,000 | All features, webhooks |
-| **Enterprise** | $499/mo | 1,000 | 500,000 | Custom models, priority support |
-
-### API Key Management
-
-```bash
-# Create a new API key
-curl -X POST http://localhost:8000/v1/pro/keys \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My App", "tier": "starter"}'
-
-# List API keys
-curl http://localhost:8000/v1/pro/keys
-
-# Get usage stats
-curl "http://localhost:8000/v1/pro/usage?key_id=YOUR_KEY_ID&days=30"
-
-# Upgrade tier
-curl -X PUT http://localhost:8000/v1/pro/keys/KEY_ID/upgrade \
-  -H "Content-Type: application/json" \
-  -d '{"tier": "pro"}'
-```
+---
 
 ## MCP Integration
 
-Jiro works with MCP-compatible clients (Claude Desktop, Cursor, Continue.dev):
+Works with any MCP-compatible client:
 
 ```json
 {
@@ -217,103 +181,140 @@ Jiro works with MCP-compatible clients (Claude Desktop, Cursor, Continue.dev):
 }
 ```
 
-### Available MCP Tools
+### 16 MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `search` | Search the web via multiple engines |
-| `scrape` | Scrape URL content as markdown |
-| `ai_search` | Research with citations |
-| `search_hybrid` | Hybrid search with multi-signal ranking |
-| `search_structured` | Extract structured data with JSON schema |
-| `social_scrape` | Scrape social media URLs |
-| `social_search` | Search across social platforms |
-| `social_batch` | Batch scrape multiple URLs |
-| `smart_search` | Intent-aware smart routing |
-| `smart_classify` | Classify search intent |
-| `compare_engines` | Compare results across engines |
-| `monitor_status` | Get server health and metrics |
+| Tool | Tier | Description |
+|------|:----:|-------------|
+| `search` | Free | Search 9 engines |
+| `scrape` | Free | Scrape URL to markdown |
+| `smart_classify` | Free | Classify search intent |
+| `compare_engines` | Free | Compare across engines |
+| `list_engines` | Free | List all engines |
+| `list_social_platforms` | Free | List social platforms |
+| `monitor_status` | Free | Health metrics |
+| `health_check` | Free | Quick health check |
+| `cache_stats` | Free | Cache statistics |
+| `ai_search` | Enterprise | AI research with citations |
+| `search_hybrid` | Enterprise | Hybrid multi-signal search |
+| `search_structured` | Enterprise | Structured data extraction |
+| `social_scrape` | Enterprise | Scrape social media |
+| `social_search` | Enterprise | Search social platforms |
+| `social_batch` | Enterprise | Batch scrape URLs |
+| `smart_search` | Enterprise | Intent-aware routing |
 
-## Configuration
+---
 
-### Environment Variables
+## Pricing
+
+### Free — $0/forever
+
+The most generous free tier in search APIs. No credit card required.
+
+- 100 requests/minute
+- 10,000 requests/day
+- 9 search engines
+- 12 social platforms
+- Hybrid search & smart routing
+- MCP integration
+- Community support
+
+### Enterprise — $499/mo
+
+Everything in Free, plus unlimited power.
+
+- 1,000 requests/minute
+- 1,000,000 requests/day
+- AI-powered agentic research
+- Custom LLM models
+- White-label customization
+- SOC2 compliance
+- Premium support
+- Commercial use license
+
+[Get Enterprise →](https://jiro.ai/pricing)
+
+---
+
+## Deploy
+
+### Docker
 
 ```bash
-# Database
-JIRO_DB_PATH=/path/to/jiro.db  # SQLite path
-JIRO_DB_POSTGRES=postgresql://user:pass@localhost/jiro  # PostgreSQL URL
-
-# Cache
-JIRO_CACHE_TYPE=sqlite  # sqlite, memory, redis
-JIRO_CACHE_TTL=3600
-
-# API
-JIRO_API_KEY=your_api_key
-JIRO_SECRET_KEY=your_secret_key
-
-# Engines
-JIRO_ENGINES=google,bing,brave,duckduckgo
-
-# Proxy
-JIRO_PROXY_URL=http://proxy:8080
+docker-compose up -d
 ```
 
-### Config File
+### Kubernetes
 
-```yaml
-# jiro.yaml
-server:
-  host: 0.0.0.0
-  port: 8000
-
-engines:
-  - google
-  - bing
-  - brave
-  - duckduckgo
-
-cache:
-  type: sqlite
-  ttl: 3600
-
-pro:
-  enabled: true
-  default_tier: free
+```bash
+helm install jiro ./helm/jiro
 ```
+
+### Local
+
+```bash
+pip install jirosearch
+jiro serve --host 0.0.0.0 --port 8000
+```
+
+---
+
+## Comparisons
+
+### vs SerpAPI
+
+| Feature | Jiro | SerpAPI |
+|---------|:----:|:-------:|
+| Self-hosted | ✅ | ❌ |
+| Free tier | 10K RPD | 100/mo |
+| Social scraping | 12 platforms | ❌ |
+| Hybrid search | ✅ | ❌ |
+| MCP integration | ✅ | ❌ |
+| Price (paid) | $499/mo | $50/mo |
+
+### vs ScraperAPI
+
+| Feature | Jiro | ScraperAPI |
+|---------|:----:|:----------:|
+| Search engines | 9 | ❌ |
+| Social platforms | 12 | ❌ |
+| AI research | ✅ | ❌ |
+| Self-hosted | ✅ | ❌ |
+| Free tier | 10K RPD | 5K/mo |
+
+### vs Bright Data
+
+| Feature | Jiro | Bright Data |
+|---------|:----:|:-----------:|
+| Price | $499/mo | $500+/mo |
+| Self-hosted | ✅ | ❌ |
+| Hybrid search | ✅ | ❌ |
+| MCP integration | ✅ | ❌ |
+| AI research | ✅ | ❌ |
+
+---
 
 ## Architecture
 
 ```
 jiro/
-├── server/           # FastAPI application
-│   ├── routers/      # API endpoints
-│   └── deps.py       # Dependencies
-├── search/           # Search intelligence
-│   ├── hybrid.py     # Hybrid search
-│   ├── reranker.py   # Result reranking
-│   ├── embeddings.py # Semantic search
-│   ├── relevance.py  # Relevance scoring
-│   ├── filters.py    # Search filters
-│   ├── highlights.py # Snippet highlights
-│   ├── answer.py     # Answer synthesis
-│   ├── multiquery.py # Query expansion
-│   ├── structured.py # Structured extraction
-│   └── intent.py     # Intent classification
-├── scraping/         # Web scraping
-│   ├── engines.py    # Search engines
-│   ├── client.py     # HTTP client
-│   └── social/       # Social platform scrapers
-├── plugins/          # Plugin system
-│   ├── engine/       # Engine plugins
-│   ├── search_plugin/# Search plugins
-│   └── datasource/   # Datasource plugins
-├── ai/               # AI/LLM integration
-├── mcp.py           # MCP server
-├── pro.py           # Pro tier system
-├── db.py            # SQLite database
-├── db_postgres.py   # PostgreSQL database
-└── dashboard.py     # Web UI dashboard
+├── server/           FastAPI application
+│   └── routers/      API endpoints (75+ routes)
+├── search/           Search intelligence
+│   ├── hybrid.py     Hybrid search
+│   ├── reranker.py   Result reranking
+│   └── multiquery.py Query expansion
+├── scraping/         Web scraping
+│   ├── engines.py    9 search engines
+│   └── social/       12 social platforms
+├── ai/               AI/LLM integration
+├── mcp.py           MCP server (16 tools)
+├── pro.py           Tier system
+├── licensing.py     HMAC license tokens
+├── db.py            SQLite/PostgreSQL
+└── dashboard.py     Web UI
 ```
+
+---
 
 ## Development
 
@@ -324,19 +325,31 @@ pip install -e ".[dev]"
 # Run tests
 pytest tests/ -v
 
-# Run type checker
-mypy jiro/
-
 # Run linter
 ruff check jiro/
 ```
 
+---
+
+## Community
+
+- [GitHub](https://github.com/DevAnimecx/jiro) — Source code
+- [Discord](https://discord.gg/jiro) — Community chat
+- [Twitter](https://twitter.com/jirosearch) — Updates
+- [Documentation](https://jiro.dev/docs) — Guides & tutorials
+
+---
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — use freely, commercially, or privately.
 
-## Support
+---
 
-- Documentation: https://jiro.dev/docs
-- Issues: https://github.com/DevAnimecx/jiro/issues
-- Discord: https://discord.gg/jiro
+<div align="center">
+
+**Built with ❤️ by [Blackvault Technology](https://github.com/DevAnimecx)**
+
+[Get Started Free](#quick-start) · [Enterprise](#pricing)
+
+</div>

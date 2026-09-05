@@ -27,101 +27,157 @@ log = get_logger("jiro.pro")
 
 
 class PlanTier(str, Enum):
-    """API plan tiers."""
+    """API plan tiers — two tiers: Free and Enterprise."""
     FREE = "free"
-    STARTER = "starter"
-    PRO = "pro"
     ENTERPRISE = "enterprise"
 
 
 @dataclass
 class PlanLimits:
-    """Rate and quota limits for a plan."""
-    rpm: int = 60  # requests per minute
-    rpd: int = 1000  # requests per day
-    rpm_search: int = 30  # search-specific RPM
-    rpd_search: int = 500  # search-specific RPD
-    rpm_scrape: int = 20  # scrape-specific RPM
-    rpd_scrape: int = 300  # scrape-specific RPD
-    max_results: int = 20  # max results per request
-    max_concurrent: int = 5  # max concurrent requests
+    """Rate and quota limits for a plan.
+
+    Single source of truth for all feature gating. The ``feature_*`` boolean
+    flags are mirrored by ``feature_flags.py`` and ``licensing.py`` at import
+    time so that the three registries can never drift out of sync.
+    """
+    rpm: int = 100
+    rpd: int = 10000
+    rpm_search: int = 50
+    rpd_search: int = 5000
+    rpm_scrape: int = 30
+    rpd_scrape: int = 3000
+    max_results: int = 50
+    max_concurrent: int = 20
+    max_batch_size: int = 25
     hybrid_search: bool = True
     structured_extraction: bool = True
     social_scraping: bool = True
     smart_search: bool = True
-    priority: int = 0  # higher = more priority
-    webhook_alerts: bool = False
+    priority: int = 0
+    webhook_alerts: bool = True
     custom_models: bool = False
+    commercial_use: bool = False
+    # Feature flags — each maps 1:1 to a FEATURE_DEFINITIONS entry
+    feature_basic_search: bool = True
+    feature_basic_scrape: bool = True
+    feature_open_scrapers: bool = True
+    feature_social_advanced: bool = True
+    feature_social_search: bool = True
+    feature_social_timeline: bool = True
+    feature_social_batch: bool = False
+    feature_ai_search: bool = False
+    feature_smart_search: bool = True
+    feature_structured_extraction: bool = True
+    feature_self_learning: bool = False
+    feature_advanced_healing: bool = False
+    feature_high_volume: bool = False
+    feature_custom_models: bool = False
+    feature_commercial_use: bool = False
+    feature_premium_support: bool = False
+    feature_white_label: bool = False
 
 
-# Plan tier definitions
+# ── Plan tier definitions ─────────────────────────────────────────────
+# FREE tier: very generous limits, most features unlocked
+# ENTERPRISE tier: maximum everything, all features unlocked
 PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
     PlanTier.FREE: PlanLimits(
-        rpm=10,
-        rpd=100,
-        rpm_search=5,
-        rpd_search=50,
-        rpm_scrape=3,
-        rpd_scrape=30,
-        max_results=10,
-        max_concurrent=2,
-        hybrid_search=False,
-        structured_extraction=False,
-        social_scraping=True,
-        smart_search=False,
-        priority=0,
-    ),
-    PlanTier.STARTER: PlanLimits(
-        rpm=60,
-        rpd=5000,
-        rpm_search=30,
-        rpd_search=2500,
-        rpm_scrape=20,
-        rpd_scrape=1500,
-        max_results=20,
-        max_concurrent=5,
-        hybrid_search=True,
-        structured_extraction=True,
-        social_scraping=True,
-        smart_search=True,
-        priority=1,
-        webhook_alerts=True,
-    ),
-    PlanTier.PRO: PlanLimits(
-        rpm=300,
-        rpd=50000,
-        rpm_search=150,
-        rpd_search=25000,
-        rpm_scrape=100,
-        rpd_scrape=15000,
+        # Generous rate limits for free tier
+        rpm=100,
+        rpd=10000,
+        rpm_search=50,
+        rpd_search=5000,
+        rpm_scrape=30,
+        rpd_scrape=3000,
         max_results=50,
-        max_concurrent=10,
+        max_concurrent=20,
+        max_batch_size=25,
+        priority=0,
+        # Free features — most capabilities unlocked
         hybrid_search=True,
         structured_extraction=True,
         social_scraping=True,
         smart_search=True,
-        priority=2,
         webhook_alerts=True,
-        custom_models=True,
+        custom_models=False,
+        commercial_use=False,
+        feature_basic_search=True,
+        feature_basic_scrape=True,
+        feature_open_scrapers=True,
+        feature_social_advanced=True,
+        feature_social_search=True,
+        feature_social_timeline=True,
+        feature_social_batch=True,      # limited: max 5 per batch in router
+        feature_ai_search=False,
+        feature_smart_search=True,
+        feature_structured_extraction=True,
+        feature_self_learning=True,     # basic: timeout auto-adjust
+        feature_advanced_healing=False,
+        feature_high_volume=False,
+        feature_commercial_use=False,
+        feature_premium_support=False,
+        feature_custom_models=False,
+        feature_white_label=False,
     ),
     PlanTier.ENTERPRISE: PlanLimits(
+        # Maximum everything
         rpm=1000,
-        rpd=500000,
+        rpd=1000000,
         rpm_search=500,
-        rpd_search=250000,
+        rpd_search=500000,
         rpm_scrape=300,
-        rpd_scrape=150000,
-        max_results=100,
-        max_concurrent=20,
+        rpd_scrape=300000,
+        max_results=200,
+        max_concurrent=50,
+        max_batch_size=500,
+        priority=10,
+        # All features unlocked
         hybrid_search=True,
         structured_extraction=True,
         social_scraping=True,
         smart_search=True,
-        priority=3,
         webhook_alerts=True,
         custom_models=True,
+        commercial_use=True,
+        feature_basic_search=True,
+        feature_basic_scrape=True,
+        feature_open_scrapers=True,
+        feature_social_advanced=True,
+        feature_social_search=True,
+        feature_social_timeline=True,
+        feature_social_batch=True,
+        feature_ai_search=True,
+        feature_smart_search=True,
+        feature_structured_extraction=True,
+        feature_self_learning=True,
+        feature_advanced_healing=True,
+        feature_high_volume=True,
+        feature_commercial_use=True,
+        feature_premium_support=True,
+        feature_custom_models=True,
+        feature_white_label=True,
     ),
 }
+
+
+def get_features_for_tier(tier: PlanTier) -> List[str]:
+    """Derive feature list from PLAN_LIMITS — single source of truth."""
+    limits = PLAN_LIMITS[tier]
+    return [
+        name.removeprefix("feature_")
+        for name in dir(limits)
+        if name.startswith("feature_") and getattr(limits, name)
+    ]
+
+
+def get_all_feature_names() -> List[str]:
+    """Return every feature flag name across all tiers."""
+    all_features: set = set()
+    for limits in PLAN_LIMITS.values():
+        for name in dir(limits):
+            if name.startswith("feature_"):
+                all_features.add(name.removeprefix("feature_"))
+    return sorted(all_features)
 
 
 @dataclass

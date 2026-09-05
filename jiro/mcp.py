@@ -32,6 +32,7 @@ from jiro.models import SearchRequest
 from jiro.scraping.client import ScrapingClient
 from jiro.ai.tools import ENGINE_ENUM
 from jiro.scraping.engines import SearchOrchestrator
+from jiro.feature_flags import require as require_feature
 
 log = get_logger("jiro.mcp")
 
@@ -295,18 +296,53 @@ class JiroMCPServer:
         elif name == "scrape":
             return await self._tool_scrape(args, progress)
         elif name == "ai_search":
+            from jiro.feature_flags import has_feature as _has_ai
+            if not _has_ai("ai_search"):
+                raise MCPError(INVALID_PARAMS,
+                               "ai_search requires a Pro/Enterprise license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_ai_search(args, progress)
         elif name == "search_hybrid":
+            from jiro.feature_flags import has_feature as _has_hybrid
+            if not _has_hybrid("smart_search"):
+                raise MCPError(INVALID_PARAMS,
+                               "search_hybrid requires a Starter+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_search_hybrid(args, progress)
         elif name == "search_structured":
+            from jiro.feature_flags import has_feature as _has_struct
+            if not _has_struct("structured_extraction"):
+                raise MCPError(INVALID_PARAMS,
+                               "search_structured requires a Starter+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_search_structured(args, progress)
         elif name == "social_scrape":
+            from jiro.feature_flags import has_feature as _has_social
+            if not _has_social("social_advanced"):
+                raise MCPError(INVALID_PARAMS,
+                               "social_scrape requires a Starter+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_social_scrape(args, progress)
         elif name == "social_search":
+            from jiro.feature_flags import has_feature as _has_ssearch
+            if not _has_ssearch("social_search"):
+                raise MCPError(INVALID_PARAMS,
+                               "social_search requires a Starter+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_social_search(args, progress)
         elif name == "social_batch":
+            from jiro.feature_flags import has_feature as _has_sbatch
+            if not _has_sbatch("social_batch"):
+                raise MCPError(INVALID_PARAMS,
+                               "social_batch requires a Pro+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_social_batch(args, progress)
         elif name == "smart_search":
+            from jiro.feature_flags import has_feature as _has_smart
+            if not _has_smart("smart_search"):
+                raise MCPError(INVALID_PARAMS,
+                               "smart_search requires a Starter+ license. "
+                               "Upgrade at https://jiro.ai/pricing")
             return await self._tool_smart_search(args, progress)
         elif name == "smart_classify":
             return await self._tool_smart_classify(args, progress)

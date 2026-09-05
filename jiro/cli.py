@@ -845,6 +845,12 @@ def social_scrape(
     format: str = typer.Option("json", "--format", "-f", help="Output format: json, markdown, text"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.feature_flags import require as require_feature
+    try:
+        require_feature("social_advanced")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
     asyncio.run(_cli_social_scrape(url, format, config))
 
 
@@ -881,6 +887,12 @@ def social_search(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.feature_flags import require as require_feature
+    try:
+        require_feature("social_search")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
     asyncio.run(_cli_social_search(query, platform, limit, json_output, config))
 
 
@@ -925,6 +937,12 @@ def social_batch(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.feature_flags import require as require_feature
+    try:
+        require_feature("social_batch")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
     asyncio.run(_cli_social_batch(urls, parallel, json_output, config))
 
 
@@ -968,6 +986,12 @@ def social_profile(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.feature_flags import require as require_feature
+    try:
+        require_feature("social_search")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
     asyncio.run(_cli_social_profile(username, platform, json_output, config))
 
 
@@ -1015,6 +1039,12 @@ def social_timeline(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.feature_flags import require as require_feature
+    try:
+        require_feature("social_timeline")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
     asyncio.run(_cli_social_timeline(username, platform, limit, json_output, config))
 
 

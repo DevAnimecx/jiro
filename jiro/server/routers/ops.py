@@ -8,11 +8,14 @@ from typing import Any, Dict
 
 import httpx
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import PlainTextResponse
 
 from jiro.auth import AuthContext
 from jiro.captcha import CaptchaSolver
 from jiro.errors import JiroPermissionError
 from jiro.server.deps import get_auth_context, record_usage
+from jiro.telemetry import get_metrics
+from jiro.tracing import get_tracer
 
 router = APIRouter(tags=["ops"])
 
@@ -176,3 +179,74 @@ async def captcha_solve(
     text = await solver.solve_image(data)
     await record_usage(request, endpoint="/captcha/solve", status=200)
     return {"solved": True, "text": text, "provider": solver.provider}
+
+
+@router.get("/metrics", response_class=PlainTextResponse, summary="Prometheus metrics")
+async def prometheus_metrics(request: Request) -> PlainTextResponse:
+    metrics = get_metrics()
+    content = metrics.render()
+    return PlainTextResponse(content=content, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+@router.get("/health", summary="Comprehensive health check")
+async def health_check(request: Request) -> Dict[str, Any]:
+    tracer = get_tracer()
+    with tracer.span("health_check"):
+        settings = request.app.state.settings
+        db = request.app.state.db
+        checks = {"status": "healthy", "checks": {}}
+
+        # Database check
+        try:
+            start = time.perf_counter()
+            await db.fetchone("SELECT 1")
+            db_ms = round((time.perf_counter() - start) * 1000, 2)
+            checks["checks"]["database"] = {"status": "healthy", "latency_ms": db_ms}
+        except Exception as exc:
+            checks["checks"]["database"] = {"status": "unhealthy", "error": str(exc)[:200]}
+            checks["status"] = "degraded"
+
+        # Cache check
+        cache = getattr(request.app.state, "cache", None)
+        if cache:
+            try:
+                start = time.perf_counter()
+                await cache.set("_health", "ok", ttl=10)
+                cache_ms = round((time.perf_counter() - start) * 1000, 2)
+                checks["checks"]["cache"] = {"status": "healthy", "latency_ms": cache_ms}
+            except Exception as exc:
+                checks["checks"]["cache"] = {"status": "unhealthy", "error": str(exc)[:200]}
+                checks["status"] = "degraded"
+        else:
+            checks["checks"]["cache"] = {"status": "not_configured"}
+
+        # Auth check
+        auth = getattr(request.app.state, "auth", None)
+        if auth:
+            checks["checks"]["auth"] = {"status": "healthy", "enabled": settings.auth_enabled}
+        else:
+            checks["checks"]["auth"] = {"status": "not_configured"}
+
+        # Uptime
+        checks["uptime_seconds"] = round(time.time() - _server_start_time, 2)
+        checks["version"] = settings.get("version", "0.2.8")
+
+    return checks
+
+
+_server_start_time = time.time()
+
+
+@router.get("/health/live", summary="Liveness probe")
+async def liveness() -> Dict[str, str]:
+    return {"status": "alive"}
+
+
+@router.get("/health/ready", summary="Readiness probe")
+async def readiness(request: Request) -> Dict[str, str]:
+    db = request.app.state.db
+    try:
+        await db.fetchone("SELECT 1")
+        return {"status": "ready"}
+    except Exception:
+        return {"status": "not_ready"}

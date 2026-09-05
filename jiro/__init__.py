@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.2.8"  # Full social scraper overhaul: interface fix, search, timeline, dynamic hashes
+__version__ = "0.2.11"  # Enterprise tier deep lock, free tier power-up, premium UI/UX
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 
@@ -14,6 +14,16 @@ except Exception:  # pragma: no cover - importlib missing / not installed
     pass
 __app_name__ = "jiro"
 __tagline__ = "Local-first, AI-native search & scraping API"
+
+# Integrity check on import (non-blocking in debug mode)
+try:
+    from jiro.integrity import verify_package_integrity
+    _INTEGRITY_OK = verify_package_integrity()
+    if not _INTEGRITY_OK:
+        import logging
+        logging.getLogger("jiro").warning("package integrity check failed on import")
+except Exception:
+    pass
 
 # Lazy imports for heavy modules (avoid import overhead)
 def __getattr__(name: str):

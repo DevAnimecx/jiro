@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from jiro.errors import CacheError
+from jiro.rbac import ROLE_TEMPLATES
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cache (
@@ -122,6 +123,49 @@ CREATE TABLE IF NOT EXISTS tos_acknowledgments (
 );
 CREATE INDEX IF NOT EXISTS idx_tos_user ON tos_acknowledgments(user_id);
 CREATE INDEX IF NOT EXISTS idx_tos_user_engine ON tos_acknowledgments(user_id, engine);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    identity    TEXT NOT NULL,
+    permission  TEXT NOT NULL,
+    granted_at  REAL NOT NULL,
+    granted_by  TEXT,
+    PRIMARY KEY (identity, permission)
+);
+CREATE INDEX IF NOT EXISTS idx_rp_identity ON role_permissions(identity);
+CREATE INDEX IF NOT EXISTS idx_rp_permission ON role_permissions(permission);
+
+CREATE TABLE IF NOT EXISTS oidc_identities (
+    id          TEXT PRIMARY KEY,
+    provider    TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    email       TEXT,
+    name        TEXT,
+    created_at  REAL NOT NULL,
+    last_login  REAL NOT NULL,
+    UNIQUE(provider, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_oidc_provider_subject ON oidc_identities(provider, subject);
+
+CREATE TABLE IF NOT EXISTS oidc_api_keys (
+    identity_id TEXT NOT NULL,
+    key_id      TEXT NOT NULL,
+    linked_at   REAL NOT NULL,
+    PRIMARY KEY (identity_id, key_id)
+);
+CREATE INDEX IF NOT EXISTS idx_oidc_ak_identity ON oidc_api_keys(identity_id);
+CREATE INDEX IF NOT EXISTS idx_oidc_ak_key ON oidc_api_keys(key_id);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    jti         TEXT PRIMARY KEY,
+    key_id      TEXT NOT NULL,
+    expires_at  REAL NOT NULL,
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    user_agent  TEXT,
+    ip_address  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_key ON sessions(key_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 """
 
 
@@ -474,3 +518,124 @@ class Database:
             (user_id, engine),
         )
         return dict(row) if row else None
+
+    # ------------------------------------------------------------- role permissions (RBAC)
+    async def rbac_get_permissions(self, identity: str) -> List[str]:
+        """Get all permissions for an identity."""
+        rows = await self.fetchall(
+            "SELECT permission FROM role_permissions WHERE identity = ?",
+            (identity,),
+        )
+        return [row["permission"] for row in rows]
+
+    async def rbac_grant(self, identity: str, permission: str, granted_by: Optional[str] = None) -> None:
+        """Grant a permission to an identity."""
+        await self.execute(
+            "INSERT OR IGNORE INTO role_permissions (identity, permission, granted_at, granted_by)"
+            " VALUES (?, ?, ?, ?)",
+            (identity, permission, time.time(), granted_by),
+        )
+
+    async def rbac_revoke(self, identity: str, permission: str) -> None:
+        """Revoke a permission from an identity."""
+        await self.execute(
+            "DELETE FROM role_permissions WHERE identity = ? AND permission = ?",
+            (identity, permission),
+        )
+
+    async def rbac_set_role(self, identity: str, role: str, granted_by: Optional[str] = None) -> None:
+        """Replace all permissions for an identity with a role template."""
+        await self.execute("DELETE FROM role_permissions WHERE identity = ?", (identity,))
+        perms = ROLE_TEMPLATES.get(role, set())
+        now = time.time()
+        for perm in perms:
+            await self.execute(
+                "INSERT INTO role_permissions (identity, permission, granted_at, granted_by)"
+                " VALUES (?, ?, ?, ?)",
+                (identity, perm, now, granted_by),
+            )
+
+    async def rbac_list_by_permission(self, permission: str) -> List[str]:
+        """List all identities with a specific permission."""
+        rows = await self.fetchall(
+            "SELECT identity FROM role_permissions WHERE permission = ?",
+            (permission,),
+        )
+        return [row["identity"] for row in rows]
+
+    # ------------------------------------------------------------- sessions (JWT revocation)
+    async def session_create(self, jti: str, key_id: str, expires_at: float,
+                            user_agent: Optional[str] = None,
+                            ip_address: Optional[str] = None) -> None:
+        """Create a new session record for JWT revocation tracking."""
+        await self.execute(
+            "INSERT INTO sessions (jti, key_id, expires_at, created_at, user_agent, ip_address)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (jti, key_id, expires_at, time.time(), user_agent, ip_address),
+        )
+
+    async def session_revoke(self, jti: str) -> None:
+        """Revoke a session by JTI."""
+        await self.execute("UPDATE sessions SET revoked = 1 WHERE jti = ?", (jti,))
+
+    async def session_is_valid(self, jti: str) -> bool:
+        """Check if a session is still valid (not revoked and not expired)."""
+        row = await self.fetchone(
+            "SELECT revoked, expires_at FROM sessions WHERE jti = ?",
+            (jti,),
+        )
+        if row is None:
+            return False
+        if row["revoked"]:
+            return False
+        if time.time() > row["expires_at"]:
+            return False
+        return True
+
+    async def session_cleanup(self) -> int:
+        """Remove expired sessions. Returns count of deleted rows."""
+        await self.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        row = await self.fetchone("SELECT changes() AS n")
+        return int(row.get("n", 0)) if row else 0
+
+    async def session_list_for_key(self, key_id: str) -> List[Dict[str, Any]]:
+        """List all sessions for an API key."""
+        rows = await self.fetchall(
+            "SELECT * FROM sessions WHERE key_id = ? ORDER BY created_at DESC",
+            (key_id,),
+        )
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------- OIDC identities
+    async def oidc_get(self, provider: str, subject: str) -> Optional[Dict[str, Any]]:
+        """Get OIDC identity by provider + subject."""
+        row = await self.fetchone(
+            "SELECT * FROM oidc_identities WHERE provider = ? AND subject = ?",
+            (provider, subject),
+        )
+        return dict(row) if row else None
+
+    async def oidc_create(self, identity_id: str, provider: str, subject: str,
+                          email: Optional[str] = None, name: Optional[str] = None) -> None:
+        """Create a new OIDC identity."""
+        now = time.time()
+        await self.execute(
+            "INSERT INTO oidc_identities (id, provider, subject, email, name, created_at, last_login)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (identity_id, provider, subject, email, name, now, now),
+        )
+
+    async def oidc_update_last_login(self, identity_id: str) -> None:
+        """Update last login timestamp."""
+        await self.execute(
+            "UPDATE oidc_identities SET last_login = ? WHERE id = ?",
+            (time.time(), identity_id),
+        )
+
+    async def oidc_link_api_key(self, identity_id: str, key_id: str) -> None:
+        """Link an OIDC identity to an API key."""
+        await self.execute(
+            "INSERT OR IGNORE INTO oidc_api_keys (identity_id, key_id, linked_at)"
+            " VALUES (?, ?, ?)",
+            (identity_id, key_id, time.time()),
+        )

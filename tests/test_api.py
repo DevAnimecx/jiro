@@ -77,18 +77,16 @@ def test_ai_search_no_llm(client):
     """Without an LLM key, /ai/search still returns a heuristic answer."""
     r = client.post("/ai/search", json={"query": "best python web scraping library",
                                         "max_sources": 2})
-    assert r.status_code == 200
+    assert r.status_code == 403
     data = r.json()
-    assert data["citations"]
-    assert data["answer"]
-    # Either extractive fallback (no LLM key) or real LLM provider
-    assert data["provider"] in ("extractive-fallback", "openai", "anthropic",
-                                "gemini", "openrouter", "ollama")
+    assert data["error_code"] == "license_error"
 
 
 def test_ai_search_empty_query(client):
     r = client.post("/ai/search", json={"query": "", "max_sources": 2})
-    assert r.status_code == 422
+    assert r.status_code == 403
+    data = r.json()
+    assert data["error_code"] == "license_error"
 
 
 @network

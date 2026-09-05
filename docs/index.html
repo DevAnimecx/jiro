@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jiro — The Search Intelligence Platform | Free Web Search API</title>
+    <meta name="description" content="Local-first, AI-native web search & scraping API. 9 search engines, 12 social platforms, hybrid search. Free forever. A drop-in SerpAPI alternative with MCP integration.">
+    <meta name="keywords" content="search API, web scraping, SerpAPI alternative, MCP server, AI search, social media scraping, hybrid search, self-hosted, developer tools">
+    <meta name="author" content="Blackvault Technology">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://jiro.ai">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Jiro — The Search Intelligence Platform">
+    <meta property="og:description" content="One API. 9 search engines. 12 social platforms. AI-powered. Free forever.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://jiro.ai">
+    <meta property="og:image" content="https://jiro.ai/assets/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Jiro — The Search Intelligence Platform">
+    <meta name="twitter:description" content="One API. 9 search engines. 12 social platforms. AI-powered. Free forever.">
+    <meta name="twitter:image" content="https://jiro.ai/assets/og-image.png">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Jiro Search",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Cross-platform",
+        "description": "Local-first, AI-native web search & scraping API with 9 engines and 12 social platforms.",
+        "url": "https://jiro.ai",
+        "downloadUrl": "https://pypi.org/project/jirosearch/",
+        "offers": [
+            {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "USD",
+                "name": "Free"
+            },
+            {
+                "@type": "Offer",
+                "price": "499",
+                "priceCurrency": "USD",
+                "name": "Enterprise",
+                "billingIncrement": "P1M"
+            }
+        ],
+        "applicationVersion": "0.2.11",
+        "operatingSystem": "Windows, macOS, Linux"
+    }
+    </script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        jiro: {
+                            dark: '#09090b',
+                            darker: '#040405',
+                            card: '#111113',
+                            orange: '#f97316',
+                            'orange-light': '#fb923c',
+                            'orange-dark': '#ea580c',
+                            border: '#27272a',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        * { scrollbar-width: thin; scrollbar-color: #333 transparent; }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #ffffff 0%, #f97316 50%, #fb923c 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glass {
+            background: rgba(17, 17, 19, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .glass-card {
+            background: linear-gradient(135deg, rgba(17,17,19,0.8) 0%, rgba(17,17,19,0.4) 100%);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .glow-orange {
+            box-shadow: 0 0 80px rgba(249, 115, 22, 0.12), 0 0 160px rgba(249, 115, 22, 0.06);
+        }
+
+        .glow-orange-sm {
+            box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
+        }
+
+        .border-gradient {
+            border: 1px solid transparent;
+            background-clip: padding-box;
+            position: relative;
+        }
+        .border-gradient::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(135deg, rgba(249,115,22,0.3) 0%, rgba(255,255,255,0.06) 50%, rgba(249,115,22,0.1) 100%);
+            z-index: -1;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            padding: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .btn-primary:hover::before { opacity: 1; }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(249, 115, 22, 0.3);
+        }
+
+        .card-hover {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-hover:hover {
+            transform: translateY(-6px);
+            border-color: rgba(249, 115, 22, 0.2);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 40px rgba(249, 115, 22, 0.05);
+        }
+
+        .code-block {
+            background: #0c0c0e;
+            border: 1px solid #1e1e22;
+            border-radius: 16px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .code-line { opacity: 0; transform: translateX(-10px); }
+        .code-line.visible { animation: codeReveal 0.4s ease forwards; }
+        @keyframes codeReveal {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .float { animation: float 6s ease-in-out infinite; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-12px); }
+        }
+
+        .pulse-ring {
+            animation: pulseRing 3s ease-in-out infinite;
+        }
+        @keyframes pulseRing {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+            50% { box-shadow: 0 0 0 15px rgba(249, 115, 22, 0); }
+        }
+
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .slide-left {
+            opacity: 0;
+            transform: translateX(-40px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .slide-left.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .slide-right {
+            opacity: 0;
+            transform: translateX(40px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .slide-right.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .counter { font-variant-numeric: tabular-nums; }
+
+        #particles-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.2) 50%, transparent 100%);
+        }
+
+        .badge-enterprise {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0%, 100% { box-shadow: 0 0 20px rgba(249, 115, 22, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(249, 115, 22, 0.5); }
+        }
+
+        .typing-cursor::after {
+            content: '|';
+            animation: blink 1s step-end infinite;
+            color: #f97316;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        table th { position: relative; }
+        table th::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(249,115,22,0.3), transparent);
+        }
+    </style>
+</head>
+<body class="bg-jiro-dark text-white overflow-x-hidden antialiased">
+
+    <!-- Particle Background -->
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Navigation -->
+    <nav id="navbar" class="fixed top-0 w-full z-50 transition-all duration-500">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <a href="#" class="flex items-center gap-3 group">
+                <div class="w-9 h-9 bg-gradient-to-br from-jiro-orange to-jiro-orange-dark rounded-xl flex items-center justify-center font-bold text-white text-lg group-hover:scale-110 transition-transform">j</div>
+                <span class="text-xl font-bold tracking-tight">jiro</span>
+            </a>
+            <div class="hidden md:flex items-center gap-8 text-sm text-zinc-400">
+                <a href="#features" class="hover:text-white transition-colors duration-200">Features</a>
+                <a href="#pricing" class="hover:text-white transition-colors duration-200">Pricing</a>
+                <a href="#compare" class="hover:text-white transition-colors duration-200">Compare</a>
+                <a href="https://github.com/DevAnimecx/jiro" class="hover:text-white transition-colors duration-200">GitHub</a>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="https://github.com/DevAnimecx/jiro" class="hidden sm:flex items-center gap-2 text-zinc-400 hover:text-white transition-colors px-4 py-2 rounded-xl border border-zinc-800 hover:border-zinc-600 text-sm">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    Star
+                </a>
+                <a href="#get-started" class="btn-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold relative z-10">
+                    <span class="relative z-10">Get Started Free</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="min-h-screen flex items-center justify-center relative pt-20 overflow-hidden">
+        <!-- Background Effects -->
+        <div class="absolute inset-0">
+            <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-jiro-orange/[0.04] rounded-full blur-[120px]"></div>
+            <div class="absolute top-20 left-1/4 w-[400px] h-[400px] bg-jiro-orange/[0.03] rounded-full blur-[100px]"></div>
+            <div class="absolute bottom-20 right-1/4 w-[300px] h-[300px] bg-orange-500/[0.02] rounded-full blur-[80px]"></div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 text-center relative z-10">
+            <!-- Badge -->
+            <div class="inline-flex items-center gap-2 glass rounded-full px-4 py-2 mb-10 fade-in">
+                <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                <span class="text-sm text-zinc-300">v0.2.11 — Enterprise tier now available</span>
+                <svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+
+            <!-- Headline -->
+            <h1 class="text-5xl sm:text-6xl md:text-8xl font-bold mb-8 leading-[1.05] tracking-tight fade-in" style="transition-delay: 0.1s">
+                <span class="block text-white">Search Intelligence</span>
+                <span class="gradient-text">Platform</span>
+            </h1>
+
+            <!-- Subheadline -->
+            <p class="text-lg sm:text-xl md:text-2xl text-zinc-400 max-w-3xl mx-auto mb-12 leading-relaxed fade-in" style="transition-delay: 0.2s">
+                One API. <span class="text-white font-medium">9 search engines</span>.
+                <span class="text-white font-medium">12 social platforms</span>.
+                AI-powered. <span class="text-jiro-orange font-medium">Free forever</span>.
+            </p>
+
+            <!-- CTA Buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 fade-in" style="transition-delay: 0.3s">
+                <a href="#get-started" class="btn-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold relative z-10 pulse-ring">
+                    <span class="relative z-10 flex items-center gap-2">
+                        Get Started Free
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    </span>
+                </a>
+                <a href="https://github.com/DevAnimecx/jiro" class="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-white px-8 py-4 rounded-2xl text-lg font-semibold transition-all duration-300 hover:bg-white/5">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    View on GitHub
+                </a>
+            </div>
+
+            <!-- Interactive Terminal -->
+            <div class="max-w-3xl mx-auto fade-in" style="transition-delay: 0.4s">
+                <div class="code-block p-1 glow-orange-sm float">
+                    <div class="bg-[#0c0c0e] rounded-2xl p-6">
+                        <!-- Terminal Header -->
+                        <div class="flex items-center justify-between mb-5">
+                            <div class="flex items-center gap-2">
+                                <div class="w-3 h-3 rounded-full bg-[#ff5f57]"></div>
+                                <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                                <div class="w-3 h-3 rounded-full bg-[#28ca42]"></div>
+                            </div>
+                            <span class="text-xs text-zinc-600 font-mono">terminal</span>
+                        </div>
+                        <!-- Terminal Content -->
+                        <div class="text-left text-sm md:text-base font-mono leading-relaxed" id="terminal-code">
+                            <div class="code-line" style="transition-delay: 0.5s"><span class="text-zinc-600">$</span> <span class="text-emerald-400">pip</span> install jirosearch</div>
+                            <div class="code-line" style="transition-delay: 0.7s"><span class="text-zinc-600">$</span> <span class="text-emerald-400">jiro</span> serve</div>
+                            <div class="code-line" style="transition-delay: 0.9s"><span class="text-zinc-600">→</span> <span class="text-zinc-500">Jiro v0.2.11 running on</span> <span class="text-jiro-orange">http://localhost:8000</span></div>
+                            <div class="code-line" style="transition-delay: 1.1s"><span class="text-zinc-600">$</span> <span class="text-emerald-400">curl</span> -X POST localhost:8000/search -d <span class="text-amber-300">'{"q":"AI research"}'</span></div>
+                            <div class="code-line" style="transition-delay: 1.3s"><span class="text-zinc-600">→</span> <span class="text-zinc-500">{</span> <span class="text-zinc-400">"results"</span>: <span class="text-jiro-orange">[...]</span><span class="text-zinc-500">,</span> <span class="text-zinc-400">"engine"</span>: <span class="text-emerald-400">"google"</span><span class="text-zinc-500"> }</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Bar -->
+    <section class="py-6 border-y border-white/5 bg-jiro-darker/50">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+                <div class="fade-in">
+                    <div class="text-3xl md:text-4xl font-bold text-white counter" data-target="9">0</div>
+                    <div class="text-sm text-zinc-500 mt-1">Search Engines</div>
+                </div>
+                <div class="fade-in" style="transition-delay: 0.1s">
+                    <div class="text-3xl md:text-4xl font-bold text-white counter" data-target="12">0</div>
+                    <div class="text-sm text-zinc-500 mt-1">Social Platforms</div>
+                </div>
+                <div class="fade-in" style="transition-delay: 0.2s">
+                    <div class="text-3xl md:text-4xl font-bold text-white counter" data-target="75">0</div>
+                    <div class="text-sm text-zinc-500 mt-1">API Endpoints</div>
+                </div>
+                <div class="fade-in" style="transition-delay: 0.3s">
+                    <div class="text-3xl md:text-4xl font-bold text-jiro-orange counter" data-target="0">0</div>
+                    <div class="text-sm text-zinc-500 mt-1">$/mo Free Tier</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="py-28 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-20">
+                <div class="inline-flex items-center gap-2 text-jiro-orange text-sm font-medium mb-4 fade-in">FEATURES</div>
+                <h2 class="text-4xl md:text-6xl font-bold mb-6 tracking-tight fade-in">Everything you need</h2>
+                <p class="text-xl text-zinc-400 max-w-2xl mx-auto fade-in">Search intelligence that scales from prototype to production. No vendor lock-in.</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group">
+                    <div class="w-14 h-14 bg-jiro-orange/10 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">🔍</div>
+                    <h3 class="text-xl font-semibold mb-3">Hybrid Search</h3>
+                    <p class="text-zinc-400 leading-relaxed">Combines keyword, semantic, and freshness signals for the most relevant results across 9 engines.</p>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group" style="transition-delay: 0.1s">
+                    <div class="w-14 h-14 bg-jiro-orange/10 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">🌐</div>
+                    <h3 class="text-xl font-semibold mb-3">12 Social Platforms</h3>
+                    <p class="text-zinc-400 leading-relaxed">Reddit, Twitter/X, YouTube, LinkedIn, TikTok, Instagram, Facebook, Threads, Hacker News, Bluesky, Telegram, Pinterest.</p>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group" style="transition-delay: 0.2s">
+                    <div class="w-14 h-14 bg-jiro-orange/10 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">🧠</div>
+                    <h3 class="text-xl font-semibold mb-3">Smart Search</h3>
+                    <p class="text-zinc-400 leading-relaxed">Intent-aware auto-routing picks the best engine for every query. 16 intent types supported.</p>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group" style="transition-delay: 0.3s">
+                    <div class="w-14 h-14 bg-jiro-orange/10 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">📊</div>
+                    <h3 class="text-xl font-semibold mb-3">Structured Extraction</h3>
+                    <p class="text-zinc-400 leading-relaxed">Extract structured JSON data from any web page using JSON schemas. LLM-assisted extraction.</p>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group" style="transition-delay: 0.4s">
+                    <div class="w-14 h-14 bg-jiro-orange/10 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">🤖</div>
+                    <h3 class="text-xl font-semibold mb-3">MCP Integration</h3>
+                    <p class="text-zinc-400 leading-relaxed">16 tools for Claude Desktop, Cursor, and any MCP-compatible client. AI agents love Jiro.</p>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 card-hover fade-in group" style="transition-delay: 0.5s">
+                    <div class="w-14 h-14 bg-gradient-to-br from-jiro-orange/20 to-jiro-orange/5 rounded-2xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">🏢</div>
+                    <h3 class="text-xl font-semibold mb-3">Enterprise Ready</h3>
+                    <p class="text-zinc-400 leading-relaxed">Multi-tenant isolation, SOC2 compliance, SLA monitoring, HMAC license tokens, webhooks, batch jobs.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- How It Works -->
+    <section class="py-28 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-20">
+                <div class="inline-flex items-center gap-2 text-jiro-orange text-sm font-medium mb-4 fade-in">HOW IT WORKS</div>
+                <h2 class="text-4xl md:text-6xl font-bold mb-6 tracking-tight fade-in">Three lines to start</h2>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+                <div class="text-center fade-in">
+                    <div class="w-16 h-16 bg-jiro-orange/10 border border-jiro-orange/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-2xl font-bold text-jiro-orange">1</div>
+                    <h3 class="text-xl font-semibold mb-3">Install</h3>
+                    <div class="code-block p-4 text-left">
+                        <code class="text-sm font-mono"><span class="text-emerald-400">pip</span> install jirosearch</code>
+                    </div>
+                </div>
+
+                <div class="text-center fade-in" style="transition-delay: 0.15s">
+                    <div class="w-16 h-16 bg-jiro-orange/10 border border-jiro-orange/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-2xl font-bold text-jiro-orange">2</div>
+                    <h3 class="text-xl font-semibold mb-3">Start</h3>
+                    <div class="code-block p-4 text-left">
+                        <code class="text-sm font-mono"><span class="text-emerald-400">jiro</span> serve</code>
+                    </div>
+                </div>
+
+                <div class="text-center fade-in" style="transition-delay: 0.3s">
+                    <div class="w-16 h-16 bg-jiro-orange/10 border border-jiro-orange/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-2xl font-bold text-jiro-orange">3</div>
+                    <h3 class="text-xl font-semibold mb-3">Search</h3>
+                    <div class="code-block p-4 text-left">
+                        <code class="text-sm font-mono"><span class="text-emerald-400">curl</span> localhost:8000/search</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Pricing -->
+    <section id="pricing" class="py-28 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-20">
+                <div class="inline-flex items-center gap-2 text-jiro-orange text-sm font-medium mb-4 fade-in">PRICING</div>
+                <h2 class="text-4xl md:text-6xl font-bold mb-6 tracking-tight fade-in">Simple, transparent pricing</h2>
+                <p class="text-xl text-zinc-400 max-w-2xl mx-auto fade-in">Start free. Scale when you're ready. No hidden fees.</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+                <!-- Free -->
+                <div class="glass-card rounded-3xl p-10 card-hover fade-in relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl"></div>
+                    <div class="relative">
+                        <div class="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full mb-6">MOST POPULAR</div>
+                        <h3 class="text-2xl font-bold mb-2">Free</h3>
+                        <div class="flex items-baseline gap-1 mb-8">
+                            <span class="text-5xl font-bold">$0</span>
+                            <span class="text-zinc-500">/forever</span>
+                        </div>
+                        <ul class="space-y-4 mb-10">
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 100 requests/minute</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 10,000 requests/day</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 9 search engines</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 12 social platforms</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> Hybrid search & smart routing</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> MCP integration (16 tools)</li>
+                        </ul>
+                        <a href="#get-started" class="block w-full text-center bg-white text-black py-4 rounded-2xl font-semibold hover:bg-zinc-200 transition-all duration-300 hover:shadow-lg hover:shadow-white/10">
+                            Get Started Free
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Enterprise -->
+                <div class="relative rounded-3xl p-10 card-hover fade-in overflow-hidden" style="transition-delay: 0.15s">
+                    <div class="absolute inset-0 bg-gradient-to-b from-jiro-orange/10 via-jiro-card to-jiro-card rounded-3xl"></div>
+                    <div class="absolute inset-0 rounded-3xl border-gradient"></div>
+                    <div class="absolute top-0 right-0 w-40 h-40 bg-jiro-orange/10 rounded-full blur-3xl"></div>
+                    <div class="relative">
+                        <div class="badge-enterprise inline-flex items-center gap-2 text-white text-xs font-semibold px-3 py-1 rounded-full mb-6">ENTERPRISE</div>
+                        <h3 class="text-2xl font-bold mb-2">Enterprise</h3>
+                        <div class="flex items-baseline gap-1 mb-8">
+                            <span class="text-5xl font-bold">$499</span>
+                            <span class="text-zinc-500">/month</span>
+                        </div>
+                        <ul class="space-y-4 mb-10">
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 1,000 requests/minute</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> 1,000,000 requests/day</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> AI-powered agentic research</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> Custom LLM models</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> White-label + commercial license</li>
+                            <li class="flex items-center gap-3 text-zinc-300"><span class="w-5 h-5 bg-jiro-orange/20 rounded-full flex items-center justify-center"><svg class="w-3 h-3 text-jiro-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span> SOC2 + premium support</li>
+                        </ul>
+                        <a href="mailto:sales@jiro.ai" class="block w-full text-center btn-primary text-white py-4 rounded-2xl font-semibold relative z-10">
+                            <span class="relative z-10">Contact Sales</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Comparison -->
+    <section id="compare" class="py-28 relative">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="text-center mb-20">
+                <div class="inline-flex items-center gap-2 text-jiro-orange text-sm font-medium mb-4 fade-in">COMPARISON</div>
+                <h2 class="text-4xl md:text-6xl font-bold mb-6 tracking-tight fade-in">Why switch to Jiro?</h2>
+                <p class="text-xl text-zinc-400 max-w-2xl mx-auto fade-in">More features. Better pricing. Fully self-hosted.</p>
+            </div>
+
+            <div class="glass-card rounded-2xl overflow-hidden fade-in">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b border-white/5">
+                                <th class="py-5 px-6 text-zinc-400 font-medium">Feature</th>
+                                <th class="py-5 px-6 text-center"><span class="text-jiro-orange font-bold text-lg">Jiro</span></th>
+                                <th class="py-5 px-6 text-center text-zinc-500 font-medium">SerpAPI</th>
+                                <th class="py-5 px-6 text-center text-zinc-500 font-medium">ScraperAPI</th>
+                                <th class="py-5 px-6 text-center text-zinc-500 font-medium">Bright Data</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm">
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">Self-hosted</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 text-lg">&#10003;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                            </tr>
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">Free tier</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 font-semibold">10K RPD</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">100/mo</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">5K/mo</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">Trial</td>
+                            </tr>
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">Search engines</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 font-semibold">9</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">8</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">50+</td>
+                            </tr>
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">Social platforms</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 font-semibold">12</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-zinc-500">Limited</td>
+                            </tr>
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">Hybrid search</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 text-lg">&#10003;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                            </tr>
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-4 px-6 text-zinc-300">MCP integration</td>
+                                <td class="py-4 px-6 text-center text-emerald-400 text-lg">&#10003;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                                <td class="py-4 px-6 text-center text-red-400/60">&#10007;</td>
+                            </tr>
+                            <tr class="hover:bg-white/[0.02] transition-colors">
+                                <td class="py-5 px-6 font-semibold text-white">Paid tier</td>
+                                <td class="py-5 px-6 text-center text-jiro-orange font-bold text-lg">$499/mo</td>
+                                <td class="py-5 px-6 text-center text-zinc-500">$50/mo</td>
+                                <td class="py-5 px-6 text-center text-zinc-500">$49/mo</td>
+                                <td class="py-5 px-6 text-center text-zinc-500">$500+/mo</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- CTA -->
+    <section id="get-started" class="py-28 relative">
+        <div class="absolute inset-0">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-jiro-orange/[0.04] rounded-full blur-[120px]"></div>
+        </div>
+
+        <div class="max-w-4xl mx-auto px-6 text-center relative z-10">
+            <h2 class="text-4xl md:text-6xl font-bold mb-6 tracking-tight fade-in">Start building today</h2>
+            <p class="text-xl text-zinc-400 mb-12 fade-in">No credit card required. No rate limits on local usage.</p>
+
+            <div class="code-block p-6 text-left max-w-2xl mx-auto mb-12 fade-in glow-orange-sm">
+                <div class="flex items-center gap-2 mb-4">
+                    <div class="w-3 h-3 rounded-full bg-[#ff5f57]"></div>
+                    <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                    <div class="w-3 h-3 rounded-full bg-[#28ca42]"></div>
+                </div>
+                <pre class="text-sm font-mono text-zinc-300 overflow-x-auto"><code><span class="text-zinc-600">$</span> <span class="text-emerald-400">pip</span> install jirosearch
+<span class="text-zinc-600">$</span> <span class="text-emerald-400">jiro</span> serve
+<span class="text-zinc-600">→</span> <span class="text-zinc-500">Jiro v0.2.11 running on</span> <span class="text-jiro-orange">http://localhost:8000</span>
+<span class="text-zinc-600">→</span> <span class="text-zinc-500">Docs:</span> <span class="text-zinc-400">http://localhost:8000/docs</span></code></pre>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 fade-in">
+                <a href="https://github.com/DevAnimecx/jiro" class="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-white px-8 py-4 rounded-2xl text-lg font-semibold transition-all duration-300 hover:bg-white/5">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    View on GitHub
+                </a>
+                <a href="https://discord.gg/jiro" class="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-white px-8 py-4 rounded-2xl text-lg font-semibold transition-all duration-300 hover:bg-white/5">
+                    Join Discord
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-white/5">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-gradient-to-br from-jiro-orange to-jiro-orange-dark rounded-lg flex items-center justify-center font-bold text-white text-sm">j</div>
+                    <span class="font-bold">jiro</span>
+                    <span class="text-sm text-zinc-600">v0.2.11</span>
+                </div>
+                <div class="flex items-center gap-6 text-sm text-zinc-500">
+                    <a href="https://github.com/DevAnimecx/jiro" class="hover:text-white transition-colors">GitHub</a>
+                    <a href="https://discord.gg/jiro" class="hover:text-white transition-colors">Discord</a>
+                    <a href="https://twitter.com/jirosearch" class="hover:text-white transition-colors">Twitter</a>
+                    <a href="/docs" class="hover:text-white transition-colors">Docs</a>
+                    <a href="/openapi.json" class="hover:text-white transition-colors">API</a>
+                </div>
+                <div class="text-sm text-zinc-600">&copy; 2026 Blackvault Technology</div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        // ── Particles ──────────────────────────────────────────────
+        const canvas = document.getElementById('particles-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let mouse = { x: null, y: null };
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.speedX = (Math.random() - 0.5) * 0.3;
+                this.speedY = (Math.random() - 0.5) * 0.3;
+                this.opacity = Math.random() * 0.3 + 0.1;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                if (this.x < 0 || this.x > canvas.width) this.speedX *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.speedY *= -1;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(249, 115, 22, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particles = [];
+            const count = Math.min(60, Math.floor(canvas.width * canvas.height / 20000));
+            for (let i = 0; i < count; i++) particles.push(new Particle());
+        }
+        initParticles();
+
+        function connectParticles() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(249, 115, 22, ${0.03 * (1 - dist / 150)})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            connectParticles();
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        // ── Scroll Animations ──────────────────────────────────────
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    // Trigger code lines if terminal
+                    if (entry.target.closest('.code-block') || entry.target.querySelector('.code-line')) {
+                        const lines = entry.target.querySelectorAll('.code-line');
+                        lines.forEach((line, i) => {
+                            setTimeout(() => line.classList.add('visible'), i * 200);
+                        });
+                    }
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+        document.querySelectorAll('.fade-in, .slide-left, .slide-right, .code-line').forEach(el => observer.observe(el));
+
+        // ── Counter Animation ──────────────────────────────────────
+        const counterObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const el = entry.target;
+                    const target = parseInt(el.dataset.target);
+                    let current = 0;
+                    const duration = 1500;
+                    const step = target / (duration / 16);
+                    const timer = setInterval(() => {
+                        current += step;
+                        if (current >= target) {
+                            el.textContent = target;
+                            clearInterval(timer);
+                        } else {
+                            el.textContent = Math.floor(current);
+                        }
+                    }, 16);
+                    counterObserver.unobserve(el);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('.counter').forEach(el => counterObserver.observe(el));
+
+        // ── Navbar Scroll ──────────────────────────────────────────
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 100) {
+                navbar.classList.add('bg-jiro-darker/90', 'backdrop-blur-xl', 'border-b', 'border-white/5');
+            } else {
+                navbar.classList.remove('bg-jiro-darker/90', 'backdrop-blur-xl', 'border-b', 'border-white/5');
+            }
+        });
+    </script>
+
+</body>
+</html>

@@ -148,6 +148,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "jwt_public_key": "",
         "api_key_header": "X-API-Key",  # SECURITY: Header-only auth
         "allow_query_param": False,      # SECURITY: Never accept API keys in query strings
+        "oidc": {},                 # OIDC provider configs (see auth_oidc.py)
+        "rbac": {
+            "enabled": True,        # Enable fine-grained RBAC
+            "default_role": "editor",  # Default role for new API keys
+        },
+        "session": {
+            "enabled": True,        # Enable JWT session revocation
+            "cleanup_interval_seconds": 3600,
+        },
     },
     "agent": {
         "max_steps": 5,
@@ -171,6 +180,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "privacy": {"log_queries": False, "log_payloads": False},
     "audit": {"enabled": True, "log_file": "~/.jiro/audit.log", "buffer_size": 100,
               "flush_interval_seconds": 5},
+    "security": {
+        "encryption_enabled": False,  # Enable encryption at rest
+        "encryption_key": "",         # 32+ byte key for AES-256-GCM
+        "encryption_algorithm": "aes-256-gcm",
+        "encrypted_fields": {         # Fields to encrypt in database
+            "api_keys": ["key_hash"],
+            "usage": ["query"],
+            "oidc_identities": ["email"],
+        },
+    },
+    "compliance": {
+        "dsar_enabled": True,         # GDPR data subject access requests
+        "retention_days": 365,        # Data retention period
+        "auto_purge_enabled": False,  # Automatic cleanup of old data
+    },
 }
 
 

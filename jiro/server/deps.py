@@ -6,12 +6,16 @@ from typing import Any, Dict
 
 from fastapi import Depends, Request
 
-from jiro.auth import AuthContext, AuthManager, build_auth_context
+from jiro.auth import AuthContext, build_auth_context
+from jiro.errors import AuthError, JiroPermissionError
 from jiro.audit import ComplianceLogger
 from jiro.cache import CacheManager
 from jiro.config import Settings
 from jiro.db import Database
-from jiro.errors import ForbiddenError
+from jiro.errors import ForbiddenError, LicenseError
+from jiro.feature_flags import get_feature_gate
+from jiro.licensing import FEATURE_DEFINITIONS
+from jiro.pro import PLAN_LIMITS, PlanLimits, PlanTier
 from jiro.scraping.client import ScrapingClient
 from jiro.scraping.engines import SearchOrchestrator
 
@@ -93,7 +97,7 @@ def get_audit_logger_dep(request: Request) -> ComplianceLogger:
 
 async def get_auth_context(
     request: Request,
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
 ) -> AuthContext:
     settings: Settings = request.app.state.settings
     if not settings.auth_enabled:
@@ -106,7 +110,7 @@ async def get_auth_context(
 
 async def optional_auth_context(
     request: Request,
-    auth: AuthManager = Depends(get_auth_manager),
+    auth = Depends(get_auth_manager),
 ) -> AuthContext:
     settings: Settings = request.app.state.settings
     if not settings.auth_enabled:
@@ -117,7 +121,7 @@ async def optional_auth_context(
 def require_scope(scope: str = "search"):
     async def _dep(
         ctx: AuthContext = Depends(get_auth_context),
-        auth: AuthManager = Depends(get_auth_manager),
+        auth = Depends(get_auth_manager),
     ) -> AuthContext:
         if ctx.record is not None:
             await auth.authorize(ctx.record, scope=scope)
@@ -146,3 +150,177 @@ async def record_usage(request: Request, *, endpoint: str, status: int = 200,
         )
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# License / feature enforcement
+# ---------------------------------------------------------------------------
+
+def require_feature(feature: str):
+    """Dependency that gates an endpoint on a licensed feature.
+
+    Usage::
+
+        @router.post("/social/search")
+        async def social_search(
+            ...,
+            ctx: AuthContext = Depends(require_feature("social_search")),
+            ...
+        ):
+            ...
+    """
+    async def _dep(
+        ctx: AuthContext = Depends(get_auth_context),
+    ) -> AuthContext:
+        # Anonymous users: generous free features (no auth required)
+        if ctx.record is None:
+            anon_free = {
+                "basic_search", "basic_scrape", "open_scrapers",
+                "social_advanced", "social_search", "social_timeline",
+                "smart_search", "structured_extraction", "webhook_alerts",
+                "social_batch", "self_learning",
+            }
+            if feature not in anon_free:
+                raise LicenseError(
+                    f"'{feature}' requires authentication. "
+                    f"Get your free API key at https://jiro.ai/dashboard",
+                    details={
+                        "feature": feature,
+                        "required_tiers": FEATURE_DEFINITIONS.get(feature, {}).get("tiers", []),
+                        "login_url": "https://jiro.ai/dashboard",
+                    },
+                )
+            return ctx
+
+        tier = PlanTier(ctx.record.get("tier", "free"))
+        limits = PLAN_LIMITS[tier]
+        feature_flag = getattr(limits, f"feature_{feature}", False)
+        if not feature_flag:
+            raise LicenseError(
+                f"'{feature}' requires an Enterprise plan. "
+                f"Current tier: {tier.value}. "
+                f"Upgrade at https://jiro.ai/pricing",
+                details={
+                    "feature": feature,
+                    "current_tier": tier.value,
+                    "required_tiers": FEATURE_DEFINITIONS.get(feature, {}).get("tiers", []),
+                    "upgrade_url": "https://jiro.ai/pricing",
+                },
+            )
+        return ctx
+
+    return _dep
+
+
+def require_tier(minimum_tier: str):
+    """Dependency that gates an endpoint on a minimum plan tier.
+
+    For enterprise endpoints, this also validates the HMAC license token
+    from the ``Authorization: License <token>`` header when present.
+
+    Usage::
+
+        @router.post("/enterprise/tenants")
+        async def create_tenant(
+            ...,
+            ctx: AuthContext = Depends(require_tier("enterprise")),
+            ...
+        ):
+            ...
+    """
+    async def _dep(
+        request: Request,
+        ctx: AuthContext = Depends(get_auth_context),
+    ) -> AuthContext:
+        # Check if a license token is provided (deep lock for enterprise)
+        license_token = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("license "):
+            license_token = auth_header[8:].strip()
+
+        if ctx.record is None:
+            # Allow license-token-only auth for enterprise endpoints
+            if license_token and minimum_tier == "enterprise":
+                from jiro.licensing import get_license_manager
+                manager = get_license_manager()
+                info = manager.validate_token(license_token)
+                if info.valid and info.tier == "enterprise":
+                    # Create a synthetic auth context from the license
+                    ctx = AuthContext(
+                        bucket=f"license:{info.customer_id}",
+                        key_id=f"lic:{info.license_id[:16]}",
+                        role="admin" if "admin" in info.features else "user",
+                    )
+                    return ctx
+            raise LicenseError(
+                f"'{minimum_tier}' tier or higher required. "
+                f"Get your free API key at https://jiro.ai/dashboard",
+                details={"required_tier": minimum_tier},
+            )
+
+        current_tier = ctx.record.get("tier", "free")
+        if get_tier_level(current_tier) < get_tier_level(minimum_tier):
+            raise LicenseError(
+                f"'{minimum_tier}' tier or higher required. "
+                f"Current tier: {current_tier}. "
+                f"Upgrade at https://jiro.ai/pricing",
+                details={
+                    "current_tier": current_tier,
+                    "required_tier": minimum_tier,
+                    "upgrade_url": "https://jiro.ai/pricing",
+                },
+            )
+        return ctx
+
+    return _dep
+
+
+def get_tier_level(tier: str) -> int:
+    """Get numeric level for a tier name."""
+    from jiro.licensing import _TIER_LEVELS
+    return _TIER_LEVELS.get(tier.lower(), 0)
+
+
+def require_admin_dep(
+    ctx: AuthContext = Depends(get_auth_context),
+) -> AuthContext:
+    """FastAPI dependency that requires admin role."""
+    if ctx.record is None or ctx.record.get("role") != "admin":
+        raise JiroPermissionError("admin role required")
+    return ctx
+
+
+def require_permission(permission: str):
+    """FastAPI dependency factory that requires a specific RBAC permission.
+    
+    Usage::
+        @router.delete("/users/{user_id}")
+        async def delete_user(
+            user_id: str,
+            ctx: AuthContext = Depends(require_permission("users:delete")),
+        ):
+            ...
+    """
+    async def _dep(
+        ctx: AuthContext = Depends(get_auth_context),
+    ) -> AuthContext:
+        if ctx.record is None:
+            raise AuthError("authentication required")
+        
+        from jiro.rbac import get_rbac_manager
+        from jiro.db import Database
+        from jiro.config import Settings
+        
+        db = Database(Settings.load().db_path)
+        rbac = get_rbac_manager(db, Settings.load())
+        identity = ctx.key_id or ""
+        
+        if not await rbac.has_permission(identity, permission):
+            raise JiroPermissionError(
+                f"permission denied: {permission}",
+                details={"required": permission, "identity": identity},
+            )
+        return ctx
+    
+    return _dep
+
