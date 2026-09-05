@@ -87,7 +87,7 @@ class PinterestScraper(BaseSocialScraper):
             "X-Requested-With": "XMLHttpRequest",
         }
         
-        resp = await self.client.get(api_url, headers=headers)
+        text, resp = await self.client.get(api_url, engine=self.platform, extra_headers=headers)
         data = resp.json()
         
         pin_data = data.get("resource_response", {}).get("data", {})

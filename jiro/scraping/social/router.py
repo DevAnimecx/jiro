@@ -69,18 +69,6 @@ PLATFORM_PATTERNS = [
         r"vxtwitter\.com",
         r"t\.co",
     ]),
-    ("pinterest", [
-        r"pinterest\.com",
-        r"pin\.it",
-    ]),
-    ("hackernews", [
-        r"news\.ycombinator\.com",
-        r"hackernews\.com",
-    ]),
-    ("bluesky", [
-        r"bsky\.app",
-        r"bluesky\.app",
-    ]),
 ]
 
 
@@ -205,9 +193,9 @@ class SocialRouter:
     
     def extract_identifier(self, platform: str, url: str) -> Optional[str]:
         """Extract username or post ID from URL."""
-        scrapers = registry._scrapers
-        if platform in scrapers:
-            return scrapers[platform].extract_identifier_class(url)
+        scraper_cls = registry.get(platform)
+        if scraper_cls:
+            return scraper_cls.extract_identifier_class(url)
         return None
 
 

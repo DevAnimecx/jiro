@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -19,7 +19,7 @@ class SocialNormalizer:
     def normalize_timestamp(ts: Any, platform: str = "") -> str:
         """Normalize various timestamp formats to ISO 8601 UTC."""
         if not ts:
-            return datetime.utcnow().isoformat() + "Z"
+            return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         # Already a string in ISO format
         if isinstance(ts, str):
@@ -49,7 +49,7 @@ class SocialNormalizer:
             if ts.isdigit():
                 return datetime.utcfromtimestamp(int(ts)).isoformat() + "Z"
             
-            return datetime.utcnow().isoformat() + "Z"
+            return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         # Unix timestamp (int/float)
         if isinstance(ts, (int, float)):
@@ -58,7 +58,7 @@ class SocialNormalizer:
                 ts = ts / 1000
             return datetime.utcfromtimestamp(ts).isoformat() + "Z"
         
-        return datetime.utcnow().isoformat() + "Z"
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     @staticmethod
     def normalize_number(val: Any) -> Optional[int]:
@@ -201,7 +201,7 @@ class SocialNormalizer:
                 "hashtags": SocialNormalizer.extract_hashtags(text),
                 "mentions": SocialNormalizer.extract_mentions(text),
             },
-            "scraped_at": datetime.utcnow().isoformat() + "Z",
+            "scraped_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "credits_charged": extra.get("credits_charged", 2),
         }
     
@@ -236,7 +236,7 @@ class SocialNormalizer:
                 "joined_date": SocialNormalizer.normalize_timestamp(author.get("joined_date"), platform) if author.get("joined_date") else "",
                 "profile_url": SocialNormalizer.normalize_url(url, platform),
             },
-            "scraped_at": datetime.utcnow().isoformat() + "Z",
+            "scraped_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "credits_charged": extra.get("credits_charged", 3),
         }
     
@@ -254,7 +254,7 @@ class SocialNormalizer:
             "query": query,
             "results": posts,
             "total": len(posts),
-            "scraped_at": datetime.utcnow().isoformat() + "Z",
+            "scraped_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "credits_charged": extra.get("credits_charged", 8),
         }
 

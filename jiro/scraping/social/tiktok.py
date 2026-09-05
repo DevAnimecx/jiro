@@ -95,18 +95,99 @@ class TikTokScraper(BaseSocialScraper):
     
     async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
         """Search TikTok videos."""
-        # Use Playwright for search
+        # Try HTTP API first (no browser needed)
+        try:
+            results = await self._search_api(query, limit)
+            if results:
+                return results
+        except Exception:
+            pass
+        
+        # Fallback to Playwright
         if self.use_browser:
             return await self._search_playwright(query, limit)
         
-        raise NotImplementedError("TikTok search requires browser")
+        return []
+    
+    async def _search_api(self, query: str, limit: int) -> List[SocialPost]:
+        """Search TikTok via HTTP API (no browser)."""
+        search_url = "https://www.tiktok.com/api/search/general/full/"
+        params = {
+            "keyword": query,
+            "count": limit,
+            "cursor": 0,
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+        }
+        
+        text, resp = await self.client.get(search_url, engine=self.platform, params=params, extra_headers=headers)
+        if resp.status_code != 200:
+            return []
+        
+        data = resp.json()
+        items = data.get("data", [])
+        
+        results = []
+        for item in items[:limit]:
+            video_data = item.get("item", item)
+            if not video_data:
+                continue
+            video_id = video_data.get("id")
+            if video_id:
+                video_url = f"https://tiktok.com/@{video_data.get('author', {}).get('uniqueId', 'user')}/video/{video_id}"
+                results.append(self._normalize_api_item(video_data, video_url))
+        
+        return results
     
     async def get_trending(self, limit: int = 25) -> List[SocialPost]:
         """Get trending TikTok videos."""
+        # Try HTTP API first
+        try:
+            results = await self._get_trending_api(limit)
+            if results:
+                return results
+        except Exception:
+            pass
+        
+        # Fallback to Playwright
         if self.use_browser:
             return await self._get_trending_playwright(limit)
         
-        raise NotImplementedError("Trending requires browser")
+        return []
+    
+    async def _get_trending_api(self, limit: int) -> List[SocialPost]:
+        """Get trending videos via HTTP API."""
+        search_url = "https://www.tiktok.com/api/search/general/full/"
+        params = {
+            "keyword": "trending",
+            "count": limit,
+            "cursor": 0,
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+        }
+        
+        text, resp = await self.client.get(search_url, engine=self.platform, params=params, extra_headers=headers)
+        if resp.status_code != 200:
+            return []
+        
+        data = resp.json()
+        items = data.get("data", [])
+        
+        results = []
+        for item in items[:limit]:
+            video_data = item.get("item", item)
+            if not video_data:
+                continue
+            video_id = video_data.get("id")
+            if video_id:
+                video_url = f"https://tiktok.com/@{video_data.get('author', {}).get('uniqueId', 'user')}/video/{video_id}"
+                results.append(self._normalize_api_item(video_data, video_url))
+        
+        return results
     
     def _extract_video_id(self, url: str) -> Optional[str]:
         """Extract video ID from TikTok URL."""
@@ -154,7 +235,7 @@ class TikTokScraper(BaseSocialScraper):
         api_url = f"https://www.tiktok.com/api/item/detail/?itemId={video_id}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
-        resp = await self.client.get(api_url, headers=headers)
+        text, resp = await self.client.get(api_url, engine=self.platform, extra_headers=headers)
         data = resp.json()
         
         item = data.get("itemInfo", {}).get("itemStruct", {})
@@ -211,7 +292,7 @@ class TikTokScraper(BaseSocialScraper):
         url = f"https://www.tiktok.com/api/user/detail/?uniqueId={username}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
-        resp = await self.client.get(url, headers=headers)
+        text, resp = await self.client.get(url, engine=self.platform, extra_headers=headers)
         data = resp.json()
         
         user = data.get("userInfo", {}).get("user", {})
@@ -250,7 +331,7 @@ class TikTokScraper(BaseSocialScraper):
         url = f"https://www.tiktok.com/api/post/item_list/?id={user_id}&type=1&count={limit}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
-        resp = await self.client.get(url, headers=headers)
+        text, resp = await self.client.get(url, engine=self.platform, extra_headers=headers)
         data = resp.json()
         
         items = data.get("itemList", [])
@@ -267,12 +348,9 @@ class TikTokScraper(BaseSocialScraper):
     
     async def _scrape_playwright(self, url: str) -> SocialPost:
         """Scrape via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(url, wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-e2e="video-player"]', timeout=10000)
             
@@ -313,17 +391,12 @@ class TikTokScraper(BaseSocialScraper):
                     "thumbnail": data.get("cover", ""),
                 }],
             )
-        finally:
-            await page.close()
     
     async def _scrape_profile_playwright(self, username: str) -> SocialProfile:
         """Scrape profile via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(f"https://tiktok.com/@{username}", wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-e2e="user-profile"]', timeout=10000)
             
@@ -355,17 +428,12 @@ class TikTokScraper(BaseSocialScraper):
                     "bio": data.get("bio", ""),
                 }, "engagement": {}},
             )
-        finally:
-            await page.close()
     
     async def _get_user_videos_playwright(self, username: str, limit: int) -> List[SocialPost]:
         """Get user videos via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(f"https://tiktok.com/@{username}", wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-e2e="user-post-item"]', timeout=10000)
             
@@ -396,17 +464,12 @@ class TikTokScraper(BaseSocialScraper):
                     continue
             
             return results
-        finally:
-            await page.close()
     
     async def _search_playwright(self, query: str, limit: int) -> List[SocialPost]:
         """Search via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             search_url = f"https://tiktok.com/search?q={query}&t=video"
             await page.goto(search_url, wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-e2e="search-video-item"]', timeout=10000)
@@ -438,17 +501,12 @@ class TikTokScraper(BaseSocialScraper):
                     continue
             
             return results
-        finally:
-            await page.close()
     
     async def _get_trending_playwright(self, limit: int) -> List[SocialPost]:
         """Get trending via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto("https://tiktok.com/discover", wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-e2e="video-item"]', timeout=10000)
             
@@ -479,8 +537,6 @@ class TikTokScraper(BaseSocialScraper):
                     continue
             
             return results
-        finally:
-            await page.close()
     
     def extract_identifier(self, url: str) -> Optional[str]:
         """Extract video ID or username from TikTok URL."""

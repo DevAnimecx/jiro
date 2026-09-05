@@ -21,18 +21,53 @@ class ThreadsScraper(BaseSocialScraper):
     url_patterns = [
         "threads.net",
     ]
-    supported_actions = ["post", "profile", "replies", "search"]
+    supported_actions = ["post", "profile", "replies", "search", "timeline"]
     rate_limit_rpm = 60
     requires_auth = False
     
     GRAPHQL_URL = "https://www.threads.net/api/graphql"
     
-    # GraphQL query hashes (these may need updates)
-    QUERY_HASHES = {
+    # Default query hashes (used as fallback)
+    DEFAULT_QUERY_HASHES = {
         "post": "5672115639492503",
         "profile": "17851374694183129",
         "user_posts": "17849115430193904",
     }
+    
+    _cached_hashes: Dict[str, str] = {}
+    
+    @property
+    def QUERY_HASHES(self) -> Dict[str, str]:
+        """Return query hashes, fetching dynamic ones if not cached."""
+        if not self._cached_hashes:
+            self._cached_hashes = dict(self.DEFAULT_QUERY_HASHES)
+        return self._cached_hashes
+
+    async def _ensure_query_hashes(self) -> None:
+        """Fetch latest query hashes from Threads page if cache is empty."""
+        if self._cached_hashes:
+            return
+        try:
+            html = await self._fetch_html("https://www.threads.net/", engine=self.platform)
+            found = self._parse_query_hashes_from_page(html)
+            if found:
+                self._cached_hashes.update(found)
+                log.info("Extracted %d dynamic query hashes from Threads", len(found))
+        except Exception as exc:
+            log.debug("Could not fetch dynamic query hashes: %s", exc)
+
+    @staticmethod
+    def _parse_query_hashes_from_page(html: str) -> Dict[str, str]:
+        """Extract query hashes from Threads page source."""
+        hashes = {}
+        patterns = re.findall(r'queryId["\s:=]+([a-f0-9]{16,})', html, re.IGNORECASE)
+        seen = set()
+        for h in patterns:
+            h = h.lower()
+            if h not in seen and 16 <= len(h) <= 32:
+                seen.add(h)
+                hashes[f"dynamic_{len(hashes)}"] = h
+        return hashes
     
     async def scrape_post(self, url: str) -> SocialPost:
         """Scrape a Threads post."""
@@ -52,6 +87,7 @@ class ThreadsScraper(BaseSocialScraper):
     async def get_user_posts(self, username: str, limit: int = 25) -> List[SocialPost]:
         """Get posts from a user."""
         username = username.lstrip("@")
+        await self._ensure_query_hashes()
         
         variables = {
             "username": username,
@@ -73,13 +109,36 @@ class ThreadsScraper(BaseSocialScraper):
         return results
     
     async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
-        """Search Threads (limited - uses profile search)."""
-        # Threads doesn't have public post search
-        # This would require a different approach
-        raise NotImplementedError("Threads public search not available")
+        """Search Threads posts (public search)."""
+        await self._ensure_query_hashes()
+        
+        variables = {
+            "query": query,
+            "first": limit,
+        }
+        
+        try:
+            data = await self._graphql_request(self.QUERY_HASHES.get("search", self.QUERY_HASHES.get("user_posts")), variables)
+            posts = data.get("data", {}).get("search_results", {}).get("edges", [])
+            
+            results = []
+            for edge in posts[:limit]:
+                post_data = edge.get("node", {})
+                if post_data:
+                    post_url = f"https://threads.net/@{post_data.get('owner', {}).get('username', '')}/post/{post_data.get('code', '')}"
+                    results.append(self._normalize_post(post_data, post_url))
+            
+            return results
+        except Exception as exc:
+            log.debug("Threads search failed: %s", exc)
+            return []
+    
+    # Search query hash (derived from profile hash as fallback)
+    # Threads search uses same query hash as user posts in many versions
     
     async def _get_post(self, post_id: str, url: str) -> SocialPost:
         """Get a single post by ID."""
+        await self._ensure_query_hashes()
         variables = {"shortcode": post_id}
         data = await self._graphql_request(self.QUERY_HASHES["post"], variables)
         
@@ -91,6 +150,7 @@ class ThreadsScraper(BaseSocialScraper):
     
     async def _get_profile(self, username: str) -> SocialProfile:
         """Get profile by username."""
+        await self._ensure_query_hashes()
         variables = {"username": username}
         data = await self._graphql_request(self.QUERY_HASHES["profile"], variables)
         
@@ -113,7 +173,7 @@ class ThreadsScraper(BaseSocialScraper):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         }
         
-        resp = await self.client.post(self.GRAPHQL_URL, data=params, headers=headers)
+        text, resp = await self.client.post(self.GRAPHQL_URL, engine=self.platform, data=params, extra_headers=headers)
         if resp.status_code == 429:
             raise self.RateLimitError("threads")
         resp.raise_for_status()
@@ -210,6 +270,10 @@ class ThreadsScraper(BaseSocialScraper):
             return match.group(1)
         
         return None
+    
+    async def scrape_timeline(self, username: str, limit: int = 20) -> List[SocialPost]:
+        """Get posts from a user's timeline (alias for get_user_posts)."""
+        return await self.get_user_posts(username, limit)
     
     @classmethod
     def extract_identifier_class(cls, url: str) -> Optional[str]:

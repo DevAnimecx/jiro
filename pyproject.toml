@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jirosearch"
-version = "0.2.6"
+version = "0.2.8"
 description = "Local-first, AI-native web search & scraping API with 12 social platforms, hybrid search, structured extraction, and Pro tier. A drop-in SerpAPI alternative with MCP server, agentic research, and built-in legal compliance."
 readme = "README.md"
 requires-python = ">=3.11"

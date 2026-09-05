@@ -331,16 +331,12 @@ class TwitterScraper(BaseSocialScraper):
     
     async def _scrape_playwright(self, url: str) -> SocialPost:
         """Scrape via Playwright (requires browser)."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(url, wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
             
-            # Extract tweet data
             tweet_data = await page.evaluate("""() => {
                 const tweet = document.querySelector('article[data-testid="tweet"]');
                 if (!tweet) return null;
@@ -360,17 +356,12 @@ class TwitterScraper(BaseSocialScraper):
                 raise ValueError("Could not extract tweet data")
             
             return self._normalize_playwright(tweet_data, url)
-        finally:
-            await page.close()
     
     async def _scrape_profile_playwright(self, username: str) -> SocialProfile:
         """Scrape profile via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(f"https://twitter.com/{username}", wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-testid="primaryColumn"]', timeout=10000)
             
@@ -389,21 +380,15 @@ class TwitterScraper(BaseSocialScraper):
             }""")
             
             return self._normalize_profile_playwright(profile_data, username)
-        finally:
-            await page.close()
     
     async def _scrape_timeline_playwright(self, username: str, limit: int) -> List[SocialPost]:
         """Scrape timeline via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             await page.goto(f"https://twitter.com/{username}", wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('[data-testid="primaryColumn"]', timeout=10000)
             
-            # Scroll to load more tweets
             tweets = []
             while len(tweets) < limit:
                 tweet_elements = await page.query_selector_all('article[data-testid="tweet"]')
@@ -434,17 +419,12 @@ class TwitterScraper(BaseSocialScraper):
                     continue
             
             return results
-        finally:
-            await page.close()
     
     async def _search_playwright(self, query: str, limit: int) -> List[SocialPost]:
         """Search via Playwright."""
-        from jiro.browser import get_browser
-        
-        browser = await get_browser()
-        page = await browser.new_page()
-        
-        try:
+        from jiro.browser import get_browser_page
+
+        async with get_browser_page() as page:
             search_url = f"https://twitter.com/search?q={query}&src=typed_query&f=live"
             await page.goto(search_url, wait_until="networkidle", timeout=30000)
             await page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
@@ -479,8 +459,6 @@ class TwitterScraper(BaseSocialScraper):
                     continue
             
             return results
-        finally:
-            await page.close()
     
     def _normalize_playwright(self, data: Dict[str, Any], url: str) -> SocialPost:
         """Normalize Playwright tweet data."""

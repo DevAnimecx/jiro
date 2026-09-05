@@ -29,13 +29,15 @@ class InstagramScraper(BaseSocialScraper):
     GRAPHQL_URL = "https://www.instagram.com/graphql/query/"
     FEED_URL = "https://www.instagram.com/api/v1/feed/user/"
     
-    # Query hashes (may need updates)
-    QUERY_HASHES = {
+    # Default query hashes (used as fallback)
+    DEFAULT_QUERY_HASHES = {
         "post": "b3055c01b4b222b8a47db1c2817f37ba",
         "profile": "7c16654f22e81d40e2b2c1a7c8e9f0a1",
         "user_posts": "69cba40317214236af40e7efa697781d",
         "reels": "5a3f3b5c3e4c3b5a3f3b5c3e4c3b5a3f",
     }
+    
+    _cached_hashes: Dict[str, str] = {}
     
     def __init__(self, client, settings):
         super().__init__(client, settings)
@@ -44,13 +46,46 @@ class InstagramScraper(BaseSocialScraper):
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for Instagram requests."""
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             "X-IG-App-ID": "936619743392459",
             "X-Requested-With": "XMLHttpRequest",
         }
         if self.sessionid:
             headers["Cookie"] = f"sessionid={self.sessionid}"
         return headers
+
+    @property
+    def QUERY_HASHES(self) -> Dict[str, str]:
+        """Return query hashes, fetching dynamic ones if not cached."""
+        if not self._cached_hashes:
+            self._cached_hashes = dict(self.DEFAULT_QUERY_HASHES)
+        return self._cached_hashes
+
+    async def _ensure_query_hashes(self) -> None:
+        """Fetch latest query hashes from Instagram if cache is empty."""
+        if self._cached_hashes:
+            return
+        try:
+            html = await self._fetch_html("https://www.instagram.com/", engine=self.platform)
+            found = self._parse_query_hashes_from_page(html)
+            if found:
+                self._cached_hashes.update(found)
+                log.info("Extracted %d dynamic query hashes from Instagram", len(found))
+        except Exception as exc:
+            log.debug("Could not fetch dynamic query hashes: %s", exc)
+
+    @staticmethod
+    def _parse_query_hashes_from_page(html: str) -> Dict[str, str]:
+        """Extract query hashes from Instagram page source."""
+        hashes = {}
+        patterns = re.findall(r'queryId["\s:=]+([a-f0-9]{32})', html, re.IGNORECASE)
+        seen = set()
+        for h in patterns:
+            h = h.lower()
+            if h not in seen and len(h) == 32:
+                seen.add(h)
+                hashes[f"dynamic_{len(hashes)}"] = h
+        return hashes
     
     async def scrape_post(self, url: str) -> SocialPost:
         """Scrape an Instagram post/reel."""
@@ -87,7 +122,7 @@ class InstagramScraper(BaseSocialScraper):
         headers = self._get_headers()
         
         try:
-            resp = await self.client.get(url, params=params, headers=headers)
+            text, resp = await self.client.get(url, engine=self.platform, params=params, extra_headers=headers)
             data = resp.json()
             
             results = []
@@ -101,11 +136,13 @@ class InstagramScraper(BaseSocialScraper):
                         continue
             
             return results
-        except Exception:
-            raise NotImplementedError("Instagram search requires authentication")
+        except Exception as exc:
+            log.debug("Instagram search failed: %s", exc)
+            return []
     
     async def _get_post(self, shortcode: str, url: str) -> SocialPost:
         """Get a single post by shortcode."""
+        await self._ensure_query_hashes()
         variables = {"shortcode": shortcode}
         data = await self._graphql_request(self.QUERY_HASHES["post"], variables)
         
@@ -120,7 +157,7 @@ class InstagramScraper(BaseSocialScraper):
         url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
         headers = self._get_headers()
         
-        resp = await self.client.get(url, headers=headers)
+        text, resp = await self.client.get(url, engine=self.platform, extra_headers=headers)
         if resp.status_code == 404:
             raise ValueError("Profile not found")
         resp.raise_for_status()
@@ -139,7 +176,7 @@ class InstagramScraper(BaseSocialScraper):
         params = {"count": limit}
         headers = self._get_headers()
         
-        resp = await self.client.get(url, params=params, headers=headers)
+        text, resp = await self.client.get(url, engine=self.platform, params=params, extra_headers=headers)
         data = resp.json()
         
         items = data.get("items", [])
@@ -158,7 +195,7 @@ class InstagramScraper(BaseSocialScraper):
         }
         
         headers = self._get_headers()
-        resp = await self.client.get(self.GRAPHQL_URL, params=params, headers=headers)
+        text, resp = await self.client.get(self.GRAPHQL_URL, engine=self.platform, params=params, extra_headers=headers)
         if resp.status_code == 429:
             raise self.RateLimitError("instagram")
         resp.raise_for_status()

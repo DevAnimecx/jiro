@@ -2,21 +2,34 @@
 
 from __future__ import annotations
 
-# Import scrapers to register them
-from jiro.scraping.social import (
-    reddit,
-    hackernews,
-    youtube,
-    bluesky,
-    twitter,
-    threads,
-    instagram,
-    tiktok,
-    linkedin,
-    facebook,
-    telegram,
-    pinterest,
-)
+import logging
+
+log = logging.getLogger("jiro.scraping.social")
+
+# Import scrapers with error isolation — one broken scraper should not
+# prevent the others from being available.
+import importlib
+
+_SCRAPER_MODULES = [
+    "reddit",
+    "hackernews",
+    "youtube",
+    "bluesky",
+    "twitter",
+    "threads",
+    "instagram",
+    "tiktok",
+    "linkedin",
+    "facebook",
+    "telegram",
+    "pinterest",
+]
+
+for _mod_name in _SCRAPER_MODULES:
+    try:
+        importlib.import_module(f"jiro.scraping.social.{_mod_name}")
+    except Exception as exc:
+        log.warning("Failed to import social scraper '%s': %s", _mod_name, exc)
 
 from jiro.scraping.social.base import (
     BaseSocialScraper,

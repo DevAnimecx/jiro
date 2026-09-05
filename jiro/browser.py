@@ -261,3 +261,84 @@ class BrowserFetcher:
             except Exception:  # pragma: no cover
                 pass
             self._browser = None
+
+
+async def get_browser(headless: bool = True, timeout: float = 30.0) -> BrowserFetcher:
+    """Return a ready-to-use BrowserFetcher for Playwright-based scraping.
+
+    This is the entry point used by social scrapers (TikTok, Twitter, etc.)
+    for browser-based fallback when HTTP scraping is blocked.
+    """
+    fetcher = BrowserFetcher(headless=headless, timeout=timeout)
+    return fetcher
+
+
+class BrowserPage:
+    """Context manager that provides a stealth Playwright page.
+
+    Usage:
+        async with get_browser_page() as page:
+            await page.goto(url)
+            content = await page.content()
+    """
+
+    def __init__(self, headless: bool = True, timeout: float = 30.0):
+        self.headless = headless
+        self.timeout = timeout
+        self._pw = None
+        self._browser = None
+        self._context = None
+        self._page = None
+
+    async def __aenter__(self):
+        if not playwright_available():
+            raise RuntimeError(
+                "Playwright is not installed. Run `pip install 'jiro-search[browser]'` "
+                "and `playwright install chromium` to enable browser fallback."
+            )
+        from playwright.async_api import async_playwright
+
+        self._pw = await async_playwright().start()
+        self._browser = await self._pw.chromium.launch(headless=self.headless)
+
+        vp = random.choice(VIEWPORTS)
+        fp = {
+            "viewport": {"width": vp[0], "height": vp[1]},
+            "timezone": random.choice(TIMEZONES),
+            "locale": random.choice(LOCALES),
+        }
+        stealth_js = _build_stealth_script(
+            (fp["viewport"]["width"], fp["viewport"]["height"]),
+            fp["timezone"], fp["locale"],
+        )
+        self._context = await self._browser.new_context(
+            viewport=fp["viewport"],
+            locale=fp["locale"],
+            timezone_id=fp["timezone"],
+        )
+        await self._context.add_init_script(stealth_js)
+        self._page = await self._context.new_page()
+        return self._page
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._context:
+            await self._context.close()
+        if self._browser:
+            await self._browser.close()
+        if self._pw:
+            await self._pw.stop()
+        return False
+
+
+def get_browser_page(headless: bool = True, timeout: float = 30.0) -> BrowserPage:
+    """Return a BrowserPage context manager for Playwright-based scraping.
+
+    Used by social scrapers (TikTok, Twitter) for browser fallback.
+
+    Usage::
+
+        async with get_browser_page() as page:
+            await page.goto(url)
+            content = await page.content()
+    """
+    return BrowserPage(headless=headless, timeout=timeout)

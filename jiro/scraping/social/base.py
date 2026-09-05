@@ -7,7 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from jiro.config import Settings
 from jiro.scraping.client import ScrapingClient
@@ -64,7 +64,7 @@ class SocialPost:
     type: str  # post, profile, comment, video, story, reel, etc.
     url: str
     data: Dict[str, Any] = field(default_factory=dict)
-    scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     credits_charged: int = 2
     
     def to_dict(self) -> Dict[str, Any]:
@@ -86,7 +86,7 @@ class SocialProfile:
     username: str
     url: str
     data: Dict[str, Any] = field(default_factory=dict)
-    scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     credits_charged: int = 3
 
 
@@ -195,7 +195,10 @@ class BaseSocialScraper(ABC):
     async def _fetch_json(self, url: str, **kwargs) -> Dict[str, Any]:
         """Fetch JSON with rate limiting."""
         await self._rate_limit()
-        resp = await self.client.get(url, **kwargs)
+        kwargs.setdefault("engine", self.platform)
+        if "headers" in kwargs:
+            kwargs["extra_headers"] = kwargs.pop("headers")
+        text, resp = await self.client.get(url, **kwargs)
         if resp.status_code == 429:
             raise RateLimitError(self.platform)
         if resp.status_code == 404:
@@ -206,7 +209,10 @@ class BaseSocialScraper(ABC):
     async def _fetch_html(self, url: str, **kwargs) -> str:
         """Fetch HTML with rate limiting."""
         await self._rate_limit()
-        resp = await self.client.get(url, **kwargs)
+        kwargs.setdefault("engine", self.platform)
+        if "headers" in kwargs:
+            kwargs["extra_headers"] = kwargs.pop("headers")
+        text, resp = await self.client.get(url, **kwargs)
         if resp.status_code == 429:
             raise RateLimitError(self.platform)
         if resp.status_code == 404:

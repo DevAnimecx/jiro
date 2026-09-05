@@ -22,7 +22,7 @@ class TelegramScraper(BaseSocialScraper):
         "telegram.me",
         "telegram.org",
     ]
-    supported_actions = ["channel", "post", "message"]
+    supported_actions = ["channel", "post", "message", "search", "timeline"]
     rate_limit_rpm = 100
     requires_auth = False
     
@@ -63,8 +63,55 @@ class TelegramScraper(BaseSocialScraper):
         return self._parse_channel_page(html, channel, limit)
     
     async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
-        """Search Telegram (limited - no public search)."""
-        raise NotImplementedError("Telegram public search not available")
+        """Search Telegram public channels/messages."""
+        # Use Google search to find Telegram content
+        search_url = f"https://www.google.com/search?q=site:t.me {query}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        
+        try:
+            text, resp = await self.client.get(search_url, engine=self.platform, extra_headers=headers)
+            return self._parse_search_results(text, limit)
+        except Exception:
+            return []
+
+    def _parse_search_results(self, html: str, limit: int) -> List[SocialPost]:
+        """Parse Google search results for Telegram content."""
+        results = []
+        from selectolax.parser import HTMLParser
+        tree = HTMLParser(html)
+        
+        for item in tree.css("div.g")[:limit]:
+            try:
+                title_elem = item.css_first("h3")
+                link_elem = item.css_first("a")
+                snippet_elem = item.css_first("div.VwiC3b")
+                
+                if title_elem and link_elem:
+                    title = title_elem.text(strip=True)
+                    link = link_elem.attributes.get("href", "")
+                    snippet = snippet_elem.text(strip=True) if snippet_elem else ""
+                    
+                    if "t.me" in link:
+                        channel = re.search(r"t\.me/([^/?]+)", link)
+                        channel_name = channel.group(1) if channel else ""
+                        
+                        results.append(build_post(
+                            platform="telegram",
+                            post_type="search_result",
+                            url=link,
+                            id=channel_name,
+                            text=f"{title}\n{snippet}",
+                            timestamp=None,
+                            author={"username": channel_name},
+                            engagement={},
+                            media=[],
+                        ))
+            except Exception:
+                continue
+        
+        return results
     
     async def _get_message(self, channel: str, message_id: str, url: str) -> SocialPost:
         """Get a single message from channel preview."""
@@ -85,114 +132,106 @@ class TelegramScraper(BaseSocialScraper):
         
         return self._parse_channel_info(html, username, url)
     
+    async def scrape_timeline(self, username: str, limit: int = 20) -> List[SocialPost]:
+        """Get messages from a public channel (alias for get_channel_messages)."""
+        return await self.get_channel_messages(username, limit)
+    
     def _parse_channel_page(self, html: str, channel: str, limit: int) -> List[SocialPost]:
-        """Parse channel preview page for messages."""
-        # Telegram preview page has message widgets
-        # Each message is in a div with class "tgme_widget_message"
-        
+        """Parse channel preview page for messages using selectolax."""
+        from selectolax.parser import HTMLParser
+        tree = HTMLParser(html)
         messages = []
         
-        # Pattern for message widgets
-        widget_pattern = r'<div[^>]*class=["\']tgme_widget_message[^"\']*["\'][^>]*data-post=["\']([^"\']+)["\'][^>]*>(.*?)</div>\s*</div>\s*</div>'
-        matches = re.findall(widget_pattern, html, re.DOTALL)
-        
-        for post_data, widget_html in matches[:limit]:
+        for msg_elem in tree.css("div.tgme_widget_message")[:limit]:
             try:
-                msg = self._parse_message_widget(widget_html, post_data, channel)
-                if msg:
-                    messages.append(msg)
+                # Extract post ID from data-post attribute
+                post_data = msg_elem.attributes.get("data-post", "")
+                parts = post_data.split("/")
+                if len(parts) != 2:
+                    continue
+                message_id = parts[1]
+                
+                # Extract text
+                text_elem = msg_elem.css_first("div.tgme_widget_message_text")
+                text = text_elem.text(strip=True) if text_elem else ""
+                
+                # Extract timestamp
+                time_elem = msg_elem.css_first("time")
+                timestamp = time_elem.attributes.get("datetime") if time_elem else None
+                
+                # Extract media
+                media = []
+                for img_elem in msg_elem.css("a.tgme_widget_message_photo_wrap"):
+                    href = img_elem.attributes.get("href", "")
+                    if href:
+                        media.append({"type": "image", "url": href})
+                for video_elem in msg_elem.css("video"):
+                    src = video_elem.attributes.get("src", "")
+                    if src:
+                        media.append({"type": "video", "url": src})
+                
+                # Extract views/forwards
+                views_elem = msg_elem.css_first("span.tgme_widget_message_views")
+                views = views_elem.text(strip=True) if views_elem else None
+                
+                forwards_elem = msg_elem.css_first("span.tgme_widget_message_forwards")
+                forwards = forwards_elem.text(strip=True) if forwards_elem else None
+                
+                # Channel name
+                channel_name = self._extract_channel_name(html)
+                
+                messages.append(build_post(
+                    platform="telegram",
+                    post_type="message",
+                    url=f"https://t.me/{channel}/{message_id}",
+                    id=message_id,
+                    text=text,
+                    timestamp=timestamp,
+                    author={
+                        "username": channel,
+                        "display_name": channel_name or channel,
+                    },
+                    engagement={
+                        "views": normalize_number(views),
+                        "shares": normalize_number(forwards),
+                    },
+                    media=media,
+                ))
             except Exception as e:
-                log.debug("Failed to parse message widget", extra={"error": str(e)})
+                log.debug("Failed to parse message widget: %s", e)
                 continue
         
         return messages
     
-    def _parse_message_widget(self, html: str, post_data: str, channel: str) -> Optional[SocialPost]:
-        """Parse a single message widget."""
-        # Extract message ID from post_data (format: channel/message_id)
-        parts = post_data.split("/")
-        if len(parts) != 2:
-            return None
-        
-        message_id = parts[1]
-        
-        # Extract text
-        text_pattern = r'<div[^>]*class=["\']tgme_widget_message_text[^"\']*["\'][^>]*>(.*?)</div>'
-        text_match = re.search(text_pattern, html, re.DOTALL)
-        text = text_match.group(1) if text_match else ""
-        text = re.sub(r"<[^>]+>", "", text).strip()
-        
-        # Extract timestamp
-        time_pattern = r'<time[^>]*datetime=["\']([^"\']+)["\']'
-        time_match = re.search(time_pattern, html)
-        timestamp = time_match.group(1) if time_match else None
-        
-        # Extract media
-        media = []
-        photo_pattern = r'<a[^>]*class=["\']tgme_widget_message_photo_wrap[^"\']*["\'][^>]*href=["\']([^"\']+)["\']'
-        for match in re.finditer(photo_pattern, html):
-            media.append({"type": "image", "url": match.group(1)})
-        
-        video_pattern = r'<video[^>]*src=["\']([^"\']+)["\']'
-        for match in re.finditer(video_pattern, html):
-            media.append({"type": "video", "url": match.group(1)})
-        
-        # Extract views/forwards
-        views_pattern = r'<span[^>]*class=["\']tgme_widget_message_views[^"\']*["\'][^>]*>(.*?)</span>'
-        views_match = re.search(views_pattern, html)
-        views = views_match.group(1) if views_match else None
-        
-        forwards_pattern = r'<span[^>]*class=["\']tgme_widget_message_forwards[^"\']*["\'][^>]*>(.*?)</span>'
-        forwards_match = re.search(forwards_pattern, html)
-        forwards = forwards_match.group(1) if forwards_match else None
-        
-        # Channel info from page
-        channel_name = self._extract_channel_name(html)
-        
-        return build_post(
-            platform="telegram",
-            post_type="message",
-            url=f"https://t.me/{channel}/{message_id}",
-            id=message_id,
-            text=text,
-            timestamp=timestamp,
-            author={
-                "username": channel,
-                "display_name": channel_name or channel,
-            },
-            engagement={
-                "views": normalize_number(views),
-                "shares": normalize_number(forwards),
-            },
-            media=media,
-        )
-    
     def _parse_channel_info(self, html: str, username: str, url: str) -> SocialProfile:
-        """Parse channel info from preview page."""
+        """Parse channel info from preview page using selectolax."""
+        from selectolax.parser import HTMLParser
+        tree = HTMLParser(html)
+        
         # Channel title
-        title_pattern = r'<div[^>]*class=["\']tgme_page_title[^"\']*["\'][^>]*>(.*?)</div>'
-        title_match = re.search(title_pattern, html, re.DOTALL)
-        title = title_match.group(1).strip() if title_match else username
+        title_elem = tree.css_first("div.tgme_page_title")
+        title = title_elem.text(strip=True) if title_elem else username
         
         # Channel description
-        desc_pattern = r'<div[^>]*class=["\']tgme_page_description[^"\']*["\'][^>]*>(.*?)</div>'
-        desc_match = re.search(desc_pattern, html, re.DOTALL)
-        description = desc_match.group(1).strip() if desc_match else ""
-        description = re.sub(r"<[^>]+>", "", description)
+        desc_elem = tree.css_first("div.tgme_page_description")
+        description = desc_elem.text(strip=True) if desc_elem else ""
         
         # Channel photo
-        photo_pattern = r'<div[^>]*class=["\']tgme_page_photo[^"\']*["\'][^>]*style=["\'][^"\']*url\(([^)]+)\)'
-        photo_match = re.search(photo_pattern, html)
-        photo = photo_match.group(1).strip("'\"") if photo_match else ""
+        photo = ""
+        photo_elem = tree.css_first("div.tgme_page_photo img, div.tgme_page_photo")
+        if photo_elem:
+            photo = photo_elem.attributes.get("src", "") or photo_elem.attributes.get("style", "")
+            if "url(" in photo:
+                photo = re.search(r"url\(['\"]?([^'\")]+)['\"]?\)", photo)
+                photo = photo.group(1) if photo else ""
         
         # Subscriber count
-        members_pattern = r'<div[^>]*class=["\']tgme_page_extra[^"\']*["\'][^>]*>(.*?)</div>'
-        members_match = re.search(members_pattern, html, re.DOTALL)
-        members = members_match.group(1).strip() if members_match else ""
-        members = re.sub(r"<[^>]+>", "", members)
+        members = ""
+        extra_elem = tree.css_first("div.tgme_page_extra")
+        members = extra_elem.text(strip=True) if extra_elem else ""
         
         # Verified badge
-        verified = "tgme_page_verified" in html
+        verified = bool(tree.css_first("div.tgme_page_verified, .tgme_page_verified"))
         
         return build_profile(
             platform="telegram",
@@ -209,11 +248,15 @@ class TelegramScraper(BaseSocialScraper):
         )
     
     def _extract_channel_name(self, html: str) -> str:
-        """Extract channel name from page."""
-        title_pattern = r'<div[^>]*class=["\']tgme_page_title[^"\']*["\'][^>]*>(.*?)</div>'
-        title_match = re.search(title_pattern, html, re.DOTALL)
-        if title_match:
-            return title_match.group(1).strip()
+        """Extract channel name from page using selectolax."""
+        try:
+            from selectolax.parser import HTMLParser
+            tree = HTMLParser(html)
+            title_elem = tree.css_first("div.tgme_page_title")
+            if title_elem:
+                return title_elem.text(strip=True)
+        except Exception:
+            pass
         return ""
     
     def extract_identifier(self, url: str) -> Optional[str]:

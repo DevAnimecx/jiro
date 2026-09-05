@@ -20,7 +20,7 @@ class LinkedInScraper(BaseSocialScraper):
     url_patterns = [
         "linkedin.com",
     ]
-    supported_actions = ["profile", "post", "company", "job"]
+    supported_actions = ["profile", "post", "company", "job", "search", "timeline"]
     rate_limit_rpm = 20
     requires_auth = False
     
@@ -51,8 +51,93 @@ class LinkedInScraper(BaseSocialScraper):
         return self._extract_company_from_html(html, url)
     
     async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
-        """Search LinkedIn (requires auth)."""
-        raise NotImplementedError("LinkedIn search requires authentication")
+        """Search LinkedIn (public web search fallback)."""
+        # LinkedIn requires login for full search
+        # Use public Google search to find LinkedIn content
+        search_url = f"https://www.google.com/search?q=site:linkedin.com {query}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        
+        try:
+            text, resp = await self.client.get(search_url, engine=self.platform, extra_headers=headers)
+            results = self._parse_search_results(text, limit)
+            if results:
+                return results
+        except Exception:
+            pass
+        
+        # Fallback: search LinkedIn's own search page (may redirect to login)
+        try:
+            search_url = f"https://www.linkedin.com/search/results/people/?keywords={query}"
+            html = await self._fetch_html(search_url)
+            results = self._parse_linkedin_search(html, limit)
+            if results:
+                return results
+        except Exception:
+            pass
+        
+        return []
+
+    def _parse_search_results(self, html: str, limit: int) -> List[SocialPost]:
+        """Parse Google search results for LinkedIn content."""
+        results = []
+        from selectolax.parser import HTMLParser
+        tree = HTMLParser(html)
+        
+        for item in tree.css("div.g")[:limit]:
+            try:
+                title_elem = item.css_first("h3")
+                link_elem = item.css_first("a")
+                snippet_elem = item.css_first("div.VwiC3b")
+                
+                if title_elem and link_elem:
+                    title = title_elem.text(strip=True)
+                    link = link_elem.attributes.get("href", "")
+                    snippet = snippet_elem.text(strip=True) if snippet_elem else ""
+                    
+                    if "linkedin.com" in link and title:
+                        results.append(build_post(
+                            platform="linkedin",
+                            post_type="search_result",
+                            url=link,
+                            id=link,
+                            text=f"{title}\n{snippet}",
+                            timestamp=None,
+                            author={},
+                            engagement={},
+                            media=[],
+                        ))
+            except Exception:
+                continue
+        
+        return results
+
+    def _parse_linkedin_search(self, html: str, limit: int) -> List[SocialPost]:
+        """Parse LinkedIn search results page."""
+        results = []
+        
+        # Try JSON-LD extraction
+        json_ld_data = self._extract_json_ld(html)
+        for data in json_ld_data:
+            if isinstance(data, dict):
+                if data.get("@type") in ["Person", "Organization"]:
+                    results.append(build_post(
+                        platform="linkedin",
+                        post_type="search_result",
+                        url=data.get("url", ""),
+                        id=data.get("url", ""),
+                        text=data.get("name", ""),
+                        timestamp=None,
+                        author={
+                            "display_name": data.get("name", ""),
+                            "username": data.get("identifier", ""),
+                        },
+                        engagement={},
+                        media=[],
+                    ))
+        
+        return results[:limit]
     
     def _extract_from_html(self, html: str, url: str) -> SocialPost:
         """Extract post data from HTML using JSON-LD."""
@@ -245,6 +330,60 @@ class LinkedInScraper(BaseSocialScraper):
             url=url,
             profile_data={"author": author, "engagement": {}, "id": data.get("@id", ""), "type": "company"},
         )
+    
+    async def scrape_timeline(self, username: str, limit: int = 20) -> List[SocialPost]:
+        """Get recent activity from a LinkedIn profile."""
+        profile_url = f"https://linkedin.com/in/{username}"
+        html = await self._fetch_html(profile_url, engine=self.platform)
+        return self._parse_timeline(html, profile_url, limit)
+
+    def _parse_timeline(self, html: str, base_url: str, limit: int) -> List[SocialPost]:
+        """Parse timeline posts from LinkedIn profile HTML."""
+        results = []
+        
+        # Look for activity/feed posts in the HTML
+        from selectolax.parser import HTMLParser
+        tree = HTMLParser(html)
+        
+        for item in tree.css("div.feed-shared-update-v2, div.occludable-update, article")[:limit]:
+            try:
+                # Extract post content
+                text_elem = item.css_first(".feed-shared-text, .update-text")
+                text = text_elem.text(strip=True) if text_elem else ""
+                
+                # Extract link
+                link_elem = item.css_first("a[href*='/activity/'], a[href*='/posts/']")
+                link = link_elem.attributes.get("href", "") if link_elem else base_url
+                if link and not link.startswith("http"):
+                    link = f"https://linkedin.com{link}"
+                
+                # Extract timestamp
+                time_elem = item.css_first("time, .feed-shared-relative-date")
+                timestamp = time_elem.attributes.get("datetime", "") if time_elem else None
+                
+                if text:
+                    results.append(build_post(
+                        platform="linkedin",
+                        post_type="post",
+                        url=link,
+                        id=link.split("/")[-1],
+                        text=text[:500],
+                        timestamp=timestamp,
+                        author={},
+                        engagement={},
+                        media=[],
+                    ))
+            except Exception:
+                continue
+        
+        # Fallback: use JSON-LD
+        if not results:
+            json_ld_data = self._extract_json_ld(html)
+            for data in json_ld_data:
+                if isinstance(data, dict) and data.get("@type") in ["SocialMediaPosting", "Article"]:
+                    results.append(self._normalize_post(data, data.get("url", base_url)))
+        
+        return results[:limit]
     
     def extract_identifier(self, url: str) -> Optional[str]:
         """Extract username or post ID from LinkedIn URL."""

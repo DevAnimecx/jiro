@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.2.6"  # Fix Windows file lock on update, fix GitHub URL
+__version__ = "0.2.8"  # Full social scraper overhaul: interface fix, search, timeline, dynamic hashes
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 

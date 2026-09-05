@@ -280,8 +280,8 @@ class PluginRegistry:
         """Get plugin class by name."""
         if name not in self._plugins:
             raise ValueError(
-                f"unknown {self.plugin_type} plugin '{name}'",
-                details={"available": sorted(self._plugins)}
+                f"unknown {self.plugin_type} plugin '{name}' "
+                f"(available: {sorted(self._plugins)})"
             )
         return self._plugins[name]
     

@@ -454,10 +454,19 @@ class ScrapingClient:
             headers["Cookie"] = cookie_str
         return headers
 
-    async def get(self, url: str, *, engine: str, params: Optional[Dict[str, Any]] = None,
+    async def get(self, url: str, *, engine: str = "social",
+                  params: Optional[Dict[str, Any]] = None,
                   extra_headers: Optional[Dict[str, str]] = None,
+                  headers: Optional[Dict[str, str]] = None,
                   raw: bool = False) -> Tuple[str, Any]:
-        """GET with retries + backoff + proxy rotation + block detection."""
+        """GET with retries + backoff + proxy rotation + block detection.
+
+        ``engine`` defaults to ``"social"`` for backward-compatibility with
+        social scrapers and plugin engines that omit it.
+        ``headers`` is accepted as an alias for ``extra_headers``.
+        """
+        if headers and not extra_headers:
+            extra_headers = headers
         # SSRF + robots defenses apply only to user-controlled scrape targets.
         if engine == "scrape":
             try:
@@ -525,6 +534,108 @@ class ScrapingClient:
         assert last_error is not None
         self.breaker.record_failure(engine)
         raise last_error
+
+    async def post(self, url: str, *, engine: str = "social",
+                   data: Optional[Dict[str, Any]] = None,
+                   json: Optional[Dict[str, Any]] = None,
+                   params: Optional[Dict[str, Any]] = None,
+                   extra_headers: Optional[Dict[str, str]] = None,
+                   headers: Optional[Dict[str, str]] = None) -> Tuple[str, Any]:
+        """POST with retries + backoff + proxy rotation + block detection.
+
+        Mirrors ``get()`` interface for backward-compatibility.
+        """
+        if headers and not extra_headers:
+            extra_headers = headers
+
+        if self.breaker.is_open(engine):
+            raise EngineBlockedError(
+                f"engine '{engine}' circuit open (recent failures); cooling down",
+                details={"engine": engine},
+            )
+
+        await self.rate_limiter.acquire(engine)
+        proxy = self._next_proxy()
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.retries + 1):
+            try:
+                response = await self._do_request_post(
+                    url, data=data, json=json, params=params, engine=engine,
+                    extra_headers=extra_headers, proxy=proxy,
+                )
+            except (EngineBlockedError, EngineError, EngineTimeoutError):
+                raise
+            except httpx.TimeoutException:
+                last_error = EngineTimeoutError(
+                    f"timeout posting {url}", details={"engine": engine, "attempt": attempt}
+                )
+            except Exception as exc:
+                last_error = EngineError(
+                    f"request failed: {exc}", details={"engine": engine, "attempt": attempt}
+                )
+            else:
+                if proxy:
+                    self.proxies.record_success(proxy)
+                try:
+                    self._check_blocked(engine, url, response)
+                except EngineBlockedError:
+                    if proxy:
+                        self.proxies.record_failure(proxy)
+                    self.breaker.record_failure(engine)
+                    raise
+                self.breaker.record_success(engine)
+                return (response.text, response)
+
+            if proxy:
+                self.proxies.record_failure(proxy)
+            if attempt < self.retries:
+                min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
+                delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                await asyncio.sleep(delay)
+
+        assert last_error is not None
+        self.breaker.record_failure(engine)
+        raise last_error
+
+    async def _do_request_post(self, url: str, *, data, json, params,
+                                engine, extra_headers, proxy) -> Any:
+        """Route POST request through curl_cffi or httpx."""
+        if _CURL_CFFI_AVAILABLE:
+            return await self._request_curl_post(url, data=data, json=json,
+                                                  params=params, engine=engine,
+                                                  extra_headers=extra_headers,
+                                                  proxy=proxy)
+        return await self._request_httpx_post(url, data=data, json=json,
+                                               params=params, engine=engine,
+                                               extra_headers=extra_headers,
+                                               proxy=proxy)
+
+    async def _request_curl_post(self, url, *, data, json, params, engine,
+                                  extra_headers, proxy):
+        """POST via curl_cffi."""
+        session = await self._get_curl_session(engine)
+        h = self._headers(engine, extra_headers)
+        body = json if json is not None else data
+        content_type = "application/json" if json is not None else "application/x-www-form-urlencoded"
+        h["Content-Type"] = content_type
+        resp = await session.post(url, data=body, headers=h, params=params,
+                                   proxies={"https": proxy, "http": proxy} if proxy else None,
+                                   timeout=self.timeout)
+        resp._latency_ms = getattr(resp, '_latency_ms', 0)
+        return resp
+
+    async def _request_httpx_post(self, url, *, data, json, params, engine,
+                                   extra_headers, proxy):
+        """POST via httpx."""
+        h = self._headers(engine, extra_headers)
+        async with httpx.AsyncClient(
+            timeout=self.timeout, follow_redirects=True, trust_env=False,
+            proxy=proxy,
+        ) as client:
+            resp = await client.post(url, data=data, json=json, params=params,
+                                      headers=h)
+        return resp
 
     async def _enforce_robots(self, url: str) -> None:
         """Best-effort robots.txt gate for user-supplied scrape targets.
