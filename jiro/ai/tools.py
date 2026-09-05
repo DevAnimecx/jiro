@@ -50,6 +50,56 @@ JIRO_AI_SEARCH_SCHEMA: Dict[str, Any] = {
     "required": ["query"],
 }
 
+SOCIAL_SCRAPE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "url": {"type": "string", "format": "uri",
+                "description": "Social media URL (e.g. https://twitter.com/user/status/123)"},
+        "platform": {"type": "string",
+                     "enum": ["twitter", "reddit", "youtube", "bluesky", "threads",
+                              "instagram", "tiktok", "linkedin", "facebook", "telegram",
+                              "pinterest", "hackernews"],
+                     "description": "Force a specific platform (auto-detected from URL if omitted)"},
+        "format": {"type": "string", "enum": ["json", "markdown", "text"],
+                   "default": "json", "description": "Output format"},
+    },
+    "required": ["url"],
+}
+
+SOCIAL_SEARCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Search query"},
+        "platforms": {"type": "array", "items": {"type": "string"},
+                      "default": ["twitter", "reddit", "youtube"],
+                      "description": "Platforms to search (e.g. twitter, reddit, youtube, tiktok, instagram)"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+    },
+    "required": ["query"],
+}
+
+SOCIAL_BATCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "urls": {"type": "array", "items": {"type": "string", "format": "uri"},
+                 "description": "List of social media URLs (max 10)"},
+        "parallel": {"type": "boolean", "default": True,
+                     "description": "Scrape URLs in parallel (faster) or sequentially (safer)"},
+    },
+    "required": ["urls"],
+}
+
+SMART_SEARCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Natural-language search query or research question"},
+        "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
+        "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+        "schema": {"type": "object", "description": "Optional JSON Schema for structured extraction"},
+    },
+    "required": ["query"],
+}
+
 
 def openai_tools(include_ai: bool = True) -> List[Dict[str, Any]]:
     tools = [
@@ -108,91 +158,168 @@ def gemini_tools(include_ai: bool = True) -> List[Dict[str, Any]]:
     return tools
 
 
+SOCIAL_SCRAPE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "url": {"type": "string", "format": "uri",
+                "description": "Social media URL (e.g. https://twitter.com/user/status/123)"},
+        "platform": {"type": "string",
+                     "enum": ["twitter", "reddit", "youtube", "bluesky", "threads",
+                              "instagram", "tiktok", "linkedin", "facebook", "telegram",
+                              "pinterest", "hackernews"],
+                     "description": "Force a specific platform (auto-detected from URL if omitted)"},
+        "format": {"type": "string", "enum": ["json", "markdown", "text"],
+                   "default": "json", "description": "Output format"},
+    },
+    "required": ["url"],
+}
+
+SOCIAL_SEARCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Search query"},
+        "platforms": {"type": "array", "items": {"type": "string"},
+                      "default": ["twitter", "reddit", "youtube"],
+                      "description": "Platforms to search (e.g. twitter, reddit, youtube, tiktok, instagram)"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+    },
+    "required": ["query"],
+}
+
+SOCIAL_BATCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "urls": {"type": "array", "items": {"type": "string", "format": "uri"},
+                 "description": "List of social media URLs (max 10)"},
+        "parallel": {"type": "boolean", "default": True,
+                     "description": "Scrape URLs in parallel (faster) or sequentially (safer)"},
+    },
+    "required": ["urls"],
+}
+
+SMART_SEARCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Natural-language search query or research question"},
+        "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
+        "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+        "schema": {"type": "object", "description": "Optional JSON Schema for structured extraction"},
+    },
+    "required": ["query"],
+}
+
+
 def mcp_tools() -> List[Dict[str, Any]]:
-    """MCP-style tool descriptors (used by the MCP server)."""
+    """MCP-style tool descriptors with rich schemas for Claude Codex, Hermes, Kimi, OpenCode, Manus."""
     return [
         {"name": "search",
-         "description": "Search the web via Google, Bing, Brave, DuckDuckGo, YouTube, Amazon, eBay, Yandex, or Baidu. "
-                        "Returns structured SERP results with titles, links, snippets, and metadata. "
-                        "Supports web, images, news, videos, shopping, and places search types.",
+         "description": "Web search across 9 engines (Google, Bing, Brave, DuckDuckGo, YouTube, Amazon, eBay, Yandex, Baidu). "
+                        "Returns structured SERP results with titles, URLs, snippets, and metadata. "
+                        "Use for general web research, news, images, videos, shopping, or places. "
+                        "Example: engine=google, type=web, num=10.",
          "inputSchema": JIRO_SEARCH_SCHEMA},
         {"name": "scrape",
-         "description": "Scrape a URL and extract its readable content as markdown, text, or structured data. "
-                        "Returns page title, main content, metadata, links, and images.",
+         "description": "Scrape any URL and extract readable content as markdown, text, HTML, or JSON. "
+                        "Returns page title, main content, metadata, links, and images. "
+                        "Automatically handles JavaScript rendering when needed. "
+                        "Example: url=https://example.com/article, format=markdown.",
          "inputSchema": JIRO_SCRAPE_SCHEMA},
         {"name": "ai_search",
-         "description": "Answer a research question by searching the web, reading multiple pages, "
-                        "and synthesizing a cited answer. Returns a comprehensive answer with source citations.",
+         "description": "Answer a research question by searching the web, reading multiple sources, "
+                        "and synthesizing a comprehensive answer with citations. "
+                        "Use for deep research, fact-checking, or complex questions requiring multiple sources. "
+                        "Example: query='latest advances in quantum computing', max_sources=8.",
          "inputSchema": JIRO_AI_SEARCH_SCHEMA},
         {"name": "search_hybrid",
-         "description": "Hybrid search combining multiple search strategies (keyword + semantic + freshness). "
-                        "Provides enhanced relevance scoring and multi-signal ranking.",
+         "description": "Hybrid search combining keyword, semantic, and freshness signals for enhanced relevance. "
+                        "Better than plain search for ambiguous or time-sensitive queries. "
+                        "Example: query='best laptop 2025', max_results=20.",
          "inputSchema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Search query"},
              "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
-             "engine": {"type": "string", "description": "Primary engine to use"},
+             "engine": {"type": "string", "description": "Primary engine (google, bing, brave, etc.)"},
              "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
          }, "required": ["query"]}},
         {"name": "search_structured",
-         "description": "Extract structured data from search results using a JSON schema. "
-                        "Returns data conforming to the provided schema.",
+         "description": "Extract structured data from search results using a JSON Schema. "
+                        "Returns data conforming exactly to the provided schema. "
+                        "Use for product research, competitor analysis, or any structured extraction task. "
+                        "Example: schema={\"name\": \"\", \"price\": {\"type\": \"number\"}, \"rating\": {}}.",
          "inputSchema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Search query"},
              "schema": {"type": "object", "description": "JSON Schema for desired output structure"},
          }, "required": ["query", "schema"]}},
         {"name": "social_scrape",
-         "description": "Scrape a social media URL (Reddit, YouTube, Twitter/X, TikTok, Instagram, LinkedIn, "
-                        "Bluesky, Threads, Facebook, Telegram, Pinterest). Returns normalized post/profile data.",
-         "inputSchema": {"type": "object", "properties": {
-             "url": {"type": "string", "format": "uri", "description": "Social media URL"},
-         }, "required": ["url"]}},
+         "description": "Scrape a social media post or profile from any supported platform. "
+                        "Auto-detects platform from URL. Returns normalized data including author, content, engagement, and media. "
+                        "Supports: Twitter/X, Reddit, YouTube, Bluesky, Threads, Instagram, TikTok, LinkedIn, Facebook, Telegram, Pinterest, Hacker News. "
+                        "Example: url=https://twitter.com/user/status/123 or url=https://reddit.com/r/python/comments/abc.",
+         "inputSchema": SOCIAL_SCRAPE_SCHEMA},
         {"name": "social_search",
-         "description": "Search across multiple social platforms simultaneously. Returns normalized results.",
-         "inputSchema": {"type": "object", "properties": {
-             "query": {"type": "string", "description": "Search query"},
-             "platforms": {"type": "array", "items": {"type": "string"}, "default": ["twitter", "reddit", "youtube"]},
-         }, "required": ["query"]}},
+         "description": "Search for posts across multiple social platforms simultaneously. "
+                        "Returns normalized results ranked by relevance and engagement. "
+                        "Use for social listening, trend tracking, or finding discussions about a topic. "
+                        "Example: query='AI regulation', platforms=['twitter', 'reddit', 'youtube'], limit=10.",
+         "inputSchema": SOCIAL_SEARCH_SCHEMA},
         {"name": "social_batch",
-         "description": "Batch scrape multiple social media URLs in parallel.",
-         "inputSchema": {"type": "object", "properties": {
-             "urls": {"type": "array", "items": {"type": "string"}, "description": "List of social URLs"},
-         }, "required": ["urls"]}},
+         "description": "Batch scrape multiple social media URLs in parallel (up to 10). "
+                        "Returns per-URL results with status, data, or errors. "
+                        "Use for bulk data collection, monitoring, or archiving. "
+                        "Example: urls=['https://twitter.com/user/status/1', 'https://reddit.com/r/tech/comments/2'].",
+         "inputSchema": SOCIAL_BATCH_SCHEMA},
         {"name": "smart_search",
-         "description": "Smart search with automatic intent detection and routing. "
-                        "Classifies query intent and routes to appropriate handler.",
-         "inputSchema": {"type": "object", "properties": {
-             "query": {"type": "string", "description": "Search query"},
-             "type": {"type": "string", "enum": ["web", "images", "news", "videos", "shopping"], "default": "web"},
-             "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
-             "schema": {"type": "object", "description": "JSON Schema for structured extraction"},
-         }, "required": ["query"]}},
+         "description": "Intelligent search with automatic intent detection and routing. "
+                        "Classifies the query intent (web, social, structured, images, news, videos) and "
+                        "automatically routes to the best handler. "
+                        "Use when you're unsure which search type to use — the agent decides. "
+                        "Example: query='compare iPhone 15 vs Samsung S24'.",
+         "inputSchema": SMART_SEARCH_SCHEMA},
         {"name": "smart_classify",
-         "description": "Classify search intent for a query without executing it.",
+         "description": "Classify the intent of a search query without executing it. "
+                        "Returns intent category, target handler, confidence score, and suggested schema. "
+                        "Use to understand what type of search a query needs before executing. "
+                        "Example: query='latest AI research papers'.",
          "inputSchema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Search query to classify"},
          }, "required": ["query"]}},
         {"name": "compare_engines",
-         "description": "Compare search results across multiple engines side by side.",
+         "description": "Compare search results across multiple engines side by side. "
+                        "Returns result counts, first results, and engine-specific metadata. "
+                        "Use to find which engine is best for a particular query type. "
+                        "Example: query='python tutorials', engines=['google', 'bing', 'brave'].",
          "inputSchema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Search query"},
-             "engines": {"type": "array", "items": {"type": "string"}, "default": ["google", "bing", "brave"]},
+             "engines": {"type": "array", "items": {"type": "string"},
+                         "default": ["google", "bing", "brave"],
+                         "description": "Engines to compare (google, bing, brave, duckduckgo, etc.)"},
          }, "required": ["query"]}},
         {"name": "monitor_status",
-         "description": "Get server status, engine health, and performance metrics.",
+         "description": "Get comprehensive server status including engine health, cache stats, social platform status, and MCP tool count. "
+                        "Use to diagnose issues or check system health before a long operation. "
+                        "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "health_check",
-         "description": "Quick health check for all services and dependencies.",
+         "description": "Quick health check for all services and dependencies. "
+                        "Returns overall status and per-service health details. "
+                        "Use as a fast connectivity test. "
+                        "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {
              "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 5},
          }}},
         {"name": "cache_stats",
-         "description": "Get cache hit/miss statistics and configuration.",
+         "description": "Get cache hit/miss statistics, TTL, and configuration. "
+                        "Use to understand caching behavior and debug stale results. "
+                        "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "list_engines",
-         "description": "List all available search engines with their supported types and capabilities.",
+         "description": "List all available search engines with supported types (web, images, news, videos, shopping, places) and capabilities. "
+                        "Use to discover what search types each engine supports. "
+                        "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "list_social_platforms",
-         "description": "List all supported social media platforms with their capabilities.",
+         "description": "List all supported social media platforms with their capabilities (scrape, search, profile, timeline, etc.) and base URLs. "
+                        "Use to discover what social platforms and actions are available. "
+                        "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
     ]
 

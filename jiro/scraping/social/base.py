@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -11,6 +12,9 @@ from datetime import datetime, timezone
 
 from jiro.config import Settings
 from jiro.scraping.client import ScrapingClient
+from jiro.scraping.social.self_healing import heal_async as _heal_async
+from jiro.scraping.social.self_learning import record_scrape as _record_scrape
+from jiro.scraping.social.self_learning import get_best_engine as _get_best_engine
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.base")
@@ -198,13 +202,28 @@ class BaseSocialScraper(ABC):
         kwargs.setdefault("engine", self.platform)
         if "headers" in kwargs:
             kwargs["extra_headers"] = kwargs.pop("headers")
-        text, resp = await self.client.get(url, **kwargs)
-        if resp.status_code == 429:
-            raise RateLimitError(self.platform)
-        if resp.status_code == 404:
-            raise NotFoundError(self.platform, url)
-        resp.raise_for_status()
-        return resp.json()
+        start = time.perf_counter()
+        try:
+            text, resp = await self.client.get(url, **kwargs)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 429:
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_json",
+                               False, latency, error_type="rate_limit")
+                raise RateLimitError(self.platform)
+            if resp.status_code == 404:
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_json",
+                               False, latency, error_type="not_found")
+                raise NotFoundError(self.platform, url)
+            resp.raise_for_status()
+            _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_json",
+                           True, latency)
+            return resp.json()
+        except Exception as exc:
+            latency = (time.perf_counter() - start) * 1000
+            if not isinstance(exc, (RateLimitError, NotFoundError)):
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_json",
+                               False, latency, error_type=type(exc).__name__, error_message=str(exc))
+            raise
     
     async def _fetch_html(self, url: str, **kwargs) -> str:
         """Fetch HTML with rate limiting."""
@@ -212,13 +231,28 @@ class BaseSocialScraper(ABC):
         kwargs.setdefault("engine", self.platform)
         if "headers" in kwargs:
             kwargs["extra_headers"] = kwargs.pop("headers")
-        text, resp = await self.client.get(url, **kwargs)
-        if resp.status_code == 429:
-            raise RateLimitError(self.platform)
-        if resp.status_code == 404:
-            raise NotFoundError(self.platform, url)
-        resp.raise_for_status()
-        return resp.text
+        start = time.perf_counter()
+        try:
+            text, resp = await self.client.get(url, **kwargs)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 429:
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_html",
+                               False, latency, error_type="rate_limit")
+                raise RateLimitError(self.platform)
+            if resp.status_code == 404:
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_html",
+                               False, latency, error_type="not_found")
+                raise NotFoundError(self.platform, url)
+            resp.raise_for_status()
+            _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_html",
+                           True, latency)
+            return resp.text
+        except Exception as exc:
+            latency = (time.perf_counter() - start) * 1000
+            if not isinstance(exc, (RateLimitError, NotFoundError)):
+                _record_scrape(self.platform, kwargs.get("engine", self.platform), "fetch_html",
+                               False, latency, error_type=type(exc).__name__, error_message=str(exc))
+            raise
     
     def _normalize_engagement(self, raw: Dict[str, Any]) -> SocialEngagement:
         """Normalize engagement metrics from platform-specific format."""
@@ -344,10 +378,11 @@ class SocialScraperRegistry:
         return self._scrapers[platform]
     
     def get_instance(self, platform: str, client: ScrapingClient, settings: Settings) -> BaseSocialScraper:
-        """Get or create scraper instance."""
+        """Get or create scraper instance with self-healing."""
         if platform not in self._instances:
             scraper_class = self.get(platform)
-            self._instances[platform] = scraper_class(client, settings)
+            instance = scraper_class(client, settings)
+            self._instances[platform] = HealedScraper(instance)
         return self._instances[platform]
     
     def find_by_url(self, url: str) -> Optional[type]:
@@ -380,3 +415,37 @@ class SocialScraperRegistry:
 
 # Global registry
 registry = SocialScraperRegistry()
+
+
+class HealedScraper:
+    """Wrapper that adds self-healing + self-learning to any BaseSocialScraper.
+
+    Delegates all attribute access to the wrapped scraper, intercepting
+    ``scrape_post``, ``scrape_profile``, ``search``, and ``scrape_timeline``
+    to apply automatic recovery and learning.
+    """
+
+    def __init__(self, scraper: BaseSocialScraper) -> None:
+        object.__setattr__(self, "_scraper", scraper)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_scraper"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(object.__getattribute__(self, "_scraper"), name, value)
+
+    async def scrape_post(self, url: str) -> SocialPost:
+        return await _heal_async(self._scraper, self._scraper.scrape_post, url)
+
+    async def scrape_profile(self, username: str) -> SocialProfile:
+        return await _heal_async(self._scraper, self._scraper.scrape_profile, username)
+
+    async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
+        return await _heal_async(self._scraper, self._scraper.search, query, limit)
+
+    async def scrape_timeline(self, username: str, limit: int = 20) -> List[SocialPost]:
+        return await _heal_async(self._scraper, self._scraper.scrape_timeline, username, limit)
+
+    @property
+    def platform(self) -> str:
+        return self._scraper.platform

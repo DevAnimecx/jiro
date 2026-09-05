@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "jiro": {
+      "command": "jiro",
+      "args": ["mcp", "--transport", "stdio"],
+      "env": {
+        "JIRO_CONFIG": "~/.jiro/config.yaml"
+      }
+    }
+  }
+}

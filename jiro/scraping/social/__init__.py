@@ -67,6 +67,27 @@ from jiro.scraping.social.normalizer import (
     build_search,
 )
 
+from jiro.scraping.social.self_healing import (
+    heal,
+    heal_async,
+    HealingStats,
+    get_stats,
+    reset_stats,
+    unblock_all,
+    StaleHashError,
+    SelectorError,
+    EngineBlockedError,
+)
+
+from jiro.scraping.social.self_learning import (
+    record_scrape,
+    get_engine_ranking,
+    get_platform_stats,
+    get_best_engine,
+    get_learning_summary,
+    prune_old_records,
+)
+
 __all__ = [
     # Base classes
     "BaseSocialScraper",
@@ -98,4 +119,21 @@ __all__ = [
     "build_post",
     "build_profile",
     "build_search",
+    # Self-healing
+    "heal",
+    "heal_async",
+    "HealingStats",
+    "get_stats",
+    "reset_stats",
+    "unblock_all",
+    "StaleHashError",
+    "SelectorError",
+    "EngineBlockedError",
+    # Self-learning
+    "record_scrape",
+    "get_engine_ranking",
+    "get_platform_stats",
+    "get_best_engine",
+    "get_learning_summary",
+    "prune_old_records",
 ]

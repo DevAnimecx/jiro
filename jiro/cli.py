@@ -9,7 +9,7 @@ import socket
 import subprocess
 import sys
 import warnings
-from typing import Optional
+from typing import List, Optional
 
 import typer
 import uvicorn
@@ -25,6 +25,8 @@ from jiro.config import Settings
 # Fix Windows encoding issues
 if sys.platform == "win32":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def _quiet_settings(settings: Settings) -> Settings:
@@ -43,11 +45,13 @@ search_app = typer.Typer(help="Search the web from the CLI.", no_args_is_help=Tr
 keys_app = typer.Typer(help="Manage API keys.", no_args_is_help=True)
 config_app = typer.Typer(help="Configuration management.", no_args_is_help=True)
 dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_is_help=True)
+social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
 app.add_typer(search_app, name="search")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
 app.add_typer(plugin_app, name="plugins")
 app.add_typer(dev_app, name="dev")
+app.add_typer(social_app, name="social")
 
 console = Console()
 
@@ -110,6 +114,8 @@ def serve(
     _host = host or settings.host
     _port = port or settings.port
     _workers = workers or settings.workers
+    if sys.platform == "win32":
+        _workers = 1
     if insecure:
         # Propagate to the app via env so create_app() sees server.insecure.
         os.environ["JIRO_SERVER__INSECURE"] = "true"
@@ -828,6 +834,131 @@ async def _run_status() -> None:
     passed = sum(1 for _, s, _ in checks if s)
     total = len(checks)
     console.print(f"\n[bold]{passed}/{total}[/] components healthy")
+
+
+# --------------------------------------------------------------------------
+# social
+# --------------------------------------------------------------------------
+@social_app.command("scrape", help="Scrape a social media URL.")
+def social_scrape(
+    url: str = typer.Argument(..., help="Social media URL to scrape"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format: json, markdown, text"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    asyncio.run(_cli_social_scrape(url, format, config))
+
+
+async def _cli_social_scrape(url, format, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.scraping.social import router as social_router
+
+    platform = social_router.detect_platform(url)
+    if not platform:
+        console.print(f"[red]Could not detect platform for URL: {url}[/]")
+        raise typer.Exit(1)
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social", json={"url": url, "format": format})
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            raise typer.Exit(1)
+        if format == "json":
+            console.print(json.dumps(data, indent=2, default=str))
+        else:
+            content = data.get("data", {}).get("content", "")
+            title = data.get("data", {}).get("title", "")
+            console.print(f"[bold]{title}[/]  [dim]({url})[/]")
+            console.print(content[:4000] if content else "[yellow]No content extracted[/]")
+
+
+@social_app.command("search", help="Search on a social platform.")
+def social_search(
+    query: str = typer.Argument(..., help="Search query"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, reddit, youtube, etc."),
+    limit: int = typer.Option(10, "--limit", "-n"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    asyncio.run(_cli_social_search(query, platform, limit, json_output, config))
+
+
+async def _cli_social_search(query, platform, limit, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": query,
+            "platform": platform,
+            "limit": limit,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            raise typer.Exit(1)
+
+        if json_output:
+            console.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        console.print(f"[bold]{platform}[/] · [dim]{len(results)} results for '{query}'[/]")
+        table = Table(title=f"Social search: {query}")
+        table.add_column("#", justify="right")
+        table.add_column("Title")
+        table.add_column("Author")
+        table.add_column("URL", overflow="fold")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", r.get("content", "")[:80])
+            author = r.get("author", {}).get("name", "") if isinstance(r.get("author"), dict) else r.get("author", "")
+            url = r.get("url", "")
+            table.add_row(str(i), title, author, url)
+        console.print(table)
+
+
+@social_app.command("batch", help="Batch scrape multiple social URLs.")
+def social_batch(
+    urls: List[str] = typer.Argument(..., help="Social media URLs to scrape"),
+    parallel: bool = typer.Option(True, "--parallel/--sequential"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    asyncio.run(_cli_social_batch(urls, parallel, json_output, config))
+
+
+async def _cli_social_batch(urls, parallel, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/batch", json={
+            "urls": urls,
+            "parallel": parallel,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', resp.text)}[/]")
+            raise typer.Exit(1)
+
+        if json_output:
+            console.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        succeeded = sum(1 for r in results if r.get("status") == "success")
+        failed = sum(1 for r in results if r.get("status") != "success")
+        console.print(f"[bold]Batch scrape complete:[/] {succeeded} succeeded, {failed} failed")
+        for r in results:
+            status = "[green]+[/]" if r.get("status") == "success" else "[red]-[/]"
+            url = r.get("url", "")
+            if r.get("status") == "success":
+                platform = r.get("result", {}).get("platform", "?")
+                console.print(f"  {status} {platform}: {url}")
+            else:
+                error = r.get("error", "unknown")
+                console.print(f"  {status} {url} — {error}")
 
 
 if __name__ == "__main__":
