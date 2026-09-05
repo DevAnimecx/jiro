@@ -102,13 +102,13 @@ class TwitterScraper(BaseSocialScraper):
         try:
             return await self._search_nitter(query, limit)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Playwright search
         try:
             return await self._search_playwright(query, limit)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         raise ValueError("Twitter search requires authentication or working Nitter instance")
     
@@ -403,6 +403,7 @@ class TwitterScraper(BaseSocialScraper):
                             if len(tweets) >= limit:
                                 break
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
                 
                 if len(tweets) >= limit:
@@ -416,6 +417,7 @@ class TwitterScraper(BaseSocialScraper):
                 try:
                     results.append(await self._scrape_playwright(tweet_url))
                 except Exception:
+                    log.debug("silenced fallback", exc_info=True)
                     continue
             
             return results
@@ -443,6 +445,7 @@ class TwitterScraper(BaseSocialScraper):
                             if len(tweets) >= limit:
                                 break
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
                 
                 if len(tweets) >= limit:
@@ -456,6 +459,7 @@ class TwitterScraper(BaseSocialScraper):
                 try:
                     results.append(await self._scrape_playwright(tweet_url))
                 except Exception:
+                    log.debug("silenced fallback", exc_info=True)
                     continue
             
             return results

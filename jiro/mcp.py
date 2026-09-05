@@ -536,8 +536,8 @@ class JiroMCPServer:
                 try:
                     results = await scraper.search(query)
                     all_results.extend(results)
-                except Exception:
-                    pass  # continue on failure
+                except Exception as exc:
+                    log.warning("social_search failed for %s: %s", platform, exc)
             if progress.enabled:
                 progress.report((i + 1) / len(platforms), message=f"searched {platform}")
 
@@ -559,6 +559,11 @@ class JiroMCPServer:
             progress.report(0.0, message=f"batch scraping {len(urls)} URLs")
 
         for i, url in enumerate(urls):
+            try:
+                await async_validate_target_url(url)
+            except Exception as e:
+                results.append({"url": url, "error": "URL validation failed", "status": "failed"})
+                continue
             platform = router.detect_platform(url)
             if platform:
                 scraper = router.get_scraper(platform, self.client)
@@ -567,7 +572,7 @@ class JiroMCPServer:
                         result = await scraper.scrape(url)
                         results.append({"url": url, "result": result, "status": "success"})
                     except Exception as e:
-                        results.append({"url": url, "error": str(e), "status": "failed"})
+                        results.append({"url": url, "error": "scraping failed", "status": "failed"})
             else:
                 results.append({"url": url, "error": "unsupported platform", "status": "failed"})
             if progress.enabled:

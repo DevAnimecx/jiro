@@ -133,6 +133,7 @@ class InstagramScraper(BaseSocialScraper):
                         posts = await self.get_user_posts(user_info["username"], 1)
                         results.extend(posts)
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
             
             return results

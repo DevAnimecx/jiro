@@ -111,7 +111,7 @@ class FacebookScraper(BaseSocialScraper):
             if results:
                 return results
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         return []
 
@@ -139,7 +139,7 @@ class FacebookScraper(BaseSocialScraper):
                     if isinstance(val, dict) and "data" in val:
                         results.extend(self._parse_comet_search(val["data"], limit))
             except Exception:
-                pass
+                log.debug("silenced fallback", exc_info=True)
         
         return results[:limit]
 
@@ -170,7 +170,7 @@ class FacebookScraper(BaseSocialScraper):
                             media=[],
                         ))
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         return results
     
     def _extract_from_html(self, html: str, url: str) -> SocialPost:
@@ -370,7 +370,7 @@ class FacebookScraper(BaseSocialScraper):
                         posts = self._parse_comet_search(val["data"], limit)
                         results.extend(posts)
             except Exception:
-                pass
+                log.debug("silenced fallback", exc_info=True)
         
         return results[:limit]
     

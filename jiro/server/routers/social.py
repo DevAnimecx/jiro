@@ -25,6 +25,7 @@ from jiro.scraping.social import (
     NotFoundError,
 )
 from jiro.scraping.client import ScrapingClient
+from jiro.security import async_validate_target_url
 from jiro.server.deps import (
     get_client,
     get_settings,
@@ -134,7 +135,13 @@ async def scrape_social(
         platform = parsed.get("platform")
         if not platform:
             raise HTTPException(status_code=400, detail="Could not detect platform from URL")
-    
+
+    # SECURITY: Validate user-provided URL against SSRF before scraping
+    try:
+        await async_validate_target_url(body.url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+
     # Get scraper
     try:
         scraper = await get_scraper(platform, client, settings)
@@ -206,32 +213,37 @@ async def scrape_social_batch(
     
     async def scrape_one(url: str) -> Dict[str, Any]:
         try:
+            try:
+                await async_validate_target_url(url)
+            except Exception:
+                return {"url": url, "error": "Invalid URL", "status": "failed"}
             parsed = parse_social_url(url)
             platform = parsed.get("platform")
             action = parsed.get("action", "post")
             
             if not platform:
-                return {"url": url, "error": "Could not detect platform"}
+                return {"url": url, "error": "Could not detect platform", "status": "failed"}
             
             scraper = await get_scraper(platform, client, settings)
             
             if action in ("post", "video", "pin", "message", "reel", "story"):
                 result = await scraper.scrape_post(url)
-                return {"url": url, "data": normalize_post(result), "platform": platform}
+                return {"url": url, "data": normalize_post(result), "platform": platform, "status": "success"}
             elif action in ("profile", "channel", "user"):
                 identifier = social_router.extract_identifier(platform, url) or url.split("/")[-1]
                 result = await scraper.scrape_profile(identifier)
-                return {"url": url, "data": normalize_profile(result), "platform": platform}
+                return {"url": url, "data": normalize_profile(result), "platform": platform, "status": "success"}
             else:
-                return {"url": url, "error": f"Unsupported action: {action}"}
+                return {"url": url, "error": f"Unsupported action: {action}", "status": "failed"}
         except RateLimitError as e:
-            return {"url": url, "error": f"Rate limited by {e.platform}", "platform": e.platform}
+            return {"url": url, "error": "Rate limited", "platform": e.platform, "status": "failed"}
         except AuthRequiredError as e:
-            return {"url": url, "error": f"Authentication required for {e.platform}", "platform": e.platform}
+            return {"url": url, "error": "Auth required", "platform": e.platform, "status": "failed"}
         except NotFoundError as e:
-            return {"url": url, "error": f"Content not found on {e.platform}", "platform": e.platform}
+            return {"url": url, "error": "Not found", "platform": e.platform, "status": "failed"}
         except Exception as e:
-            return {"url": url, "error": str(e)}
+            log.warning("batch scrape failed", extra={"url": url, "error": str(e)})
+            return {"url": url, "error": "Scraping failed", "status": "failed"}
     
     if body.parallel:
         semaphore = asyncio.Semaphore(body.max_concurrent)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
 from selectolax.parser import HTMLParser
@@ -56,6 +57,19 @@ from jiro.log import get_logger as _get_logger
 
 _ssrf_log = _get_logger("jiro.security")
 _cookies_log = _get_logger("jiro.cookies")
+
+def _sanitize_url_for_error(url: str) -> str:
+    """Strip potentially sensitive query parameters from URL for error messages."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.query:
+            return urllib.parse.urlunparse((
+                parsed.scheme, parsed.netloc, parsed.path,
+                parsed.params, "[redacted]", parsed.fragment,
+            ))
+        return url
+    except Exception:
+        return "[invalid url]"
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
@@ -442,17 +456,36 @@ class ScrapingClient:
         headers = dict(HEADER_TEMPLATE)
         if self.settings.user_agent_rotation:
             headers["User-Agent"] = random.choice(USER_AGENTS)
-        # Rotate geographic headers for diversity
         geo = self.fingerprint.next_geo_headers()
         headers.update(geo)
         headers.update(ENGINE_HEADERS.get(engine, {}))
         headers.update(extra or {})
-        # Add cookies from jar
         cookies = self.cookie_jar.get_dict(engine)
         if cookies:
             cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
             headers["Cookie"] = cookie_str
         return headers
+
+    async def _validate_response_url(self, url: str, response: Any) -> None:
+        """Validate the final URL after redirects to prevent SSRF via redirect.
+
+        If the response URL differs from the request URL, validate the
+        redirect target against blocked IP ranges.
+        """
+        if not hasattr(response, 'url') or response.url is None:
+            return
+        final_url = str(response.url)
+        if final_url == url:
+            return
+        try:
+            await async_validate_target_url(final_url, own_hosts=self._own_hosts)
+        except (ValueError, Exception) as exc:
+            safe_url = _sanitize_url_for_error(final_url)
+            raise SSRFError(
+                f"redirect target blocked: {safe_url}",
+                details={"initial_url": _sanitize_url_for_error(url),
+                         "redirect_url": safe_url},
+            )
 
     async def get(self, url: str, *, engine: str = "social",
                   params: Optional[Dict[str, Any]] = None,
@@ -507,7 +540,6 @@ class ScrapingClient:
             else:
                 if proxy:
                     self.proxies.record_success(proxy)
-                    # Track proxy cost/latency
                     try:
                         latency = getattr(response, '_latency_ms', 0)
                         self.proxies.record_cost(proxy, 0.0, latency)
@@ -520,6 +552,13 @@ class ScrapingClient:
                         self.proxies.record_failure(proxy)
                     self.breaker.record_failure(engine)
                     raise
+                # Validate redirect target to prevent SSRF via redirect chain
+                try:
+                    await self._validate_response_url(url, response)
+                except SSRFError:
+                    raise
+                except Exception:
+                    pass  # non-critical; log but don't fail the request
                 self.breaker.record_success(engine)
                 return (response.text, response)
 
@@ -584,6 +623,12 @@ class ScrapingClient:
                         self.proxies.record_failure(proxy)
                     self.breaker.record_failure(engine)
                     raise
+                try:
+                    await self._validate_response_url(url, response)
+                except SSRFError:
+                    raise
+                except Exception:
+                    pass
                 self.breaker.record_success(engine)
                 return (response.text, response)
 

@@ -79,6 +79,7 @@ class YouTubeScraper(BaseSocialScraper):
                 data = await self._fetch_invidious_channel(instance, username)
                 return self._normalize_channel(data, username)
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         # Fallback: basic profile from URL
@@ -106,9 +107,10 @@ class YouTubeScraper(BaseSocialScraper):
                             post = await self.scrape_post(video_url)
                             results.append(post)
                         except Exception:
-                            pass
+                            log.debug("silenced fallback", exc_info=True)
                 return results
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         return []
@@ -130,9 +132,10 @@ class YouTubeScraper(BaseSocialScraper):
                             post = await self.scrape_post(video_url)
                             results.append(post)
                         except Exception:
-                            pass
+                            log.debug("silenced fallback", exc_info=True)
                 return results
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         return []
@@ -184,6 +187,7 @@ class YouTubeScraper(BaseSocialScraper):
             try:
                 return await self._fetch_json(url)
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         raise ValueError("Channel not found")
     

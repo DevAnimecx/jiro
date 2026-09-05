@@ -69,7 +69,7 @@ class TikTokScraper(BaseSocialScraper):
         try:
             return await self._scrape_profile_api(username)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback to Playwright
         if self.use_browser:
@@ -85,7 +85,7 @@ class TikTokScraper(BaseSocialScraper):
         try:
             return await self._get_user_videos_api(username, limit)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback to Playwright
         if self.use_browser:
@@ -101,7 +101,7 @@ class TikTokScraper(BaseSocialScraper):
             if results:
                 return results
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback to Playwright
         if self.use_browser:
@@ -149,7 +149,7 @@ class TikTokScraper(BaseSocialScraper):
             if results:
                 return results
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback to Playwright
         if self.use_browser:
@@ -448,6 +448,7 @@ class TikTokScraper(BaseSocialScraper):
                             if len(videos) >= limit:
                                 break
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
                 
                 if len(videos) >= limit:
@@ -461,6 +462,7 @@ class TikTokScraper(BaseSocialScraper):
                 try:
                     results.append(await self._scrape_playwright(video_url))
                 except Exception:
+                    log.debug("silenced fallback", exc_info=True)
                     continue
             
             return results
@@ -485,6 +487,7 @@ class TikTokScraper(BaseSocialScraper):
                             if len(videos) >= limit:
                                 break
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
                 
                 if len(videos) >= limit:
@@ -498,6 +501,7 @@ class TikTokScraper(BaseSocialScraper):
                 try:
                     results.append(await self._scrape_playwright(video_url))
                 except Exception:
+                    log.debug("silenced fallback", exc_info=True)
                     continue
             
             return results
@@ -521,6 +525,7 @@ class TikTokScraper(BaseSocialScraper):
                             if len(videos) >= limit:
                                 break
                     except Exception:
+                        log.debug("silenced fallback", exc_info=True)
                         continue
                 
                 if len(videos) >= limit:
@@ -534,6 +539,7 @@ class TikTokScraper(BaseSocialScraper):
                 try:
                     results.append(await self._scrape_playwright(video_url))
                 except Exception:
+                    log.debug("silenced fallback", exc_info=True)
                     continue
             
             return results

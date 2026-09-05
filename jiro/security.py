@@ -109,11 +109,9 @@ def validate_target_url(
     try:
         addresses = _resolve(host)
     except (socket.gaierror, UnicodeError, OSError) as exc:
-        # SECURITY: Fail CLOSED - reject when DNS resolution fails
-        # This prevents attackers from bypassing SSRF via DNS manipulation
-        raise SSRFError(f"DNS resolution failed for {host}: {exc}")
+        raise SSRFError("DNS resolution failed for target host")
     if not addresses:
-        raise SSRFError(f"no addresses for host {host!r}")
+        raise SSRFError("no addresses for target host")
     for addr in addresses:
         if is_blocked_ip(addr):
             raise SSRFError(f"blocked target IP: {addr} (host {host})")
@@ -155,11 +153,9 @@ async def async_validate_target_url(
     try:
         addresses = await resolve_hostname(host)
     except Exception as exc:
-        # SECURITY: Fail CLOSED - reject when DNS resolution fails
-        # This prevents attackers from bypassing SSRF via DNS manipulation
-        raise SSRFError(f"DNS resolution failed for {host}: {exc}")
+        raise SSRFError("DNS resolution failed for target host")
     if not addresses:
-        raise SSRFError(f"no addresses for host {host!r}")
+        raise SSRFError("no addresses for target host")
     for addr in addresses:
         if is_blocked_ip(addr):
             raise SSRFError(f"blocked target IP: {addr} (host {host})")

@@ -37,7 +37,7 @@ class PinterestScraper(BaseSocialScraper):
         try:
             return await self._scrape_pin_api(pin_id, url)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback to HTML parsing
         html = await self._fetch_html(url)
@@ -227,12 +227,14 @@ class PinterestScraper(BaseSocialScraper):
                                     pin = self._normalize_pin_html(item, pin_url)
                                     pins.append(pin)
                                 except Exception:
+                                    log.debug("silenced fallback", exc_info=True)
                                     continue
                     elif "ImageObject" in types:
                         try:
                             pin = self._normalize_pin_html(data, data.get("url", url))
                             pins.append(pin)
                         except Exception:
+                            log.debug("silenced fallback", exc_info=True)
                             continue
         
         return pins
@@ -253,6 +255,7 @@ class PinterestScraper(BaseSocialScraper):
                             pin = self._normalize_pin_html(item.get("item", item), item.get("url", ""))
                             pins.append(pin)
                         except Exception:
+                            log.debug("silenced fallback", exc_info=True)
                             continue
         
         return pins[:limit]

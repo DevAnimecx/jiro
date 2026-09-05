@@ -102,7 +102,7 @@ class HackerNewsScraper(BaseSocialScraper):
                     item = await self._get_item(item_id, f"{self.HN_URL}/item?id={item_id}")
                     results.append(item)
                 except Exception:
-                    pass
+                    log.debug("silenced fallback", exc_info=True)
         
         return results
     

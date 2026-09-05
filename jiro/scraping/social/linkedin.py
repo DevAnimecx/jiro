@@ -65,7 +65,7 @@ class LinkedInScraper(BaseSocialScraper):
             if results:
                 return results
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         # Fallback: search LinkedIn's own search page (may redirect to login)
         try:
@@ -75,7 +75,7 @@ class LinkedInScraper(BaseSocialScraper):
             if results:
                 return results
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         
         return []
 
@@ -109,6 +109,7 @@ class LinkedInScraper(BaseSocialScraper):
                             media=[],
                         ))
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         return results
@@ -374,6 +375,7 @@ class LinkedInScraper(BaseSocialScraper):
                         media=[],
                     ))
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         # Fallback: use JSON-LD

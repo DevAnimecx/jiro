@@ -82,8 +82,11 @@ class OpenAICompatProvider(LLMProvider):
                 resp.raise_for_status()
                 data = resp.json()
                 return data["choices"][0]["message"]["content"].strip()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"{self.name} completion failed (HTTP {status})") from exc
         except Exception as exc:
-            raise LLMError(f"{self.name} completion failed: {exc}") from exc
+            raise LLMError(f"{self.name} completion failed") from exc
 
 
 class AnthropicProvider(LLMProvider):
@@ -123,8 +126,11 @@ class AnthropicProvider(LLMProvider):
                     b.get("text", "") for b in data.get("content", [])
                     if b.get("type") == "text"
                 ).strip()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"anthropic completion failed (HTTP {status})") from exc
         except Exception as exc:
-            raise LLMError(f"anthropic completion failed: {exc}") from exc
+            raise LLMError("anthropic completion failed") from exc
 
 
 class GeminiProvider(LLMProvider):
@@ -149,16 +155,22 @@ class GeminiProvider(LLMProvider):
         payload: Dict[str, Any] = {"contents": contents}
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{self.model}:generateContent?key={self.api_key}")
+        url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{self.model}:generateContent")
+        headers = {}
+        if self.api_key:
+            headers["x-goog-api-key"] = self.api_key
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"gemini completion failed (HTTP {status})") from exc
         except Exception as exc:
-            raise LLMError(f"gemini completion failed: {exc}") from exc
+            raise LLMError("gemini completion failed") from exc
 
 
 PROVIDERS: Dict[str, Any] = {

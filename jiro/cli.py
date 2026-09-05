@@ -961,5 +961,158 @@ async def _cli_social_batch(urls, parallel, json_output, config):
                 console.print(f"  {status} {url} — {error}")
 
 
+@social_app.command("profile", help="Scrape a social media profile.")
+def social_profile(
+    username: str = typer.Argument(..., help="Username or profile URL"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    asyncio.run(_cli_social_profile(username, platform, json_output, config))
+
+
+async def _cli_social_profile(username, platform, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": username,
+            "platform": platform,
+            "limit": 1,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            raise typer.Exit(1)
+
+        if json_output:
+            console.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        if not results:
+            console.print(f"[yellow]No profile found for '{username}' on {platform}[/]")
+            return
+        r = results[0]
+        author = r.get("author", {})
+        console.print(f"[bold]{author.get('display_name', author.get('name', username))}[/]  "
+                      f"[dim]@{author.get('username', username)}[/]")
+        console.print(f"Platform: [cyan]{platform}[/]")
+        bio = r.get("text", r.get("content", ""))
+        if bio:
+            console.print(f"\n{bio[:500]}")
+        url = r.get("url", "")
+        if url:
+            console.print(f"\n[dim]{url}[/]")
+
+
+@social_app.command("timeline", help="Scrape a social media user timeline.")
+def social_timeline(
+    username: str = typer.Argument(..., help="Username or profile URL"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
+    limit: int = typer.Option(10, "--limit", "-n"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    asyncio.run(_cli_social_timeline(username, platform, limit, json_output, config))
+
+
+async def _cli_social_timeline(username, platform, limit, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": username,
+            "platform": platform,
+            "limit": limit,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            raise typer.Exit(1)
+
+        if json_output:
+            console.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        if not results:
+            console.print(f"[yellow]No timeline posts found for '{username}' on {platform}[/]")
+            return
+        console.print(f"[bold]{platform}[/] timeline for [cyan]{username}[/]: "
+                      f"[dim]{len(results)} posts[/]\n")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", r.get("content", "")[:100])
+            ts = r.get("timestamp", "")
+            url = r.get("url", "")
+            console.print(f"[bold]{i}.[/] {title[:120]}")
+            if ts:
+                console.print(f"   [dim]{ts}[/]")
+            if url:
+                console.print(f"   [blue]{url}[/]")
+            console.print("")
+
+
+@app.command(help="Clear the Jiro cache.")
+def cache_clear(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Clear all cached search results."""
+    from pathlib import Path
+
+    settings = Settings.load(config)
+    cleared = []
+
+    if settings.cache_type == "sqlite":
+        db_path = Path(settings.db_path).expanduser()
+        cache_path = db_path.parent / "cache.db"
+        if cache_path.exists():
+            cache_path.unlink()
+            cleared.append(str(cache_path))
+
+    # Also clear any learning data
+    learning_path = Path("~/.jiro/social_learning.json").expanduser()
+    if learning_path.exists():
+        learning_path.unlink()
+        cleared.append(str(learning_path))
+
+    if cleared:
+        console.print(f"[bold green]+[/] Cleared {len(cleared)} cache files:")
+        for p in cleared:
+            console.print(f"  [dim]{p}[/]")
+    else:
+        console.print("[yellow]No cache files to clear.[/]")
+
+
+@app.command(help="View Jiro logs.")
+def logs(
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """View recent Jiro log entries."""
+    settings = Settings.load(config)
+    log_file = settings.logging.get("file", "")
+    if not log_file:
+        console.print("[yellow]Log file not configured. Set logging.file in config.[/]")
+        raise typer.Exit(1)
+
+    log_path = Path(log_file).expanduser()
+    if not log_path.exists():
+        console.print(f"[yellow]Log file not found: {log_path}[/]")
+        raise typer.Exit(1)
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        recent = all_lines[-lines:]
+        for line in recent:
+            console.print(line.rstrip())
+    except Exception as e:
+        console.print(f"[red]Failed to read log file: {e}[/]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

@@ -109,6 +109,7 @@ class TelegramScraper(BaseSocialScraper):
                             media=[],
                         ))
             except Exception:
+                log.debug("silenced fallback", exc_info=True)
                 continue
         
         return results
@@ -256,7 +257,7 @@ class TelegramScraper(BaseSocialScraper):
             if title_elem:
                 return title_elem.text(strip=True)
         except Exception:
-            pass
+            log.debug("silenced fallback", exc_info=True)
         return ""
     
     def extract_identifier(self, url: str) -> Optional[str]:
