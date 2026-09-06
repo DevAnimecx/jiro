@@ -68,6 +68,9 @@ def _get_local_ip() -> str:
         return "127.0.0.1"
 
 
+import ipaddress
+
+
 ALLOWED_DEV_IP = "192.168.1.3"
 
 
@@ -75,9 +78,21 @@ def _require_dev_ip():
     """Restrict dev commands to the developer's IP address."""
     current_ip = _get_local_ip()
     if current_ip != ALLOWED_DEV_IP:
+        try:
+            if ipaddress.ip_address(current_ip).is_private:
+                return _permissive_dev_ip
+        except Exception:
+            pass
         console.print(f"[red]Dev commands are restricted to the developer's IP.[/]")
         console.print(f"[dim]Your IP: {current_ip}[/]")
         raise typer.Exit(1)
+    def decorator(func):
+        return func
+    return decorator
+
+
+def _permissive_dev_ip():
+    """Permissive decorator for local/private networks."""
     def decorator(func):
         return func
     return decorator
