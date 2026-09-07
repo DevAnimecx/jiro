@@ -54,6 +54,9 @@ def __getattr__(name: str):
     if name == "MultiQuerySearcher":
         from jiro.search.multiquery import MultiQuerySearcher
         return MultiQuerySearcher
+    if name == "integrations":
+        from jiro import integrations as _integrations
+        return _integrations
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
@@ -70,4 +73,6 @@ __all__ = [
     "HighlightExtractor",
     "AnswerSynthesizer",
     "MultiQuerySearcher",
+    # Integrations
+    "integrations",
 ]

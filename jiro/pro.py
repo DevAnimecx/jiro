@@ -36,9 +36,8 @@ class PlanTier(str, Enum):
 class PlanLimits:
     """Rate and quota limits for a plan.
 
-    Single source of truth for all feature gating. The ``feature_*`` boolean
-    flags are mirrored by ``feature_flags.py`` and ``licensing.py`` at import
-    time so that the three registries can never drift out of sync.
+    Single source of truth for all feature gating. Feature availability
+    is determined by tier level, not by boolean flags.
     """
     rpm: int = 100
     rpd: int = 10000
@@ -57,24 +56,6 @@ class PlanLimits:
     webhook_alerts: bool = True
     custom_models: bool = False
     commercial_use: bool = False
-    # Feature flags — each maps 1:1 to a FEATURE_DEFINITIONS entry
-    feature_basic_search: bool = True
-    feature_basic_scrape: bool = True
-    feature_open_scrapers: bool = True
-    feature_social_advanced: bool = True
-    feature_social_search: bool = True
-    feature_social_timeline: bool = True
-    feature_social_batch: bool = False
-    feature_ai_search: bool = False
-    feature_smart_search: bool = True
-    feature_structured_extraction: bool = True
-    feature_self_learning: bool = False
-    feature_advanced_healing: bool = False
-    feature_high_volume: bool = False
-    feature_custom_models: bool = False
-    feature_commercial_use: bool = False
-    feature_premium_support: bool = False
-    feature_white_label: bool = False
 
 
 # ── Plan tier definitions ─────────────────────────────────────────────
@@ -101,23 +82,6 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         webhook_alerts=True,
         custom_models=False,
         commercial_use=False,
-        feature_basic_search=True,
-        feature_basic_scrape=True,
-        feature_open_scrapers=True,
-        feature_social_advanced=True,
-        feature_social_search=True,
-        feature_social_timeline=True,
-        feature_social_batch=True,      # limited: max 5 per batch in router
-        feature_ai_search=False,
-        feature_smart_search=True,
-        feature_structured_extraction=True,
-        feature_self_learning=True,     # basic: timeout auto-adjust
-        feature_advanced_healing=False,
-        feature_high_volume=False,
-        feature_commercial_use=False,
-        feature_premium_support=False,
-        feature_custom_models=False,
-        feature_white_label=False,
     ),
     PlanTier.ENTERPRISE: PlanLimits(
         # Maximum everything
@@ -139,45 +103,56 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         webhook_alerts=True,
         custom_models=True,
         commercial_use=True,
-        feature_basic_search=True,
-        feature_basic_scrape=True,
-        feature_open_scrapers=True,
-        feature_social_advanced=True,
-        feature_social_search=True,
-        feature_social_timeline=True,
-        feature_social_batch=True,
-        feature_ai_search=True,
-        feature_smart_search=True,
-        feature_structured_extraction=True,
-        feature_self_learning=True,
-        feature_advanced_healing=True,
-        feature_high_volume=True,
-        feature_commercial_use=True,
-        feature_premium_support=True,
-        feature_custom_models=True,
-        feature_white_label=True,
     ),
 }
 
 
 def get_features_for_tier(tier: PlanTier) -> List[str]:
-    """Derive feature list from PLAN_LIMITS — single source of truth."""
-    limits = PLAN_LIMITS[tier]
+    """Derive feature list from tier level — single source of truth."""
+    tier_level = get_tier_level(tier.value)
     return [
-        name.removeprefix("feature_")
-        for name in dir(limits)
-        if name.startswith("feature_") and getattr(limits, name)
+        feature for feature, min_tier in _FEATURE_MIN_TIERS.items()
+        if get_tier_level(min_tier) <= tier_level
     ]
 
 
 def get_all_feature_names() -> List[str]:
-    """Return every feature flag name across all tiers."""
-    all_features: set = set()
-    for limits in PLAN_LIMITS.values():
-        for name in dir(limits):
-            if name.startswith("feature_"):
-                all_features.add(name.removeprefix("feature_"))
-    return sorted(all_features)
+    """Return every feature name across all tiers."""
+    return sorted(_FEATURE_MIN_TIERS.keys())
+
+
+# Feature-to-minimum-tier mapping (replaces boolean flags)
+_FEATURE_MIN_TIERS: Dict[str, str] = {
+    "basic_search": "free",
+    "basic_scrape": "free",
+    "open_scrapers": "free",
+    "social_advanced": "free",
+    "social_search": "free",
+    "social_timeline": "free",
+    "social_batch": "free",
+    "ai_search": "enterprise",
+    "smart_search": "free",
+    "structured_extraction": "free",
+    "self_learning": "free",
+    "advanced_healing": "enterprise",
+    "high_volume": "enterprise",
+    "custom_models": "enterprise",
+    "commercial_use": "enterprise",
+    "premium_support": "enterprise",
+    "white_label": "enterprise",
+    "webhook_alerts": "free",
+}
+
+# Tier hierarchy for quick comparison
+_TIER_LEVELS = {
+    "free": 0,
+    "enterprise": 1,
+}
+
+
+def get_tier_level(tier: str) -> int:
+    """Get numeric level for a tier name."""
+    return _TIER_LEVELS.get(tier.lower(), 0)
 
 
 @dataclass

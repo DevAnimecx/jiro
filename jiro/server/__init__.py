@@ -56,6 +56,15 @@ def create_app(settings: Optional[Settings] = None,
             "this instance. See https://github.com/DevAnimecx/jiro#security."
         )
 
+    # --- anti-tamper check -------------------------------------------------
+    try:
+        from jiro.integrity import ensure_integrity
+        ensure_integrity()
+        log.info("package integrity verified")
+    except Exception as exc:
+        log.error("anti-tamper check failed: %s", exc)
+        raise RuntimeError(f"Package integrity verification failed: {exc}") from exc
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # -- resources ------------------------------------------------------
@@ -226,6 +235,20 @@ def _add_middleware(app: FastAPI, settings: Settings) -> None:
     app.state.request_audit = request_audit
     app.state._audit_logger = request_audit  # legacy alias used by analytics router
     app.add_middleware(AuditMiddleware, audit_logger=request_audit)
+
+    @app.middleware("http")
+    async def license_verification_middleware(request: Request, call_next: Any):
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("license "):
+            license_token = auth_header[8:].strip()
+            try:
+                from jiro.licensing import validate_license
+                info = validate_license(license_token)
+                request.state.license_info = info
+            except Exception as exc:
+                log.warning("license verification failed: %s", exc)
+        response = await call_next(request)
+        return response
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Any):

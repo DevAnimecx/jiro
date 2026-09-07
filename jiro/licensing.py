@@ -449,10 +449,10 @@ def has_feature(feature: str) -> bool:
 
 
 # Feature definitions and tier mappings
-# Derived from pro.py PLAN_LIMITS — single source of truth
-from jiro.pro import PLAN_LIMITS, PlanTier, get_all_feature_names
+# Derived from pro.py _FEATURE_MIN_TIERS — single source of truth
+from jiro.pro import _FEATURE_MIN_TIERS, PlanTier, get_tier_level
 
-_ALL_FEATURES = get_all_feature_names()
+_ALL_FEATURES = sorted(_FEATURE_MIN_TIERS.keys())
 
 # Feature descriptions (human-readable)
 _FEATURE_DESCRIPTIONS: Dict[str, str] = {
@@ -478,26 +478,16 @@ _FEATURE_DESCRIPTIONS: Dict[str, str] = {
 
 FEATURE_DEFINITIONS: Dict[str, Dict[str, Any]] = {}
 for _feat in _ALL_FEATURES:
+    _min_tier = _FEATURE_MIN_TIERS[_feat]
     _allowed_tiers = [
         tier.value for tier in PlanTier
-        if getattr(PLAN_LIMITS[tier], f"feature_{_feat}", False)
+        if get_tier_level(tier.value) >= get_tier_level(_min_tier)
     ]
     FEATURE_DEFINITIONS[_feat] = {
         "tiers": _allowed_tiers,
         "default": "free" in _allowed_tiers,
         "description": _FEATURE_DESCRIPTIONS.get(_feat, _feat),
     }
-
-# Tier hierarchy for quick comparison
-_TIER_LEVELS = {
-    "free": 0,
-    "enterprise": 1,
-}
-
-
-def get_tier_level(tier: str) -> int:
-    """Get numeric level for a tier name."""
-    return _TIER_LEVELS.get(tier.lower(), 0)
 
 
 def is_feature_enabled(feature: str, tier: str = "free") -> bool:
