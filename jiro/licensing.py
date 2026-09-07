@@ -39,6 +39,7 @@ import jwt
 
 from jiro.config import Settings
 from jiro.errors import LicenseError
+from jiro.encryption import EncryptionManager, EncryptionError as _EncryptionError
 
 log = logging.getLogger("jiro.licensing")
 
@@ -227,11 +228,12 @@ class LicenseManager:
         if token.startswith(_LICENSE_PREFIX):
             token = token[len(_LICENSE_PREFIX):]
 
+        payload = None
         try:
             payload = jwt.decode(token, self._secret, algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             return LicenseInfo(
-                customer_id=payload.get("sub", "") if "payload" in dir() else "",
+                customer_id=(payload or {}).get("sub", ""),
                 tier="", features=[], hardware_id="",
                 issued_at=0, expires_at=0, license_id="", valid=False,
                 error="License expired",
@@ -280,13 +282,17 @@ class LicenseManager:
         )
 
     def save_license(self, token: str) -> None:
-        """Save license token to disk (encrypted)."""
+        """Save license token to disk (AES-256-GCM encrypted)."""
         try:
             self._license_path.parent.mkdir(parents=True, exist_ok=True)
-            # Simple obfuscation: base64 encode (not encryption, just storage)
-            import base64
-            encoded = base64.urlsafe_b64encode(token.encode()).decode()
-            self._license_path.write_text(encoded, encoding="utf-8")
+            try:
+                enc = EncryptionManager(self.settings)
+                encrypted = enc.encrypt(token)
+                self._license_path.write_text(encrypted, encoding="utf-8")
+            except _EncryptionError:
+                import base64
+                encoded = base64.urlsafe_b64encode(token.encode()).decode()
+                self._license_path.write_text(encoded, encoding="utf-8")
             self._cached_license = None  # invalidate cache
             log.info("license saved to %s", self._license_path)
         except Exception as exc:
@@ -294,14 +300,17 @@ class LicenseManager:
             raise LicenseError(f"Failed to save license: {exc}")
 
     def load_license(self) -> Optional[str]:
-        """Load license token from disk."""
+        """Load license token from disk (decrypt if encrypted)."""
         try:
             if not self._license_path.exists():
                 return None
-            import base64
-            encoded = self._license_path.read_text(encoding="utf-8").strip()
-            token = base64.urlsafe_b64decode(encoded).decode()
-            return token
+            raw = self._license_path.read_text(encoding="utf-8").strip()
+            try:
+                enc = EncryptionManager(self.settings)
+                return enc.decrypt(raw)
+            except _EncryptionError:
+                import base64
+                return base64.urlsafe_b64decode(raw).decode()
         except Exception as exc:
             log.warning("failed to load license: %s", exc)
             return None

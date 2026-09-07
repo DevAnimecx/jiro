@@ -199,6 +199,52 @@ class APIKey:
         return PLAN_LIMITS[self.tier]
 
 
+class CapabilityToken:
+    """HMAC-signed capability token for enterprise feature access.
+
+    Each enterprise feature access requires a valid capability token
+    that is cryptographically verified on every request. Tokens are
+    short-lived (5 minutes) and feature-specific.
+    """
+
+    def __init__(self, secret: str, feature: str, customer_id: str) -> None:
+        self._secret = secret.encode("utf-8") if isinstance(secret, str) else secret
+        self._feature = feature
+        self._customer_id = customer_id
+
+    def generate(self, ttl: int = 300) -> str:
+        """Generate a signed capability token."""
+        payload = {
+            "feat": self._feature,
+            "sub": self._customer_id,
+            "iat": int(time.time()),
+            "exp": int(time.time()) + ttl,
+            "jti": secrets.token_hex(8),
+        }
+        token = jwt.encode(payload, self._secret, algorithm="HS256")
+        return token
+
+    def verify(self, token: str) -> Dict[str, Any]:
+        """Verify a capability token. Returns payload dict or raises."""
+        try:
+            payload = jwt.decode(token, self._secret, algorithms=["HS256"])
+            if payload.get("feat") != self._feature:
+                raise ValueError("capability mismatch")
+            if payload.get("sub") != self._customer_id:
+                raise ValueError("customer mismatch")
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise ValueError("capability token expired")
+        except jwt.InvalidTokenError as exc:
+            raise ValueError(f"invalid capability token: {exc}")
+
+
+def get_capability_token(settings: Settings, feature: str, customer_id: str) -> CapabilityToken:
+    """Create a capability token verifier for an enterprise feature."""
+    secret = settings.get("licensing.jwt_secret", "") or settings.jwt_secret
+    return CapabilityToken(secret=secret, feature=feature, customer_id=customer_id)
+
+
 class RateLimiter:
     """Token bucket rate limiter for API keys."""
 
@@ -263,7 +309,7 @@ class QuotaManager:
             # Get or init daily count
             if cache_key not in self._cache:
                 row = await self.db.fetchone(
-                    "SELECT COUNT(*) as n FROM usage WHERE key_id = $1 AND ts >= $2",
+                    "SELECT COUNT(*) as n FROM usage WHERE key_id = ? AND ts >= ?",
                     key_id, today * 86400,
                 )
                 self._cache[cache_key] = {
@@ -323,7 +369,7 @@ class ProManager:
         """Validate an API key and return its metadata."""
         key_hash = hashlib.sha256(api_key.encode()).hexdigest()
         row = await self.db.fetchone(
-            "SELECT * FROM api_keys WHERE key_hash = $1 AND revoked = FALSE",
+            "SELECT * FROM api_keys WHERE key_hash = ? AND revoked = FALSE",
             key_hash,
         )
         if not row:
@@ -331,7 +377,7 @@ class ProManager:
 
         # Update last used
         await self.db.execute(
-            "UPDATE api_keys SET last_used_at = $1 WHERE id = $2",
+            "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
             time.time(), row["id"],
         )
 
@@ -358,7 +404,7 @@ class ProManager:
 
         await self.db.execute(
             "INSERT INTO api_keys (id, name, key_hash, key_prefix, tier, scopes, created_at)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             key_id, name, key_hash, prefix, tier.value, json.dumps(scopes), time.time(),
         )
 

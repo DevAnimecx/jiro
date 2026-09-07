@@ -6,7 +6,7 @@ Integrates with jiro.licensing for token validation and jiro.pro for plan limits
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from jiro.config import Settings
 from jiro.errors import LicenseError

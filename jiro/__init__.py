@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.2.11"  # Enterprise tier deep lock, free tier power-up, premium UI/UX
+__version__ = "0.2.12"  # Universal integration, deep enterprise lock, fast install
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 

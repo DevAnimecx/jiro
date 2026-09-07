@@ -46,11 +46,12 @@ keys_app = typer.Typer(help="Manage API keys.", no_args_is_help=True)
 config_app = typer.Typer(help="Configuration management.", no_args_is_help=True)
 dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_is_help=True)
 social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
+mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
 app.add_typer(search_app, name="search")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
 app.add_typer(plugin_app, name="plugins")
-app.add_typer(dev_app, name="dev")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(social_app, name="social")
 
 console = Console()
@@ -80,7 +81,7 @@ def _require_dev_ip():
     if current_ip != ALLOWED_DEV_IP:
         try:
             if ipaddress.ip_address(current_ip).is_private:
-                return _permissive_dev_ip
+                return _permissive_dev_ip()
         except Exception:
             pass
         console.print(f"[red]Dev commands are restricted to the developer's IP.[/]")
@@ -246,7 +247,7 @@ def ask(
 # --------------------------------------------------------------------------
 # mcp
 # --------------------------------------------------------------------------
-@app.command(help="Start the MCP server for AI agents.")
+@mcp_app.command(help="Start the MCP server for AI agents.")
 def mcp(
     transport: str = typer.Option("stdio", "--transport", "-t",
                                   help="stdio | http (Streamable HTTP + SSE)"),
@@ -267,6 +268,34 @@ def mcp(
         return
     from jiro.mcp import run_mcp_stdio
     run_mcp_stdio(settings)
+
+
+# --------------------------------------------------------------------------
+# mcp setup
+# --------------------------------------------------------------------------
+@mcp_app.command("setup", help="Auto-configure Jiro MCP for a client IDE/agent.")
+def mcp_setup(
+    client: str = typer.Option(
+        ..., "--client", "-c", help="claude | cursor | opencode | codex | openclaw | hermes | continue | zed"
+    ),
+    auto: bool = typer.Option(False, "--auto", help="Detect and configure all found clients"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
+) -> None:
+    from jiro.mcp_setup import run_auto_setup, run_setup, list_supported_clients
+    if auto:
+        raise typer.Exit(run_auto_setup())
+    valid = [c["id"] for c in list_supported_clients()]
+    if client not in valid:
+        console.print(f"[red]Unknown client: {client}[/]")
+        console.print(f"Supported: {', '.join(valid)}")
+        raise typer.Exit(1)
+    raise typer.Exit(run_setup(client, force=force))
+
+
+@mcp_app.command("status", help="Detect configured MCP clients.")
+def mcp_status() -> None:
+    from jiro.mcp_setup import _print_status
+    raise typer.Exit(_print_status())
 
 
 # --------------------------------------------------------------------------
@@ -849,6 +878,107 @@ async def _run_status() -> None:
     passed = sum(1 for _, s, _ in checks if s)
     total = len(checks)
     console.print(f"\n[bold]{passed}/{total}[/] components healthy")
+
+
+# --------------------------------------------------------------------------
+# doctor
+# --------------------------------------------------------------------------
+@app.command(help="Diagnose common Jiro issues.")
+def doctor() -> None:
+    """Run diagnostics and suggest fixes."""
+    asyncio.run(_run_doctor())
+
+
+async def _run_doctor() -> None:
+    from pathlib import Path
+
+    console.print(Panel.fit(f"[bold]Jiro Doctor[/] v{__version__}"))
+    issues: List[str] = []
+    fixes: List[str] = []
+
+    # 1. Config check
+    try:
+        settings = Settings.load()
+        console.print("[green][OK][/] Config loaded")
+    except Exception as e:
+        issues.append(f"Config error: {e}")
+        fixes.append("Run: jiro config init")
+        console.print(f"[red][FAIL][/] Config: {e}")
+
+    # 2. License check
+    try:
+        from jiro.licensing import get_active_license
+        lic = get_active_license()
+        if lic.valid:
+            console.print(f"[green][OK][/] License: {lic.tier} (expires {lic.expires_at})")
+        elif lic.in_grace_period:
+            console.print(f"[yellow][WARN][/] License expired (grace period)")
+        else:
+            console.print(f"[yellow][WARN][/] No valid license: {lic.error}")
+    except Exception as e:
+        issues.append(f"License error: {e}")
+        console.print(f"[red][FAIL][/] License: {e}")
+
+    # 3. Database check
+    try:
+        db_path = Path("~/.jiro/jiro.db").expanduser()
+        if db_path.exists():
+            size_mb = db_path.stat().st_size / (1024 * 1024)
+            console.print(f"[green][OK][/] Database: {size_mb:.1f} MB")
+        else:
+            console.print("[yellow][WARN][/] Database not created yet (run jiro serve)")
+    except Exception as e:
+        issues.append(f"Database error: {e}")
+        console.print(f"[red][FAIL][/] Database: {e}")
+
+    # 4. Python version
+    if sys.version_info >= (3, 11):
+        console.print(f"[green][OK][/] Python {sys.version.split()[0]}")
+    else:
+        issues.append(f"Python {sys.version_info.major}.{sys.version_info.minor} < 3.11")
+        fixes.append("Upgrade to Python >= 3.11")
+        console.print(f"[red][FAIL][/] Python {sys.version_info.major}.{sys.version_info.minor} (need >= 3.11)")
+
+    # 5. Dependencies check
+    required = ["fastapi", "uvicorn", "httpx", "curl_cffi", "selectolax", "pydantic", "typer", "rich"]
+    missing = []
+    for pkg in required:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        issues.append(f"Missing packages: {', '.join(missing)}")
+        fixes.append(f"pip install {' '.join(missing)}")
+        console.print(f"[red][FAIL][/] Missing: {', '.join(missing)}")
+    else:
+        console.print("[green][OK][/] All required packages installed")
+
+    # 6. Network check
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(("8.8.8.8", 80))
+        s.close()
+        console.print("[green][OK][/] Network connectivity")
+    except Exception:
+        issues.append("No network connectivity")
+        fixes.append("Check your internet connection")
+        console.print("[yellow][WARN][/] No network connectivity")
+
+    # Summary
+    if issues:
+        console.print(f"\n[bold red]{len(issues)} issue(s) found:[/]")
+        for i, issue in enumerate(issues, 1):
+            console.print(f"  {i}. {issue}")
+        if fixes:
+            console.print(f"\n[bold]Suggested fixes:[/]")
+            for fix in fixes:
+                console.print(f"  -> {fix}")
+        raise typer.Exit(1)
+    else:
+        console.print(f"\n[bold green]All checks passed![/] Jiro is ready.")
 
 
 # --------------------------------------------------------------------------
