@@ -5,6 +5,92 @@ All notable changes to Jiro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15] - 2026-09-10
+
+### Added
+
+#### Monitoring & Observability
+- **Metrics Registry**: Prometheus-compatible metrics collection
+- **Request Tracing**: Correlation IDs with span tracking
+- **Health Checks**: Liveness and readiness probes
+- **Performance Metrics**: Counters, gauges, histograms with statistics
+
+#### Export/Import
+- **Search Export**: Export results to JSON, CSV, Markdown, YAML
+- **Config Export**: Backup and restore configurations
+- **Backup Manager**: Create and restore system backups
+
+#### Scheduled Searches
+- **Cron Scheduling**: Cron-like schedule expressions
+- **Recurring Jobs**: Create, pause, resume, delete scheduled searches
+- **Notifications**: Email and webhook notifications on results
+
+#### Search History
+- **History Tracking**: Record all searches with timestamps
+- **History Query**: Search by text, engine, time range, user
+- **Analytics**: Popular queries, time distribution, cache hit rate
+
+#### Batch Operations
+- **Batch Search**: Execute multiple searches concurrently
+- **Batch Scrape**: Scrape multiple URLs in parallel
+- **Mixed Operations**: Combine search and scrape in one batch
+- **Progress Tracking**: Real-time progress and result aggregation
+
+## [0.2.14] - 2026-09-10
+
+### Added
+
+#### Enterprise Features
+- **Rate Limiting**: Sliding window rate limiter with per-second, per-minute, per-hour, per-day limits
+- **Usage Quotas**: Monthly quotas for searches, scrapes, and AI queries
+- **Tier-based Limits**: Free, Pro, and Enterprise tiers with different limits
+- **Rate Limit Headers**: X-RateLimit-* headers in API responses
+
+#### Plugin System
+- **Plugin Base Classes**: SearchEnginePlugin, ScraperPlugin, AIProviderPlugin
+- **Plugin Registry**: Register, unregister, and discover plugins
+- **Plugin Discovery**: Auto-discover plugins from a directory
+- **Plugin Hooks**: Event-based hook system for plugin communication
+
+#### Advanced Caching
+- **Memory Cache**: LRU/LFU in-memory caching with analytics
+- **Cache Analytics**: Hit rate, miss rate, eviction count, memory usage
+- **Cache Strategies**: LRU, LFU, TTL, Write-through
+- **Cache Keys**: SHA-256 based key generation
+
+#### Multi-language SDKs
+- **Python SDK**: Synchronous and async clients with full API coverage
+- **JavaScript/TypeScript SDK**: Browser and Node.js compatible client
+- **Go SDK**: Idiomatic Go client with functional options
+
+### Changed
+- Version bumped to 0.2.14
+
+## [0.2.13] - 2026-09-09
+
+### Added
+
+- **Stealth Engine**: TLS/JA3 fingerprint rotation with browser impersonation profiles
+- **Behavioral Simulation**: Randomized timing, mouse movements, scroll patterns
+- **WebSocket Streaming**: Real-time search via `/ws/search` and `/ws/search/stream` endpoints
+- **Parallel Search**: Multi-engine search with `--parallel` flag and configurable engine count
+- **Interactive Search**: `jiro search -i` for continuous search loop
+- **Benchmark Command**: `jiro bench` for performance testing with statistics
+- **Favicon**: Custom favicon from logo
+
+### Changed
+
+- Improved DNS error messages with hostname and cause
+- Auto-prepend `https://` for bare domains in scrape command
+- Search query auto-scrapes top result when input doesn't look like URL
+- CLI commands bypass auth for easier local usage
+
+### Fixed
+
+- Schema field shadowing in `StructuredExtractRequest` (renamed to `extraction_schema`)
+- Windows Unicode encoding crash in CLI output (cp1252 compatibility)
+- curl-cffi impersonation profiles updated to supported versions
+
 ## [0.2.1] - 2026-09-03
 
 ### Security

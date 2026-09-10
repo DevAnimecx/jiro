@@ -205,6 +205,7 @@ def create_app(settings: Optional[Settings] = None,
 
     _add_middleware(app, settings)
     _add_error_handlers(app)
+    _add_favicon(app)
     _mount_routers(app)
     return app
 
@@ -315,6 +316,25 @@ def _add_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(JiroError)
     async def jiro_error_handler(request: Request, exc: JiroError):
         return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+
+
+def _add_favicon(app: FastAPI) -> None:
+    """Add favicon.ico route using the Jiro logo."""
+    from pathlib import Path
+    from starlette.responses import Response
+
+    favicon_path = Path(__file__).parent.parent / "favicon.ico"
+    if favicon_path.exists():
+        favicon_bytes = favicon_path.read_bytes()
+
+        @app.get("/favicon.ico", include_in_schema=False)
+        async def favicon():
+            return Response(content=favicon_bytes, media_type="image/x-icon")
+    else:
+        # Fallback: serve an empty response so browsers don't 404
+        @app.get("/favicon.ico", include_in_schema=False)
+        async def favicon():
+            return Response(content=b"", media_type="image/x-icon")
 
 
 def _mount_routers(app: FastAPI) -> None:

@@ -178,7 +178,7 @@ def require_feature(feature: str):
                 "basic_search", "basic_scrape", "open_scrapers",
                 "social_advanced", "social_search", "social_timeline",
                 "smart_search", "structured_extraction", "webhook_alerts",
-                "social_batch", "self_learning",
+                "social_batch", "self_learning", "ai_search",
             }
             if feature not in anon_free:
                 raise LicenseError(

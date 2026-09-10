@@ -49,6 +49,10 @@ class SearchRequest(BaseModel):
     include_answer: Optional[str] = Field(None, description="none | extractive | advanced")
     output_schema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for structured output")
 
+    # v0.2.13: Parallel search
+    parallel: bool = Field(False, description="Query multiple engines in parallel")
+    num_engines: int = Field(3, ge=1, le=5, description="Number of engines to query in parallel")
+
     @field_validator("num")
     @classmethod
     def clamp_num(cls, v: int) -> int:
@@ -129,8 +133,10 @@ class StructuredExtractRequest(BaseModel):
     url: Optional[str] = None
     text: Optional[str] = None
     html: Optional[str] = None
-    schema: Dict[str, Any] = Field(..., description="JSON Schema for extraction")
+    extraction_schema: Dict[str, Any] = Field(..., alias="schema", description="JSON Schema for extraction")
     mode: str = Field("auto", description="auto | extractive | llm")
+
+    model_config = {"populate_by_name": True}
 
 
 class StructuredExtractResponse(BaseModel):

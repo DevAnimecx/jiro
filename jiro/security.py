@@ -66,7 +66,10 @@ def is_blocked_ip(ip: str) -> bool:
 
 def _resolve(hostname: str) -> List[str]:
     """Resolve a hostname to IPv4/IPv6 address literals."""
-    infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    try:
+        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise socket.gaierror(f"DNS resolution failed for {hostname}: {exc}") from exc
     return list({str(info[4][0]) for info in infos})
 
 
@@ -109,9 +112,9 @@ def validate_target_url(
     try:
         addresses = _resolve(host)
     except (socket.gaierror, UnicodeError, OSError) as exc:
-        raise SSRFError("DNS resolution failed for target host")
+        raise SSRFError(f"DNS resolution failed for target host '{host}': {exc}")
     if not addresses:
-        raise SSRFError("no addresses for target host")
+        raise SSRFError(f"no addresses found for target host '{host}'")
     for addr in addresses:
         if is_blocked_ip(addr):
             raise SSRFError(f"blocked target IP: {addr} (host {host})")
@@ -153,9 +156,9 @@ async def async_validate_target_url(
     try:
         addresses = await resolve_hostname(host)
     except Exception as exc:
-        raise SSRFError("DNS resolution failed for target host")
+        raise SSRFError(f"DNS resolution failed for target host '{host}': {exc}")
     if not addresses:
-        raise SSRFError("no addresses for target host")
+        raise SSRFError(f"no addresses found for target host '{host}'")
     for addr in addresses:
         if is_blocked_ip(addr):
             raise SSRFError(f"blocked target IP: {addr} (host {host})")

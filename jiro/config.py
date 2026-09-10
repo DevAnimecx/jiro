@@ -59,6 +59,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
         "captcha": {"enabled": False, "provider": "capsolver", "api_key": ""},
         "browser_fallback": False,
+        "stealth": {
+            "enabled": True,            # Enable TLS/JA3 fingerprint rotation
+            "delay_between_requests": True,  # Simulate human delays
+            "referer_chain_simulation": True,  # Simulate natural browsing path
+            "rotate_profile_per_request": True,  # Rotate curl-cffi impersonation per request
+        },
         "robots_txt": {
             "enabled": True,
             "strict_mode": False,  # If True, refuse to scrape disallowed paths

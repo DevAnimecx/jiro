@@ -33,26 +33,39 @@ def _quiet_settings(settings: Settings) -> Settings:
     """Silence the in-process app's logging for one-shot CLI commands."""
     settings.raw["logging"]["level"] = "critical"
     settings.raw["logging"]["file"] = ""
+    # Disable auth for CLI commands (local-only, no network exposure)
+    settings.raw["auth"]["enabled"] = False
     return settings
 
 app = typer.Typer(
     name="jiro",
-    help="Jiro Search API — local-first, AI-native web search & scraping.",
+    help="Jiro Search API — local-first, AI-native web search & scraping.\n\n"
+         "Examples:\n"
+         "  jiro search \"best SaaS tools\"          Search the web\n"
+         "  jiro scrape https://example.com        Scrape a URL\n"
+         "  jiro scrape \"free SaaS directories\"    Search + scrape top result\n"
+         "  jiro ai ask \"compare React vs Vue\"     AI research with citations\n"
+         "  jiro ai setup --provider openai -k sk-...  Configure AI provider\n"
+         "  jiro doctor                             Diagnose issues",
     add_completion=False,
     no_args_is_help=True,
 )
 search_app = typer.Typer(help="Search the web from the CLI.", no_args_is_help=True)
+
+
 keys_app = typer.Typer(help="Manage API keys.", no_args_is_help=True)
 config_app = typer.Typer(help="Configuration management.", no_args_is_help=True)
 dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_is_help=True)
 social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
+ai_app = typer.Typer(help="AI features: ask questions, setup providers, check status.", no_args_is_help=True)
 app.add_typer(search_app, name="search")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
 app.add_typer(plugin_app, name="plugins")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(social_app, name="social")
+app.add_typer(ai_app, name="ai")
 
 console = Console()
 
@@ -154,20 +167,49 @@ def serve(
 # --------------------------------------------------------------------------
 @search_app.command("web", help="Web search (JSON output).")
 def search_web(
-    q: str = typer.Argument(..., help="Search query"),
+    q: str = typer.Argument(None, help="Search query (leave empty for interactive mode)"),
     engine: str = typer.Option("google", "--engine", "-e"),
     type: str = typer.Option("web", "--type", "-t"),
     num: int = typer.Option(10, "--num", "-n"),
     location: str = typer.Option("us", "--location", "-l"),
     language: str = typer.Option("en", "--language"),
-    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    parallel: bool = typer.Option(False, "--parallel", "-p", help="Search multiple engines in parallel (v0.2.13)"),
+    num_engines: int = typer.Option(3, "--engines", help="Number of engines for parallel search (max 5)"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive search mode"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
-    asyncio.run(_cli_search(q, engine, type, num, location, language,
-                            json_output, config))
+    if interactive or q is None:
+        _interactive_search(engine, type, num, location, language, parallel, num_engines, json_output, config)
+    else:
+        asyncio.run(_cli_search(q, engine, type, num, location, language,
+                                parallel, num_engines, json_output, config))
 
 
-async def _cli_search(q, engine, type, num, location, language, json_output, config):
+def _interactive_search(engine, type, num, location, language, parallel, num_engines, json_output, config):
+    """Interactive search loop."""
+    console.print("[bold cyan]Jiro Interactive Search[/] (type 'quit' or 'exit' to stop)\n")
+    
+    while True:
+        try:
+            q = console.input("[bold green]Search > [/]")
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]Goodbye![/]")
+            break
+        
+        q = q.strip()
+        if not q:
+            continue
+        if q.lower() in ("quit", "exit", "q"):
+            console.print("[dim]Goodbye![/]")
+            break
+        
+        asyncio.run(_cli_search(q, engine, type, num, location, language,
+                                parallel, num_engines, json_output, config))
+        console.print()  # Empty line between results
+
+
+async def _cli_search(q, engine, type, num, location, language, parallel, num_engines, json_output, config):
     warnings.filterwarnings("ignore")
     from jiro.server import create_app
     from starlette.testclient import TestClient
@@ -176,6 +218,7 @@ async def _cli_search(q, engine, type, num, location, language, json_output, con
         resp = client.get("/search.json", params={
             "q": q, "engine": engine, "type": type, "num": num,
             "location": location, "language": language,
+            "parallel": parallel, "num_engines": num_engines,
         })
         data = resp.json()
         if json_output:
@@ -196,17 +239,57 @@ async def _cli_search(q, engine, type, num, location, language, json_output, con
         console.print(table)
 
 
+def _safe_print(text: str) -> str:
+    """Sanitize text for Windows console output (cp1252)."""
+    if not isinstance(text, str):
+        return str(text)
+    text = text.replace('\ufeff', '')
+    text = text.encode('cp1252', errors='replace').decode('cp1252')
+    return text
+
+
+def _is_url(text: str) -> bool:
+    """Check if text looks like a URL (has scheme or contains dots)."""
+    if text.startswith(("http://", "https://")):
+        return True
+    # If it contains dots and no spaces, it's likely a domain
+    if "." in text and " " not in text:
+        return True
+    return False
+
+
 # --------------------------------------------------------------------------
 # scrape
 # --------------------------------------------------------------------------
-@app.command(help="Scrape a URL and print readable content.")
+@app.command(help="Scrape a URL or search the web and scrape the top result.")
 def scrape(
-    url: str = typer.Argument(..., help="URL to scrape"),
-    format: str = typer.Option("markdown", "--format", "-f"),
+    url: str = typer.Argument(..., help="URL or search query to scrape"),
+    format: str = typer.Option("markdown", "--format", "-f",
+                               help="Output format: markdown, text, html, json"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    """Scrape a URL and extract readable content.
+
+    If the input looks like a URL (contains dots or starts with http), it scrapes
+    that URL directly. Otherwise, it searches for the query and scrapes the top result.
+
+    Examples:
+      jiro scrape https://example.com
+      jiro scrape example.com
+      jiro scrape "free SaaS directories"
+    """
     from jiro.server import create_app
     from starlette.testclient import TestClient
+
+    # Auto-prepend https:// if no scheme is provided but looks like a domain
+    if not _is_url(url):
+        # Treat as search query - search first, then scrape top result
+        console.print(f"[dim]Searching for '{url}'...[/]")
+        asyncio.run(_scrape_search_query(url, format, config))
+        return
+
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/scrape", json={"url": url, "format": format})
@@ -214,8 +297,52 @@ def scrape(
         if resp.status_code != 200:
             console.print(f"[red]{data.get('error', resp.text)}[/]")
             raise typer.Exit(1)
-        console.print(f"[bold]{data.get('title', '')}[/]  [dim]({data.get('url')})[/]")
-        console.print(data.get("content", "")[:4000])
+        console.print(f"[bold]{_safe_print(data.get('title', ''))}[/]  [dim]({data.get('url')})[/]")
+        console.print(_safe_print(data.get("content", ""))[:4000])
+
+
+async def _scrape_search_query(query: str, format: str, config: str) -> None:
+    """Search for a query and scrape the first result."""
+    import re
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        # First, search for the query
+        resp = client.get("/search.json", params={
+            "q": query, "engine": "google", "type": "web", "num": 1,
+            "location": "us", "language": "en",
+        })
+        data = resp.json()
+        results = data.get("organic_results", [])
+        if not results:
+            console.print(f"[red]No results found for '{query}'[/]")
+            raise typer.Exit(1)
+
+        # Get the first result URL - prefer displayed_link over source
+        first_result = results[0]
+        target_url = first_result.get("displayed_link", "") or first_result.get("source", "")
+        if not target_url:
+            console.print(f"[red]Could not extract URL from first result[/]")
+            raise typer.Exit(1)
+
+        # Ensure URL has scheme
+        if not target_url.startswith(("http://", "https://")):
+            target_url = f"https://{target_url}"
+
+        console.print(f"[dim]Scraping: {target_url}[/]")
+
+        # Scrape the URL
+        resp = client.post("/scrape", json={"url": target_url, "format": format})
+        data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', resp.text)}[/]")
+            raise typer.Exit(1)
+        title = _safe_print(data.get("title", ""))
+        url = data.get("url", "")
+        console.print(f"[bold]{title}[/]  [dim]({url})[/]")
+        console.print(_safe_print(data.get("content", ""))[:4000])
+        console.print(content)
 
 
 # --------------------------------------------------------------------------
@@ -228,6 +355,11 @@ def ask(
     json_output: bool = typer.Option(False, "--json"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    console.print("[yellow]Tip: Use 'jiro ai ask' instead for more options.[/]")
+    _run_ai_ask(query, max_sources, json_output, config)
+
+
+def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
 
@@ -235,13 +367,252 @@ def ask(
         resp = client.post("/ai/search", json={"query": query,
                                                "max_sources": max_sources})
         data = resp.json()
+        if resp.status_code != 200:
+            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            raise typer.Exit(1)
         if json_output:
             console.print(json.dumps(data, indent=2, default=str))
             return
-        console.print(data.get("answer", ""))
+        console.print(_safe_print(data.get("answer", "")))
         console.print("\n[bold]Sources:[/]")
         for i, c in enumerate(data.get("citations", []), start=1):
-            console.print(f"  [{i}] {c.get('title', '')} — {c.get('url', '')}")
+            title = _safe_print(c.get('title', ''))
+            url = _safe_print(c.get('url', ''))
+            console.print(f"  [{i}] {title} — {url}")
+
+
+# --------------------------------------------------------------------------
+# ai setup
+# --------------------------------------------------------------------------
+@ai_app.command("setup", help="Configure AI/LLM provider, API key, and model.")
+def ai_setup(
+    provider: str = typer.Option(None, "--provider", "-p",
+                                  help="LLM provider: openai, anthropic, gemini, openrouter, ollama"),
+    api_key: str = typer.Option(None, "--api-key", "-k", help="API key for the provider"),
+    model: str = typer.Option(None, "--model", "-m", help="Model name (e.g. gpt-4o-mini, claude-3-5-sonnet)"),
+    base_url: str = typer.Option(None, "--base-url", "-u", help="Custom API endpoint URL"),
+    temperature: float = typer.Option(None, "--temperature", "-t", help="Temperature (0.0-2.0)"),
+    max_tokens: int = typer.Option(None, "--max-tokens", help="Max tokens for responses"),
+    config: str = typer.Option(None, "--config", "-c"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive setup wizard"),
+) -> None:
+    """Configure Jiro's AI/LLM provider.
+
+    Examples:
+      jiro ai setup --provider openai --api-key sk-... --model gpt-4o
+      jiro ai setup --provider ollama --model llama3
+      jiro ai setup --provider openrouter --api-key sk-or-... --base-url https://openrouter.ai/api/v1
+      jiro ai setup -i  # Interactive wizard
+    """
+    if interactive:
+        _ai_setup_interactive(config)
+        return
+
+    if not any([provider, api_key, model, base_url, temperature is not None, max_tokens is not None]):
+        _ai_setup_status(config)
+        return
+
+    _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens, config)
+
+
+def _ai_setup_interactive(config: str) -> None:
+    """Interactive setup wizard."""
+    settings = Settings.load(config)
+    llm_cfg = settings.llm
+
+    console.print(Panel.fit("[bold]Jiro AI Setup Wizard[/]", subtitle="Configure your LLM provider"))
+
+    # Provider
+    providers = ["openai", "anthropic", "gemini", "openrouter", "ollama"]
+    current_provider = llm_cfg.get("provider", "openai")
+    console.print(f"\n[bold]Current provider:[/] {current_provider}")
+    console.print("[dim]Providers: openai, anthropic, gemini, openrouter, ollama[/]")
+    provider = typer.prompt("Provider", default=current_provider)
+    if provider not in providers:
+        console.print(f"[red]Invalid provider: {provider}[/]")
+        raise typer.Exit(1)
+
+    # API Key
+    current_key = llm_cfg.get("api_key", "")
+    has_key = bool(current_key)
+    console.print(f"\n[bold]API key:[/] {'configured' if has_key else 'not set'}")
+    if provider == "ollama":
+        api_key = ""  # Ollama doesn't need an API key
+    else:
+        api_key = typer.prompt("API key", default="", hide_input=True)
+        if not api_key and not has_key:
+            console.print("[yellow]No API key provided. AI features may not work.[/]")
+
+    # Model
+    default_models = {
+        "openai": "gpt-4o-mini",
+        "anthropic": "claude-3-5-sonnet-20241022",
+        "gemini": "gemini-1.5-flash",
+        "openrouter": "gpt-4o-mini",
+        "ollama": "llama3",
+    }
+    current_model = llm_cfg.get("model", default_models.get(provider, "gpt-4o-mini"))
+    console.print(f"\n[bold]Model:[/] {current_model}")
+    model = typer.prompt("Model", default=current_model)
+
+    # Base URL (for custom endpoints)
+    current_base_url = llm_cfg.get("base_url", "")
+    if provider in ("ollama", "openrouter"):
+        default_url = {"ollama": "http://localhost:11434/v1", "openrouter": "https://openrouter.ai/api/v1"}.get(provider, "")
+    else:
+        default_url = ""
+    console.print(f"\n[bold]Base URL:[/] {current_base_url or '(default)'}")
+    console.print("[dim]Leave empty for default endpoint, or enter custom URL[/]")
+    base_url = typer.prompt("Base URL", default=current_base_url or default_url or "")
+
+    # Temperature
+    current_temp = llm_cfg.get("temperature", 0.2)
+    console.print(f"\n[bold]Temperature:[/] {current_temp}")
+    temperature = typer.prompt("Temperature", default=current_temp, type=float)
+
+    # Max tokens
+    current_max = llm_cfg.get("max_tokens", 1024)
+    console.print(f"\n[bold]Max tokens:[/] {current_max}")
+    max_tokens = typer.prompt("Max tokens", default=current_max, type=int)
+
+    _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens, config)
+
+
+def _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens, config: str) -> None:
+    """Apply AI configuration to the config file."""
+    from pathlib import Path
+    import yaml
+
+    config_path = Path(config).expanduser() if config else Path("~/.jiro/config.yaml").expanduser()
+
+    # Load existing config or create new
+    if config_path.exists():
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = {}
+
+    # Ensure llm section exists
+    if "llm" not in cfg:
+        cfg["llm"] = {}
+
+    # Apply settings
+    if provider:
+        cfg["llm"]["provider"] = provider
+    if api_key is not None:
+        cfg["llm"]["api_key"] = api_key
+    if model:
+        cfg["llm"]["model"] = model
+    if base_url is not None:
+        cfg["llm"]["base_url"] = base_url
+    if temperature is not None:
+        cfg["llm"]["temperature"] = temperature
+    if max_tokens is not None:
+        cfg["llm"]["max_tokens"] = max_tokens
+
+    # Write config
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+
+    console.print(f"[bold green]+[/] AI configuration saved to {config_path}")
+
+    # Show summary
+    console.print("\n[bold]Configuration:[/]")
+    console.print(f"  Provider:  {cfg['llm'].get('provider', 'openai')}")
+    console.print(f"  Model:     {cfg['llm'].get('model', 'gpt-4o-mini')}")
+    console.print(f"  API Key:   {'***' + cfg['llm'].get('api_key', '')[-4:] if cfg['llm'].get('api_key') else 'not set'}")
+    console.print(f"  Base URL:  {cfg['llm'].get('base_url', '(default)') or '(default)'}")
+    console.print(f"  Temp:      {cfg['llm'].get('temperature', 0.2)}")
+    console.print(f"  Max Tokens: {cfg['llm'].get('max_tokens', 1024)}")
+
+    # Test the connection
+    console.print("\n[bold]Testing connection...[/]")
+    try:
+        settings = Settings.load(config)
+        from jiro.ai.llm import build_provider
+        provider_obj = build_provider(settings)
+        console.print(f"[bold green]+[/] Provider '{provider_obj.name}' configured successfully")
+    except Exception as e:
+        console.print(f"[yellow]! Could not test provider: {e}[/]")
+
+
+def _ai_setup_status(config: str) -> None:
+    """Show current AI configuration status."""
+    settings = Settings.load(config)
+    llm_cfg = settings.llm
+
+    console.print(Panel.fit("[bold]Jiro AI Status[/]"))
+
+    provider = llm_cfg.get("provider", "openai")
+    model = llm_cfg.get("model", "gpt-4o-mini")
+    api_key = llm_cfg.get("api_key", "")
+    base_url = llm_cfg.get("base_url", "")
+    temperature = llm_cfg.get("temperature", 0.2)
+    max_tokens = llm_cfg.get("max_tokens", 1024)
+
+    table = Table(title="LLM Configuration")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Provider", provider)
+    table.add_row("Model", model)
+    table.add_row("API Key", "***" + api_key[-4:] if api_key else "[red]not set[/]")
+    table.add_row("Base URL", base_url or "(default)")
+    table.add_row("Temperature", str(temperature))
+    table.add_row("Max Tokens", str(max_tokens))
+
+    console.print(table)
+
+    # Check if LLM is available
+    from jiro.ai.llm import LLM
+    llm = LLM(settings)
+    if llm.available:
+        console.print("[bold green]+[/] LLM is configured and ready")
+    else:
+        console.print("[bold yellow]![/] LLM is not configured (no API key)")
+        console.print("[dim]Run 'jiro ai setup --api-key YOUR_KEY' to configure[/]")
+
+
+@ai_app.command("ask", help="Ask a research question with AI-powered answers.")
+def ai_ask(
+    query: str = typer.Argument(..., help="Research question"),
+    max_sources: int = typer.Option(5, "--max-sources", "-n"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    _run_ai_ask(query, max_sources, json_output, config)
+
+
+@ai_app.command("status", help="Show AI/LLM configuration status.")
+def ai_status(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    _ai_setup_status(config)
+
+
+@ai_app.command("test", help="Test the configured LLM provider.")
+def ai_test(
+    prompt: str = typer.Option("Hello, what model are you?", "--prompt", "-p"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Send a test prompt to the configured LLM provider."""
+    settings = Settings.load(config)
+    from jiro.ai.llm import LLM
+
+    llm = LLM(settings)
+    if not llm.available:
+        console.print("[red]LLM is not configured. Run 'jiro ai setup' first.[/]")
+        raise typer.Exit(1)
+
+    console.print(f"[dim]Testing {llm.provider_name}/{llm.model}...[/]")
+    try:
+        import asyncio
+        response = asyncio.run(llm.complete([{"role": "user", "content": prompt}]))
+        console.print(f"\n[bold green]+[/] Response:\n{response}")
+    except Exception as e:
+        console.print(f"[red]Test failed: {e}[/]")
+        raise typer.Exit(1)
 
 
 # --------------------------------------------------------------------------
@@ -1287,6 +1658,81 @@ def logs(
     except Exception as e:
         console.print(f"[red]Failed to read log file: {e}[/]")
         raise typer.Exit(1)
+
+
+@app.command(help="Benchmark Jiro search and scrape performance.")
+def bench(
+    query: str = typer.Argument("test", help="Search query for benchmark"),
+    iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
+    engines: int = typer.Option(2, "--engines", "-e", help="Number of search engines"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Benchmark search and scrape performance.
+
+    Runs multiple iterations and reports timing statistics.
+    """
+    import time
+    from statistics import mean, median, stdev
+
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    console.print(f"[bold]Benchmarking Jiro[/] ({iterations} iterations)")
+    console.print(f"Query: {query} | Engines: {engines}\n")
+
+    search_times = []
+    scrape_times = []
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        # Benchmark search
+        console.print("[cyan]Running search benchmarks...[/]")
+        for i in range(iterations):
+            start = time.perf_counter()
+            resp = client.post("/search", json={"query": query, "num_results": 5})
+            elapsed = time.perf_counter() - start
+            search_times.append(elapsed)
+            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
+            console.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}]")
+
+        # Benchmark scrape
+        console.print("\n[cyan]Running scrape benchmarks...[/]")
+        test_urls = [
+            "https://example.com",
+            "https://httpbin.org/html",
+            "https://quotes.toscrape.com",
+        ]
+        for i in range(iterations):
+            url = test_urls[i % len(test_urls)]
+            start = time.perf_counter()
+            resp = client.post("/scrape", json={"url": url, "format": "markdown"})
+            elapsed = time.perf_counter() - start
+            scrape_times.append(elapsed)
+            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
+            console.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
+
+    # Report
+    console.print("\n[bold]Results:[/]")
+    table = Table(title="Performance Summary")
+    table.add_column("Metric")
+    table.add_column("Search")
+    table.add_column("Scrape")
+
+    def fmt_stats(times):
+        if len(times) < 2:
+            return f"{times[0]:.3f}s", "N/A"
+        return f"{mean(times):.3f}s", f"±{stdev(times):.3f}s"
+
+    search_mean, search_std = fmt_stats(search_times)
+    scrape_mean, scrape_std = fmt_stats(scrape_times)
+
+    table.add_row("Mean", search_mean, scrape_mean)
+    table.add_row("Median", f"{median(search_times):.3f}s", f"{median(scrape_times):.3f}s")
+    table.add_row("Std Dev", search_std, scrape_std)
+    table.add_row("Min", f"{min(search_times):.3f}s", f"{min(scrape_times):.3f}s")
+    table.add_row("Max", f"{max(search_times):.3f}s", f"{max(scrape_times):.3f}s")
+    table.add_row("Total", f"{sum(search_times):.3f}s", f"{sum(scrape_times):.3f}s")
+
+    console.print(table)
 
 
 if __name__ == "__main__":

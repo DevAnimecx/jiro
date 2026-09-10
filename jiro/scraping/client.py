@@ -408,9 +408,14 @@ class ScrapingClient:
         await self.cookie_jar.load()
 
     async def _get_curl_session(self, engine: str) -> Any:
-        """Get or create a curl_cffi AsyncSession with browser impersonation."""
+        """Get or create a curl_cffi AsyncSession with browser impersonation.
+
+        Uses the stealth engine for TLS/JA3 fingerprint rotation, cycling
+        through Chrome/Firefox/Safari profiles per request to avoid detection.
+        """
         if engine not in self._curl_sessions:
-            profile = self.fingerprint.next_profile()
+            from jiro.stealth import get_impersonation_profile, get_stealth
+            profile = get_impersonation_profile()
             session: Any = CurlAsyncSession(
                 impersonate=profile,  # type: ignore[arg-type]
                 timeout=self.timeout,
@@ -453,17 +458,31 @@ class ScrapingClient:
             await self.browser_fallback.close()
 
     def _headers(self, engine: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        headers = dict(HEADER_TEMPLATE)
+        from jiro.stealth import build_stealth_headers, get_stealth
+
+        # Use stealth engine for realistic browser headers with fingerprint rotation
+        headers = build_stealth_headers(engine)
+
+        # Rotate user agent if configured
         if self.settings.user_agent_rotation:
-            headers["User-Agent"] = random.choice(USER_AGENTS)
-        geo = self.fingerprint.next_geo_headers()
-        headers.update(geo)
+            if "User-Agent" not in headers:
+                headers["User-Agent"] = random.choice(USER_AGENTS)
+
+        # Add engine-specific headers
         headers.update(ENGINE_HEADERS.get(engine, {}))
         headers.update(extra or {})
+
+        # Add cookies from jar
         cookies = self.cookie_jar.get_dict(engine)
         if cookies:
             cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
             headers["Cookie"] = cookie_str
+
+        # Simulate human-like delay before request (anti-detection)
+        if self.settings.get("scraping.stealth.delay_between_requests", True):
+            if random.random() < 0.1:  # 10% of requests get a small delay
+                time.sleep(0.1 + random.random() * 0.2)
+
         return headers
 
     async def _validate_response_url(self, url: str, response: Any) -> None:

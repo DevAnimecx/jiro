@@ -68,6 +68,8 @@ async def search_get(
     category: str = Query("", description="publication | financial_report | people | shopping | github | news"),
     highlights: bool = Query(False, description="Extract token-efficient highlights"),
     include_answer: str = Query("", description="none | extractive | advanced"),
+    parallel: bool = Query(False, description="Query multiple engines in parallel (v0.2.13)"),
+    num_engines: int = Query(3, ge=1, le=5, description="Number of engines to query in parallel"),
     ctx: AuthContext = Depends(require_feature("basic_search")),
     orchestrator: Any = Depends(get_orchestrator),
     cache: CacheManager = Depends(get_cache),
@@ -85,12 +87,18 @@ async def search_get(
                         end_date=end_date or None,
                         category=category or None,
                         highlights=highlights,
-                        include_answer=include_answer or None)
+                        include_answer=include_answer or None,
+                        parallel=parallel,
+                        num_engines=num_engines)
     ip = request.client.host if request.client else None
     key_id = ctx.key_id
 
     try:
-        result = await orchestrator.search(req, fresh=fresh)
+        # v0.2.13: Use parallel search if requested
+        if parallel:
+            result = await orchestrator.search_parallel(req, fresh=fresh)
+        else:
+            result = await orchestrator.search(req, fresh=fresh)
     except EngineError as exc:
         latency_ms = (time.perf_counter() - started) * 1000
         await record_usage(request, endpoint="/search", status=exc.status_code,
@@ -157,7 +165,11 @@ async def search_post(
     key_id = ctx.key_id
 
     try:
-        result = await orchestrator.search(body, fresh=body.fresh)
+        # v0.2.13: Use parallel search if requested
+        if getattr(body, "parallel", False):
+            result = await orchestrator.search_parallel(body, fresh=body.fresh)
+        else:
+            result = await orchestrator.search(body, fresh=body.fresh)
     except EngineError as exc:
         latency_ms = (time.perf_counter() - started) * 1000
         await record_usage(request, endpoint="/search", status=exc.status_code,

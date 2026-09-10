@@ -428,3 +428,201 @@ class SearchOrchestrator:
             except Exception as exc:
                 health[name] = {"ok": False, "error": str(exc)}
         return health
+
+    # ------------------------------------------------------------------
+    # v0.2.13: Parallel search with smart engine selection
+    # ------------------------------------------------------------------
+
+    def _select_engines_for_query(self, query: str, requested: str = "auto") -> List[str]:
+        """Smart engine selection based on query characteristics.
+
+        v0.2.13: Analyzes the query to pick the best engines in parallel,
+        rather than trying them sequentially in a fallback chain.
+        """
+        query_lower = query.lower()
+        query_words = set(w.lower() for w in re.findall(r"[a-zA-Z]{3,}", query_lower))
+
+        # Detect query type
+        is_product = any(w in query_words for w in {"buy", "price", "cost", "product", "shop", "cheapest", "deal"})
+        is_news = any(w in query_words for w in {"news", "latest", "today", "recent", "update"})
+        is_video = any(w in query_words for w in {"video", "youtube", "tutorial", "how.to", "demo"})
+        is_reddit = "reddit.com" in query_lower
+        is_github = "github.com" in query_lower or "repo" in query_words
+
+        engines = self.available_engines(requested)
+        selected: List[str] = []
+
+        if requested != "auto":
+            # User requested a specific engine - use it
+            return engines[:3]
+
+        # Select top 3 engines based on query type
+        if is_product:
+            # Amazon/eBay for product queries
+            preferred = ["amazon", "ebay", "google"]
+        elif is_video or "youtube" in query_lower:
+            preferred = ["youtube", "google", "bing"]
+        elif is_reddit:
+            preferred = ["bing", "google", "duckduckgo"]
+        elif is_github:
+            preferred = ["google", "bing", "duckduckgo"]
+        elif is_news:
+            preferred = ["google", "bing", "duckduckgo"]
+        else:
+            # Default: Google + 2 fallbacks (skip Google if no proxy)
+            preferred = ["google", "bing", "duckduckgo"]
+
+        for eng in preferred:
+            if eng in engines and eng not in selected:
+                selected.append(eng)
+                if len(selected) >= 3:
+                    break
+
+        # Fill with remaining engines
+        for eng in engines:
+            if eng not in selected:
+                selected.append(eng)
+                if len(selected) >= 3:
+                    break
+
+        return selected
+
+    async def search_parallel(self, req: SearchRequest, *, fresh: bool = False,
+                               num_engines: int = 3) -> SearchResponse:
+        """Search with multiple engines in parallel and merge results.
+
+        v0.2.13: Query top N engines simultaneously instead of sequentially.
+        Returns deduplicated, merged results from all engines.
+        """
+        if getattr(req, "mode", "auto") == "hybrid":
+            return await self.hybrid_searcher.search(req)
+
+        engines = self._select_engines_for_query(req.q, req.engine)
+        engines = engines[:num_engines]
+
+        cache_key = self.cache.make_key(
+            "search_parallel", req.engine, req.q, req.type, req.num, req.start,
+            req.location, req.language, req.safe, req.time_range, req.device,
+            req.gl, req.hl, req.mode, getattr(req, "depth", "basic"),
+        )
+
+        if not fresh:
+            cached = await self.cache.get(cache_key)
+            if cached is not None:
+                cached["search_metadata"]["cached"] = True
+                return SearchResponse(**cached)
+            if self.semantic is not None:
+                fuzzy = await self.semantic.find(req.q)
+                if fuzzy is not None:
+                    fuzzy["search_metadata"]["cached"] = True
+                    fuzzy["search_metadata"]["semantic_cache"] = True
+                    return SearchResponse(**fuzzy)
+
+        # Query engines in parallel
+        async def _search_one(engine_name: str):
+            try:
+                engine_cls = self.registry.get(engine_name)
+                engine = engine_cls(self.client, self.settings)
+                if req.type not in engine.types:
+                    return None, {"engine": engine_name,
+                                  "error": f"type '{req.type}' not supported"}
+                started = time.perf_counter()
+                result = await engine.search(req)
+                elapsed = time.perf_counter() - started
+                result.search_metadata["engine"] = engine_name
+                result.search_metadata["total_time_taken"] = round(elapsed, 3)
+                return result, None
+            except Exception as exc:
+                return None, {"engine": engine_name, "error": str(exc)}
+
+        tasks = [asyncio.create_task(_search_one(eng)) for eng in engines]
+        results = await asyncio.gather(*tasks)
+
+        # Merge successful results
+        successful = [(r, e) for r, e in results if r is not None]
+        errors = [e for _, e in results if e is not None]
+
+        if not successful:
+            raise EngineError(
+                "all engines failed for this query",
+                status_code=502,
+                details={"attempted": engines, "errors": errors},
+            )
+
+        # Take results from the best engine (fastest + relevant)
+        best_result = successful[0][0]
+        if len(successful) > 1:
+            # Merge results from multiple engines (dedup by URL)
+            seen_urls = set()
+            merged_results = []
+            for result, _ in successful:
+                for item in result.organic_results or []:
+                    url = item.get("link", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        merged_results.append(item)
+                    if len(merged_results) >= req.num:
+                        break
+                if len(merged_results) >= req.num:
+                    break
+
+            # Use the best engine's metadata but with merged results
+            best_result.organic_results = merged_results[:req.num]
+            if errors:
+                best_result.search_metadata["skipped_engines"] = errors
+
+            best_result.search_metadata["engines_queried"] = [e["engine"] for r, e in successful]
+            best_result.search_metadata["parallel_search"] = True
+            best_result.search_metadata["engines_queried"] = engines
+
+        # Cache the result
+        await self.cache.put(cache_key, best_result.model_dump(), engine=best_result.search_metadata.get("engine", "unknown"))
+        if self.semantic is not None:
+            await self.semantic.store(req.q, cache_key)
+
+        return best_result
+
+    async def stream_search(self, query: str, engine: str = "google", num: int = 10,
+                            location: str = "us", language: str = "en"):
+        """Stream search results as they arrive from the engine.
+
+        Used by WebSocket endpoint for real-time result delivery.
+        Yields individual result dicts.
+        """
+        from jiro.models import SearchRequest
+        req = SearchRequest(
+            q=query, engine=engine, num=min(num, 100),
+            location=location, language=language,
+        )
+
+        engines = self._select_engines_for_query(query, engine)
+        engine_order = engines[:3]
+
+        for engine_name in engine_order:
+            try:
+                engine_cls = self.registry.get(engine_name)
+                e = engine_cls(self.client, self.settings)
+                if req.type not in e.types:
+                    continue
+                started = time.perf_counter()
+                result = await e.search(req)
+                elapsed = time.perf_counter() - started
+                result.search_metadata["engine"] = engine_name
+                result.search_metadata["total_time_taken"] = round(elapsed, 3)
+
+                for item in result.organic_results or []:
+                    yield {
+                        "engine": engine_name,
+                        "position": item.get("position", 0),
+                        "title": item.get("title", ""),
+                        "url": item.get("link", ""),
+                        "snippet": item.get("snippet", ""),
+                        "source": item.get("source", ""),
+                    }
+                    await asyncio.sleep(0)  # Allow yielding
+
+            except Exception as exc:
+                log.error("engine streaming failed", extra={
+                    "engine": engine_name, "error": str(exc)
+                })
+                continue
