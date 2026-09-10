@@ -1,0 +1,11 @@
+id: official-sdks
+title: "Official SDKs"
+description: "Python, JavaScript/TypeScript, and Go SDKs with full API coverage, type safety, and WebSocket support."
+icon: "code"
+category: "Developer Experience"
+highlights:
+  - "Python SDK (pip install jiro-sdk)"
+  - "JavaScript/TypeScript SDK (npm install jiro-sdk)"
+  - "Go SDK (go get jiro-sdk-go)"
+  - "Sync & async clients"
+order: 3

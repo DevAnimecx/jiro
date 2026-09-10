@@ -1,0 +1,11 @@
+id: mcp-integration
+title: "MCP Integration"
+description: "16 tools for Claude Desktop, Cursor, and any MCP-compatible client. AI agents love Jiro."
+icon: "bot"
+category: "AI Integration"
+highlights:
+  - "16 MCP tools"
+  - "Claude Desktop support"
+  - "Cursor integration"
+  - "Custom prompts & resources"
+order: 5

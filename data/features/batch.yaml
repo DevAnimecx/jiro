@@ -1,0 +1,11 @@
+id: batch-operations
+title: "Batch Operations"
+description: "Execute multiple searches and scrapes concurrently. Perfect for bulk data collection."
+icon: "layers"
+category: "Automation"
+highlights:
+  - "Batch search"
+  - "Batch scrape"
+  - "Progress tracking"
+  - "Concurrent execution"
+order: 8

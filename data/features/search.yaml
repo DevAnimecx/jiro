@@ -1,0 +1,11 @@
+id: hybrid-search
+title: "Hybrid Search"
+description: "Combines keyword, semantic, and freshness signals for the most relevant results across 9 engines."
+icon: "search"
+category: "Search Intelligence"
+highlights:
+  - "9 search engines"
+  - "Multi-query expansion"
+  - "Answer synthesis"
+  - "Search filters"
+order: 1

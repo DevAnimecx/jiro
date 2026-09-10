@@ -1,0 +1,11 @@
+id: social-platforms
+title: "12 Social Platforms"
+description: "Reddit, Twitter/X, YouTube, LinkedIn, TikTok, Instagram, Facebook, Threads, Hacker News, Bluesky, Telegram, Pinterest."
+icon: "globe"
+category: "Social Scraping"
+highlights:
+  - "Reddit & HN"
+  - "Twitter/X & Bluesky"
+  - "YouTube & TikTok"
+  - "LinkedIn & Instagram"
+order: 2

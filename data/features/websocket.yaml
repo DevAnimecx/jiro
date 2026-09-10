@@ -1,0 +1,11 @@
+id: websocket-streaming
+title: "WebSocket Streaming"
+description: "Real-time search results via WebSocket. Stream results as they come in, not batched."
+icon: "zap"
+category: "Real-time"
+highlights:
+  - "Real-time results"
+  - "/ws/search endpoint"
+  - "/ws/search/stream for continuous"
+  - "/ws/monitor for metrics"
+order: 7

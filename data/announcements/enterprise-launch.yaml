@@ -1,0 +1,9 @@
+id: enterprise-launch
+title: "Enterprise Tier Now Available"
+description: "Advanced features for production deployments"
+badge: "ENTERPRISE"
+badgeColor: "purple"
+link: "/pricing"
+active: true
+priority: 2
+expiresAt: "2027-06-30"

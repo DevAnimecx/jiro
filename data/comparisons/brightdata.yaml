@@ -1,0 +1,27 @@
+id: vs-brightdata
+competitor: "Bright Data"
+features:
+  - name: "Price"
+    jiro: "$499/mo"
+    competitor: "$500+/mo"
+  - name: "Self-hosted"
+    jiro: true
+    competitor: false
+  - name: "Hybrid search"
+    jiro: true
+    competitor: false
+  - name: "WebSocket streaming"
+    jiro: true
+    competitor: false
+  - name: "MCP integration"
+    jiro: true
+    competitor: false
+  - name: "AI research"
+    jiro: true
+    competitor: false
+  - name: "Official SDKs"
+    jiro: "Python, JS, Go"
+    competitor: "Limited"
+  - name: "Free tier"
+    jiro: "10K RPD"
+    competitor: "Trial"

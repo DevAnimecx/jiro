@@ -1,0 +1,24 @@
+version: "0.2.14"
+date: "2026-09-09"
+title: "Rate Limiting, Advanced Caching, Multi-Language SDKs"
+subtitle: "Enterprise-grade features for production deployments"
+tags:
+  - Features
+  - Performance
+changes:
+  - type: feature
+    text: "Sliding Window Rate Limiter — Per-second, per-minute, per-hour, per-day limits"
+  - type: feature
+    text: "Usage Quotas — Monthly limits for searches, scrapes, and AI queries"
+  - type: feature
+    text: "Advanced Caching — LRU/LFU with analytics and TTL support"
+  - type: feature
+    text: "Plugin System — Custom engines, scrapers, and search providers"
+  - type: feature
+    text: "Multi-Language SDKs — Python, JavaScript/TypeScript, Go"
+  - type: perf
+    text: "3x faster parallel search with concurrent engine queries"
+  - type: perf
+    text: "50% reduction in memory usage with optimized caching"
+install: "pip install jirosearch==0.2.14"
+github: "https://github.com/DevAnimecx/jiro/releases/tag/v0.2.14"

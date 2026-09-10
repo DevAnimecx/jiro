@@ -1,0 +1,30 @@
+id: vs-serpapi
+competitor: "SerpAPI"
+features:
+  - name: "Self-hosted"
+    jiro: true
+    competitor: false
+  - name: "Free tier"
+    jiro: "10K RPD"
+    competitor: "100/mo"
+  - name: "Search engines"
+    jiro: "9"
+    competitor: "8"
+  - name: "Social platforms"
+    jiro: "12"
+    competitor: false
+  - name: "Hybrid search"
+    jiro: true
+    competitor: false
+  - name: "WebSocket streaming"
+    jiro: true
+    competitor: false
+  - name: "Official SDKs"
+    jiro: "Python, JS, Go"
+    competitor: "Python, JS"
+  - name: "MCP integration"
+    jiro: true
+    competitor: false
+  - name: "Paid tier"
+    jiro: "$499/mo"
+    competitor: "$50/mo"

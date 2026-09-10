@@ -1,0 +1,26 @@
+version: "0.2.12"
+date: "2026-09-07"
+title: "Universal Integration, Deep Enterprise Lock"
+subtitle: "MCP Setup Wizard and license encryption"
+tags:
+  - Features
+  - Security
+changes:
+  - type: feature
+    text: "MCP Setup Wizard — One-command setup for Claude Desktop, Cursor, OpenCode, Codex CLI, OpenClaw, Continue.dev, and Zed"
+  - type: feature
+    text: "AES-256-GCM License Encryption — Enterprise license tokens encrypted at rest"
+  - type: feature
+    text: "CapabilityToken HMAC Tokens — Cryptographic license validation with scoped capabilities"
+  - type: feature
+    text: "jiro doctor — Built-in diagnostics command for quick health checks"
+  - type: security
+    text: "require_tier('enterprise') enforced on all 18 /enterprise/* endpoints"
+  - type: security
+    text: "Authorization: License <token> header validation via HMAC-SHA256"
+  - type: fix
+    text: "Fixed Tuple import error in feature_flags.py"
+  - type: fix
+    text: "Fixed SQLite parameter binding in pro.py"
+install: "pip install jirosearch==0.2.12"
+github: "https://github.com/DevAnimecx/jiro/releases/tag/v0.2.12"

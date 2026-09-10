@@ -1,0 +1,11 @@
+id: smart-search
+title: "Smart Search"
+description: "Intent-aware auto-routing picks the best engine for every query. 16 intent types supported."
+icon: "brain"
+category: "AI-Powered"
+highlights:
+  - "Intent classification"
+  - "Auto-routing"
+  - "16 intent types"
+  - "Structured extraction"
+order: 9

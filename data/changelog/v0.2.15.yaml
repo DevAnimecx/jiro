@@ -1,0 +1,37 @@
+version: "0.2.15"
+date: "2026-09-10"
+title: "The Complete Release"
+subtitle: "Official SDKs, WebSocket Streaming, Batch Operations"
+tags:
+  - Major
+  - SDKs
+  - Features
+changes:
+  - type: feature
+    text: "Official Python SDK — pip install jiro-sdk with sync/async clients, type hints, WebSocket support"
+  - type: feature
+    text: "Official JavaScript/TypeScript SDK — npm install jiro-sdk with browser & Node.js support"
+  - type: feature
+    text: "Official Go SDK — go get github.com/DevAnimecx/jiro/sdk/go with idiomatic Go"
+  - type: feature
+    text: "WebSocket Streaming — Real-time search results via /ws/search endpoint"
+  - type: feature
+    text: "Batch Operations — Execute multiple searches/scrapes concurrently"
+  - type: feature
+    text: "Stealth Engine — TLS/JA3 fingerprint rotation with 20+ browser profiles"
+  - type: feature
+    text: "Monitoring & Observability — Prometheus metrics, health checks, request tracing"
+  - type: feature
+    text: "Rate Limiting — Sliding window with tier-based quotas"
+  - type: feature
+    text: "Advanced Caching — LRU/LFU with analytics"
+  - type: feature
+    text: "Search History & Analytics"
+  - type: feature
+    text: "Export/Import — JSON, CSV, Markdown, YAML"
+  - type: fix
+    text: "Fixed Unicode crash on Windows (cp1252 encoding)"
+  - type: fix
+    text: "Fixed auto-HTTPS for bare domains"
+install: "pip install jirosearch==0.2.15"
+github: "https://github.com/DevAnimecx/jiro/releases/tag/v0.2.15"

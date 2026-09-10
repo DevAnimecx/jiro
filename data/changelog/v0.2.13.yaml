@@ -1,0 +1,24 @@
+version: "0.2.13"
+date: "2026-09-08"
+title: "Stealth Engine, WebSocket Streaming, Interactive CLI"
+subtitle: "Anti-bot bypass and real-time capabilities"
+tags:
+  - Features
+  - Security
+changes:
+  - type: feature
+    text: "Stealth Engine — TLS/JA3 fingerprint rotation with 20+ browser profiles"
+  - type: feature
+    text: "WebSocket Streaming — Real-time search results via /ws/search"
+  - type: feature
+    text: "Interactive Mode — jiro search -i for continuous search loop"
+  - type: feature
+    text: "Benchmark Command — jiro bench for performance testing"
+  - type: feature
+    text: "Search Query Auto-Scrape — jiro scrape 'query' searches then scrapes top result"
+  - type: fix
+    text: "Fixed Unicode crash on Windows (cp1252 encoding)"
+  - type: fix
+    text: "Fixed auto-HTTPS for bare domains"
+install: "pip install jirosearch==0.2.13"
+github: "https://github.com/DevAnimecx/jiro/releases/tag/v0.2.13"

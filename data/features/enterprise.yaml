@@ -1,0 +1,11 @@
+id: enterprise-ready
+title: "Enterprise Ready"
+description: "Multi-tenant isolation, SOC2 compliance, SLA monitoring, HMAC license tokens, webhooks, batch jobs."
+icon: "building"
+category: "Enterprise"
+highlights:
+  - "Rate limiting & quotas"
+  - "Plugin system"
+  - "Advanced caching"
+  - "Monitoring & observability"
+order: 6

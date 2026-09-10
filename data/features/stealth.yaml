@@ -1,0 +1,11 @@
+id: stealth-engine
+title: "Stealth Engine"
+description: "Bypass anti-bot detection with TLS/JA3 fingerprint rotation and 20+ browser impersonation profiles."
+icon: "shield"
+category: "Anti-Bot"
+highlights:
+  - "TLS/JA3 fingerprint rotation"
+  - "20+ browser profiles"
+  - "Behavioral simulation"
+  - "curl-cffi integration"
+order: 4

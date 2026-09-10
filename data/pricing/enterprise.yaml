@@ -1,0 +1,19 @@
+id: enterprise
+name: "Enterprise"
+price: 499
+period: "month"
+badge: "ENTERPRISE"
+badgeColor: "orange"
+description: "Everything in Free, plus unlimited power."
+features:
+  - "1,000 requests/minute"
+  - "1,000,000 requests/day"
+  - "AI-powered agentic research"
+  - "Custom LLM models"
+  - "White-label + commercial license"
+  - "SOC2 + premium support"
+  - "Priority engineering support"
+  - "Custom integrations"
+cta: "Contact Sales"
+ctaLink: "mailto:sales@jiro.ai"
+highlight: false
