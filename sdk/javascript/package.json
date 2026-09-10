@@ -1,0 +1,44 @@
+{
+  "name": "jiro-sdk",
+  "version": "0.2.15",
+  "description": "Official JavaScript/TypeScript SDK for Jiro Search API",
+  "main": "jiro-sdk.js",
+  "module": "jiro-sdk.js",
+  "types": "jiro-sdk.d.ts",
+  "files": [
+    "jiro-sdk.js",
+    "jiro-sdk.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "jest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "jiro",
+    "search",
+    "api",
+    "web-scraping",
+    "sdk"
+  ],
+  "author": "Jiro Team <webcrafterreal@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/DevAnimecx/jiro",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DevAnimecx/jiro.git",
+    "directory": "sdk/javascript"
+  },
+  "bugs": {
+    "url": "https://github.com/DevAnimecx/jiro/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0"
+  }
+}
