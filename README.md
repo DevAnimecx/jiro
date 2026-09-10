@@ -7,12 +7,13 @@
 **One API. 9 search engines. 12 social platforms. AI-powered. Free forever.**
 
 [![PyPI version](https://img.shields.io/pypi/v/jirosearch.svg)](https://pypi.org/project/jirosearch/)
+[![npm version](https://img.shields.io/npm/v/jiro-sdk.svg)](https://www.npmjs.com/package/jiro-sdk)
 [![Python](https://img.shields.io/pypi/pyversions/jirosearch.svg)](https://pypi.org/project/jirosearch/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/docker/pulls/devanimecx/jiro.svg)](https://hub.docker.com/r/devanimecx/jiro)
 [![Downloads](https://img.shields.io/pypi/dm/jirosearch.svg)](https://pypi.org/project/jirosearch/)
 
-[Get Started Free](#quick-start) · [Website](https://jiro.dev) · [API Docs](https://jiro.dev/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
+[Get Started Free](#quick-start) · [SDKs](#official-sdks) · [API Docs](https://jiro.dev/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
 
 </div>
 
@@ -26,6 +27,9 @@ Jiro is a **local-first, AI-native search & scraping API** — a self-hosted alt
 - **12 social platforms** — Reddit, Twitter/X, YouTube, LinkedIn, TikTok, Instagram, and more
 - **Hybrid search** — keyword + semantic + freshness signals combined
 - **AI-powered research** — agentic search with citations (Enterprise)
+- **Stealth engine** — TLS/JA3 fingerprint rotation, anti-bot bypass
+- **WebSocket streaming** — real-time search results
+- **Official SDKs** — Python, JavaScript/TypeScript, Go
 - **MCP integration** — works with Claude Desktop, Cursor, Continue.dev
 - **Free forever** — generous free tier, no credit card required
 
@@ -50,6 +54,83 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 
 ---
 
+## Official SDKs
+
+### Python SDK
+
+```bash
+pip install jiro-sdk
+```
+
+```python
+from jiro_sdk import JiroClient
+
+client = JiroClient(api_key="your-key")
+
+# Search
+results = client.search("python web scraping")
+
+# Scrape
+content = client.scrape("https://example.com")
+
+# AI Research
+answer = client.ai_ask("What is Python?")
+
+# Parallel Search
+results = client.search_parallel("AI news", num_engines=3)
+
+# Batch Operations
+job = client.batch_search(["python", "javascript", "go"])
+```
+
+### JavaScript/TypeScript SDK
+
+```bash
+npm install jiro-sdk
+```
+
+```javascript
+import { JiroClient } from 'jiro-sdk';
+
+const client = new JiroClient({ apiKey: 'your-key' });
+
+// Search
+const results = await client.search('python web scraping');
+
+// Scrape
+const content = await client.scrape('https://example.com');
+
+// AI Research
+const answer = await client.aiAsk('What is Python?');
+
+// WebSocket Streaming
+const ws = client.createSearchStream('AI news');
+ws.onmessage = (event) => console.log(JSON.parse(event.data));
+```
+
+### Go SDK
+
+```bash
+go get github.com/DevAnimecx/jiro/sdk/go
+```
+
+```go
+import "github.com/DevAnimecx/jiro/sdk/go"
+
+client := jiro.NewClient(jiro.WithAPIKey("your-key"))
+
+// Search
+results, _ := client.Search("python web scraping", nil)
+
+// Scrape
+content, _ := client.Scrape("https://example.com", nil)
+
+// AI Research
+answer, _ := client.AiAsk("What is Python?", nil)
+```
+
+---
+
 ## Features
 
 <table>
@@ -62,6 +143,7 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 - **Answer Synthesis** — extractive answers from results
 - **Search Filters** — domain, time range, category
 - **Highlights** — query-aware snippet extraction
+- **Parallel Search** — multi-engine concurrent search
 
 ### Social Scraping (12 Platforms)
 - Reddit, Twitter/X, YouTube, LinkedIn
@@ -78,14 +160,43 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 - **Intent Classification** — 16 intent types
 
 ### Enterprise Ready
-- **Tenant Management** — multi-tenant isolation
-- **SOC2 Compliance** — audit logging, data residency
-- **SLA Monitoring** — p50/p95/p99 latency tracking
-- **Webhooks & Batch Jobs** — event-driven automation
+- **Rate Limiting** — sliding window with tiers
+- **Usage Quotas** — monthly limits per tier
+- **Plugin System** — custom engines & scrapers
+- **Advanced Caching** — LRU/LFU with analytics
+- **Batch Operations** — concurrent search & scrape
+- **Monitoring** — Prometheus metrics, health checks
 
 </td>
 </tr>
 </table>
+
+---
+
+## CLI Commands
+
+```bash
+# Search
+jiro search web "python web scraping"
+jiro search web "AI news" --parallel --engines 3
+jiro search web -i  # Interactive mode
+
+# Scrape
+jiro scrape https://example.com
+jiro scrape "free SaaS directories"  # Search + scrape top result
+
+# AI
+jiro ai ask "What is Python?"
+jiro ai setup --provider openai -k sk-...
+
+# Benchmark
+jiro bench --iterations 5
+
+# System
+jiro status
+jiro doctor
+jiro serve --port 8000
+```
 
 ---
 
@@ -99,6 +210,9 @@ That's it. You're searching across 9 engines with hybrid ranking, caching, and s
 | **Hybrid Search** | ✅ | ✅ |
 | **Smart Search** | ✅ | ✅ |
 | **Structured Extraction** | ✅ | ✅ |
+| **Parallel Search** | ✅ (3 engines) | ✅ (5 engines) |
+| **WebSocket Streaming** | ✅ | ✅ |
+| **Batch Operations** | ✅ (10/batch) | ✅ (100/batch) |
 | **Social Batch** | ✅ (5/batch) | ✅ (500/batch) |
 | **Self-Learning** | ✅ (basic) | ✅ (advanced) |
 | **AI Research** | ❌ | ✅ |
@@ -121,6 +235,9 @@ curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
   -d '{"q": "python web scraping", "engine": "google", "num": 10}'
 
+# Parallel search
+curl "http://localhost:8000/search.json?q=AI+news&parallel=true&num_engines=3"
+
 # Hybrid search with answer synthesis
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
@@ -141,6 +258,17 @@ curl -X POST http://localhost:8000/scrape/batch \
   -d '{"urls": ["https://example.com", "https://docs.python.org"]}'
 ```
 
+### WebSocket Streaming
+
+```javascript
+// Real-time search results
+const ws = new WebSocket('ws://localhost:8000/ws/search?query=AI+news');
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log(data);
+};
+```
+
 ### Social Media
 
 ```bash
@@ -155,13 +283,22 @@ curl -X POST http://localhost:8000/social/search \
   -d '{"query": "machine learning", "platform": "reddit", "limit": 10}'
 ```
 
-### Smart Search (Auto-Routing)
+### AI Research
 
 ```bash
-# Auto-detect intent and route to best engine
-curl -X POST http://localhost:8000/v1/smart \
+# Ask a research question
+curl -X POST http://localhost:8000/ai/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "github.com/fastapi"}'
+  -d '{"query": "Compare React vs Vue", "max_sources": 5}'
+```
+
+### Batch Operations
+
+```bash
+# Batch search
+curl -X POST http://localhost:8000/batch/search \
+  -H "Content-Type: application/json" \
+  -d '{"queries": ["python", "javascript", "go"], "num_results": 5}'
 ```
 
 ---
@@ -204,6 +341,21 @@ Works with any MCP-compatible client:
 
 ---
 
+## Monitoring & Observability
+
+```bash
+# Prometheus metrics
+curl http://localhost:8000/metrics
+
+# Health check
+curl http://localhost:8000/health
+
+# System status
+jiro status
+```
+
+---
+
 ## Pricing
 
 ### Free — $0/forever
@@ -215,6 +367,7 @@ The most generous free tier in search APIs. No credit card required.
 - 9 search engines
 - 12 social platforms
 - Hybrid search & smart routing
+- WebSocket streaming
 - MCP integration
 - Community support
 
@@ -268,6 +421,8 @@ jiro serve --host 0.0.0.0 --port 8000
 | Free tier | 10K RPD | 100/mo |
 | Social scraping | 12 platforms | ❌ |
 | Hybrid search | ✅ | ❌ |
+| WebSocket streaming | ✅ | ❌ |
+| Official SDKs | Python, JS, Go | Python, JS |
 | MCP integration | ✅ | ❌ |
 | Price (paid) | $499/mo | $50/mo |
 
@@ -288,6 +443,7 @@ jiro serve --host 0.0.0.0 --port 8000
 | Price | $499/mo | $500+/mo |
 | Self-hosted | ✅ | ❌ |
 | Hybrid search | ✅ | ❌ |
+| WebSocket streaming | ✅ | ❌ |
 | MCP integration | ✅ | ❌ |
 | AI research | ✅ | ❌ |
 
@@ -305,13 +461,23 @@ jiro/
 │   └── multiquery.py Query expansion
 ├── scraping/         Web scraping
 │   ├── engines.py    9 search engines
+│   ├── client.py     Stealth engine (TLS/JA3)
 │   └── social/       12 social platforms
 ├── ai/               AI/LLM integration
-├── mcp.py           MCP server (16 tools)
-├── pro.py           Tier system
-├── licensing.py     HMAC license tokens
-├── db.py            SQLite/PostgreSQL
-└── dashboard.py     Web UI
+├── plugins/          Plugin system
+├── monitoring.py     Metrics & health checks
+├── batch.py          Batch operations
+├── scheduler.py      Scheduled searches
+├── history.py        Search history
+├── export_import.py  Data export/import
+├── ratelimit.py      Rate limiting & quotas
+├── cache_advanced.py Advanced caching
+├── stealth.py        Anti-bot bypass
+├── mcp.py            MCP server (16 tools)
+├── pro.py            Tier system
+├── licensing.py      HMAC license tokens
+├── db.py             SQLite/PostgreSQL
+└── dashboard.py      Web UI
 ```
 
 ---

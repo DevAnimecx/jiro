@@ -1,5 +1,9 @@
 # Jiro Python SDK
 
+[![PyPI version](https://img.shields.io/pypi/v/jiro-sdk.svg)](https://pypi.org/project/jiro-sdk/)
+[![Python](https://img.shields.io/pypi/pyversions/jiro-sdk.svg)](https://pypi.org/project/jiro-sdk/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 Official Python SDK for [Jiro Search API](https://github.com/DevAnimecx/jiro).
 
 ## Installation
