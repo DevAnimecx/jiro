@@ -26,7 +26,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jiro Dashboard v0.2</title>
+    <title>Jiro Dashboard v0.2.15</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -63,7 +63,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </div>
                 <div>
                     <h1 class="text-xl font-bold">Jiro Dashboard</h1>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">v0.2.0 - Search Intelligence</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">v0.2.15 - Search Intelligence</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -230,6 +230,106 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- WebSocket Stream Tab -->
+        <div x-show="activeTab === 'stream'" x-cloak class="fade-in">
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+                <h2 class="text-lg font-semibold mb-4">WebSocket Streaming</h2>
+                <p class="text-sm text-gray-500 mb-4">Connect to WebSocket and receive real-time search results</p>
+                
+                <div class="flex gap-3 mb-4">
+                    <input type="text" x-model="streamQuery" @keyup.enter="startStream()"
+                           placeholder="Enter search query to stream..."
+                           class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-jiro-500 dark:bg-gray-700 dark:border-gray-600">
+                    <button @click="startStream()" :disabled="streaming"
+                            class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                        <span x-show="!streaming">Start Stream</span>
+                        <span x-show="streaming">Streaming...</span>
+                    </button>
+                    <button @click="stopStream()" :disabled="!streaming"
+                            class="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50">
+                        Stop
+                    </button>
+                </div>
+
+                <!-- Stream Status -->
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full" :class="streamConnected ? 'bg-green-500' : 'bg-red-500'"></div>
+                        <span class="text-sm" x-text="streamConnected ? 'Connected' : 'Disconnected'"></span>
+                    </div>
+                    <span class="text-sm text-gray-500" x-text="streamResults.length + ' results received'"></span>
+                </div>
+
+                <!-- Stream Results -->
+                <div class="space-y-2 max-h-96 overflow-auto">
+                    <template x-for="(result, idx) in streamResults" :key="idx">
+                        <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
+                            <span class="font-medium" x-text="result.title || 'Result ' + (idx + 1)"></span>
+                            <p class="text-gray-500 text-xs mt-1" x-text="result.snippet || result.url || ''"></p>
+                        </div>
+                    </template>
+                </div>
+
+                <div x-show="!streamResults.length && !streaming" class="text-center py-8 text-gray-400">
+                    Enter a query and click "Start Stream" to receive real-time results
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Operations Tab -->
+        <div x-show="activeTab === 'batch'" x-cloak class="fade-in">
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+                <h2 class="text-lg font-semibold mb-4">Batch Operations</h2>
+                <p class="text-sm text-gray-500 mb-4">Execute multiple searches or scrapes concurrently</p>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Operation Type</label>
+                        <select x-model="batchType" class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
+                            <option value="search">Batch Search</option>
+                            <option value="scrape">Batch Scrape</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Engine</label>
+                        <select x-model="batchEngine" class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
+                            <option value="google">Google</option>
+                            <option value="bing">Bing</option>
+                            <option value="brave">Brave</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" x-text="batchType === 'search' ? 'Queries (one per line)' : 'URLs (one per line)'"></label>
+                    <textarea x-model="batchInput" rows="5"
+                              :placeholder="batchType === 'search' ? 'python\njavascript\ngo\nrust' : 'https://example.com\nhttps://httpbin.org/html'"
+                              class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-jiro-500 dark:bg-gray-700 dark:border-gray-600 font-mono text-sm"></textarea>
+                </div>
+
+                <div class="flex gap-3 mb-4">
+                    <button @click="runBatch()" :disabled="batchRunning"
+                            class="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50">
+                        <span x-show="!batchRunning">Run Batch</span>
+                        <span x-show="batchRunning">Running...</span>
+                    </button>
+                    <span class="text-sm text-gray-500 self-center" x-text="batchResults.length + ' results'"></span>
+                </div>
+
+                <!-- Batch Results -->
+                <div class="space-y-2 max-h-96 overflow-auto">
+                    <template x-for="(result, idx) in batchResults" :key="idx">
+                        <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
+                            <span class="font-medium" x-text="result.query || result.url || 'Result ' + (idx + 1)"></span>
+                            <span class="ml-2 text-xs px-2 py-1 rounded-full"
+                                  :class="result.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                  x-text="result.success ? 'Success' : 'Failed'"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
         <!-- Plugins Tab -->
         <div x-show="activeTab === 'plugins'" x-cloak class="fade-in">
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
@@ -298,7 +398,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <!-- Footer -->
     <footer class="fixed bottom-0 inset-x-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-2">
         <div class="max-w-7xl mx-auto px-4 flex justify-between text-xs text-gray-500">
-            <span>Jiro v0.2.0 - Local-first Search Intelligence</span>
+            <span>Jiro v0.2.15 - Local-first Search Intelligence</span>
             <span x-text="new Date().toLocaleString()"></span>
         </div>
     </footer>
@@ -314,6 +414,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 { id: 'search', name: 'Search', icon: '🔍' },
                 { id: 'social', name: 'Social', icon: '📱' },
                 { id: 'intent', name: 'Intent', icon: '🧠' },
+                { id: 'stream', name: 'Stream', icon: '📡' },
+                { id: 'batch', name: 'Batch', icon: '📦' },
                 { id: 'plugins', name: 'Plugins', icon: '🔌' },
                 { id: 'monitor', name: 'Monitor', icon: '📊' },
             ],
@@ -346,6 +448,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
             // Plugins
             plugins: [],
+
+            // Stream
+            streamQuery: '',
+            streamConnected: false,
+            streamResults: [],
+            streamWs: null,
+            streaming: false,
+
+            // Batch
+            batchType: 'search',
+            batchEngine: 'google',
+            batchInput: '',
+            batchRunning: false,
+            batchResults: [],
 
             // Init
             async init() {
@@ -429,6 +545,83 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     console.error('Classification failed:', e);
                 }
             },
+
+            // WebSocket Streaming
+            startStream() {
+                if (!this.streamQuery) return;
+                this.streaming = true;
+                this.streamResults = [];
+                
+                const wsUrl = `ws://${window.location.host}/ws/search?query=${encodeURIComponent(this.streamQuery)}`;
+                this.streamWs = new WebSocket(wsUrl);
+                
+                this.streamWs.onopen = () => {
+                    this.streamConnected = true;
+                };
+                
+                this.streamWs.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    this.streamResults.push(data);
+                };
+                
+                this.streamWs.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.streamConnected = false;
+                };
+                
+                this.streamWs.onclose = () => {
+                    this.streamConnected = false;
+                    this.streaming = false;
+                };
+            },
+
+            stopStream() {
+                if (this.streamWs) {
+                    this.streamWs.close();
+                    this.streamWs = null;
+                }
+                this.streaming = false;
+            },
+
+            // Batch Operations
+            async runBatch() {
+                if (!this.batchInput.trim()) return;
+                this.batchRunning = true;
+                this.batchResults = [];
+                
+                const items = this.batchInput.split('\n').filter(line => line.trim());
+                
+                try {
+                    if (this.batchType === 'search') {
+                        const resp = await fetch('/api/batch/search', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                queries: items,
+                                engine: this.batchEngine,
+                                num_results: 5
+                            }),
+                        });
+                        const data = await resp.json();
+                        this.batchResults = data.results || [];
+                    } else {
+                        const resp = await fetch('/api/batch/scrape', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                urls: items,
+                                format: 'markdown'
+                            }),
+                        });
+                        const data = await resp.json();
+                        this.batchResults = data.results || [];
+                    }
+                } catch (e) {
+                    console.error('Batch operation failed:', e);
+                } finally {
+                    this.batchRunning = false;
+                }
+            },
         }
     }
     </script>
@@ -480,6 +673,20 @@ def create_dashboard_app(api_base_url: str = "http://localhost:8000") -> Starlet
             resp = await client.post(f"{api_base_url}/v1/smart/classify", json=body)
             return JSONResponse(resp.json())
 
+    async def api_batch_search(request):
+        import httpx
+        body = await request.json()
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{api_base_url}/v1/batch/search", json=body)
+            return JSONResponse(resp.json())
+
+    async def api_batch_scrape(request):
+        import httpx
+        body = await request.json()
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{api_base_url}/v1/batch/scrape", json=body)
+            return JSONResponse(resp.json())
+
     routes = [
         Route("/", homepage),
         Route("/api/status", api_status),
@@ -487,6 +694,8 @@ def create_dashboard_app(api_base_url: str = "http://localhost:8000") -> Starlet
         Route("/api/search", api_search, methods=["POST"]),
         Route("/api/social", api_social, methods=["POST"]),
         Route("/api/smart/classify", api_smart_classify, methods=["POST"]),
+        Route("/api/batch/search", api_batch_search, methods=["POST"]),
+        Route("/api/batch/scrape", api_batch_scrape, methods=["POST"]),
     ]
 
     return Starlette(routes=routes)
