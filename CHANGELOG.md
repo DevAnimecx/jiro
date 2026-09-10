@@ -7,89 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.15] - 2026-09-10
 
-### Added
-
-#### Monitoring & Observability
-- **Metrics Registry**: Prometheus-compatible metrics collection
-- **Request Tracing**: Correlation IDs with span tracking
-- **Health Checks**: Liveness and readiness probes
-- **Performance Metrics**: Counters, gauges, histograms with statistics
-
-#### Export/Import
-- **Search Export**: Export results to JSON, CSV, Markdown, YAML
-- **Config Export**: Backup and restore configurations
-- **Backup Manager**: Create and restore system backups
-
-#### Scheduled Searches
-- **Cron Scheduling**: Cron-like schedule expressions
-- **Recurring Jobs**: Create, pause, resume, delete scheduled searches
-- **Notifications**: Email and webhook notifications on results
-
-#### Search History
-- **History Tracking**: Record all searches with timestamps
-- **History Query**: Search by text, engine, time range, user
-- **Analytics**: Popular queries, time distribution, cache hit rate
-
-#### Batch Operations
-- **Batch Search**: Execute multiple searches concurrently
-- **Batch Scrape**: Scrape multiple URLs in parallel
-- **Mixed Operations**: Combine search and scrape in one batch
-- **Progress Tracking**: Real-time progress and result aggregation
-
-## [0.2.14] - 2026-09-10
+### 🚀 THE COMPLETE RELEASE - Everything from v0.2.13, v0.2.14, and v0.2.15 combined
 
 ### Added
 
-#### Enterprise Features
+#### Stealth & Anti-Bot Engine (v0.2.13)
+- **TLS/JA3 Fingerprint Rotation**: Browser impersonation with 20+ profiles (Chrome, Firefox, Safari, Edge, Tor)
+- **Behavioral Simulation**: Randomized timing, mouse movements, scroll patterns
+- **curl-cffi Integration**: Native TLS fingerprint spoofing
+
+#### Real-time Streaming (v0.2.13)
+- **WebSocket Endpoints**: `/ws/search`, `/ws/search/stream`, `/ws/monitor`
+- **Connection Manager**: Track and manage active WebSocket connections
+- **SSE Streaming**: Server-Sent Events for real-time search results
+
+#### Search Enhancements (v0.2.13)
+- **Parallel Search**: Multi-engine search with `--parallel` flag
+- **Configurable Engines**: `--engines` flag to control concurrent engine count (max 5)
+- **Interactive Mode**: `jiro search -i` for continuous search loop
+
+#### CLI Improvements (v0.2.13)
+- **Benchmark Command**: `jiro bench` for performance testing with statistics
+- **Search Query Auto-Scrape**: `jiro scrape "query"` searches then scrapes top result
+- **Auto-HTTPS**: Auto-prepend `https://` for bare domains
+- **Windows Unicode Fix**: cp1252 compatible output on Windows
+
+#### Enterprise Features (v0.2.14)
 - **Rate Limiting**: Sliding window rate limiter with per-second, per-minute, per-hour, per-day limits
 - **Usage Quotas**: Monthly quotas for searches, scrapes, and AI queries
 - **Tier-based Limits**: Free, Pro, and Enterprise tiers with different limits
 - **Rate Limit Headers**: X-RateLimit-* headers in API responses
 
-#### Plugin System
+#### Plugin System (v0.2.14)
 - **Plugin Base Classes**: SearchEnginePlugin, ScraperPlugin, AIProviderPlugin
 - **Plugin Registry**: Register, unregister, and discover plugins
 - **Plugin Discovery**: Auto-discover plugins from a directory
 - **Plugin Hooks**: Event-based hook system for plugin communication
 
-#### Advanced Caching
+#### Advanced Caching (v0.2.14)
 - **Memory Cache**: LRU/LFU in-memory caching with analytics
 - **Cache Analytics**: Hit rate, miss rate, eviction count, memory usage
 - **Cache Strategies**: LRU, LFU, TTL, Write-through
 - **Cache Keys**: SHA-256 based key generation
 
-#### Multi-language SDKs
+#### Multi-language SDKs (v0.2.14)
 - **Python SDK**: Synchronous and async clients with full API coverage
 - **JavaScript/TypeScript SDK**: Browser and Node.js compatible client
 - **Go SDK**: Idiomatic Go client with functional options
 
+#### Monitoring & Observability (v0.2.15)
+- **Metrics Registry**: Prometheus-compatible metrics collection
+- **Request Tracing**: Correlation IDs with span tracking
+- **Health Checks**: Liveness and readiness probes
+- **Performance Metrics**: Counters, gauges, histograms with statistics
+
+#### Export/Import (v0.2.15)
+- **Search Export**: Export results to JSON, CSV, Markdown, YAML
+- **Config Export**: Backup and restore configurations
+- **Backup Manager**: Create and restore system backups
+
+#### Scheduled Searches (v0.2.15)
+- **Cron Scheduling**: Cron-like schedule expressions
+- **Recurring Jobs**: Create, pause, resume, delete scheduled searches
+- **Notifications**: Email and webhook notifications on results
+
+#### Search History (v0.2.15)
+- **History Tracking**: Record all searches with timestamps
+- **History Query**: Search by text, engine, time range, user
+- **Analytics**: Popular queries, time distribution, cache hit rate
+
+#### Batch Operations (v0.2.15)
+- **Batch Search**: Execute multiple searches concurrently
+- **Batch Scrape**: Scrape multiple URLs in parallel
+- **Mixed Operations**: Combine search and scrape in one batch
+- **Progress Tracking**: Real-time progress and result aggregation
+
 ### Changed
-- Version bumped to 0.2.14
-
-## [0.2.13] - 2026-09-09
-
-### Added
-
-- **Stealth Engine**: TLS/JA3 fingerprint rotation with browser impersonation profiles
-- **Behavioral Simulation**: Randomized timing, mouse movements, scroll patterns
-- **WebSocket Streaming**: Real-time search via `/ws/search` and `/ws/search/stream` endpoints
-- **Parallel Search**: Multi-engine search with `--parallel` flag and configurable engine count
-- **Interactive Search**: `jiro search -i` for continuous search loop
-- **Benchmark Command**: `jiro bench` for performance testing with statistics
-- **Favicon**: Custom favicon from logo
-
-### Changed
-
+- Version bumped to 0.2.15 - The Complete Release
 - Improved DNS error messages with hostname and cause
-- Auto-prepend `https://` for bare domains in scrape command
-- Search query auto-scrapes top result when input doesn't look like URL
 - CLI commands bypass auth for easier local usage
+- Custom favicon from logo
 
 ### Fixed
-
-- Schema field shadowing in `StructuredExtractRequest` (renamed to `extraction_schema`)
-- Windows Unicode encoding crash in CLI output (cp1252 compatibility)
+- Schema field shadowing in `StructuredExtractRequest`
 - curl-cffi impersonation profiles updated to supported versions
+- Windows Unicode encoding crash in CLI output (cp1252 compatibility)
 
 ## [0.2.1] - 2026-09-03
 
