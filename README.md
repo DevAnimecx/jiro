@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="Jiro" width="120">
+<img src="assets/logo.png" alt="JIRO Search API - AI-Powered Web Search & Scraping Platform" width="120">
 
-# Jiro — The Search Intelligence Platform
+# JIRO — Search API & Web Scraping Platform
 
-**One API. 9 search engines. 12 social platforms. AI-powered. Free forever.**
+**9 search engines. 12 social platforms. AI-powered. Self-hosted. Free forever.**
 
 [![PyPI version](https://img.shields.io/pypi/v/jirosearch.svg)](https://pypi.org/project/jirosearch/)
 [![npm version](https://img.shields.io/npm/v/jiro-sdk.svg)](https://www.npmjs.com/package/jiro-sdk)
@@ -13,29 +13,27 @@
 [![Docker](https://img.shields.io/docker/pulls/devanimecx/jiro.svg)](https://hub.docker.com/r/devanimecx/jiro)
 [![Downloads](https://img.shields.io/pypi/dm/jirosearch.svg)](https://pypi.org/project/jirosearch/)
 
-[Get Started Free](#quick-start) · [SDKs](#official-sdks) · [API Docs](https://jiro.dev/docs) · [Enterprise](#pricing) · [Discord](https://discord.gg/jiro)
+[Website](https://searchjiro.vercel.app) · [Documentation](https://searchjiro.vercel.app/docs) · [Pricing](https://searchjiro.vercel.app/pricing) · [Blog](https://searchjiro.vercel.app/blog) · [Changelog](https://searchjiro.vercel.app/changelog)
 
 </div>
 
 ---
 
-## Why Jiro?
+## What is JIRO?
 
-Jiro is a **local-first, AI-native search & scraping API** — a self-hosted alternative to SerpAPI, ScraperAPI, and Bright Data. It gives you:
+JIRO is an **open-source, self-hosted search API and web scraping platform** that aggregates results from 9 search engines and 12 social platforms. It provides AI-powered search intelligence, hybrid ranking, and stealth web scraping — all running locally on your infrastructure.
 
-- **9 search engines** — Google, Bing, Brave, DuckDuckGo, YouTube, Amazon, eBay, Yandex, Baidu
-- **12 social platforms** — Reddit, Twitter/X, YouTube, LinkedIn, TikTok, Instagram, and more
-- **Hybrid search** — keyword + semantic + freshness signals combined
-- **AI-powered research** — agentic search with citations (Enterprise)
-- **Stealth engine** — TLS/JA3 fingerprint rotation, anti-bot bypass
-- **WebSocket streaming** — real-time search results
-- **Official SDKs** — Python, JavaScript/TypeScript, Go
-- **MCP integration** — works with Claude Desktop, Cursor, Continue.dev
-- **Free forever** — generous free tier, no credit card required
+**Use cases:**
+- Search API for AI agents and LLMs
+- Web scraping at scale with anti-bot bypass
+- Social media monitoring across 12 platforms
+- SERP data collection for SEO tools
+- Real-time web intelligence feeds
+- MCP server for Claude Desktop, Cursor, and other AI tools
 
 ---
 
-## Quick Start (30 seconds)
+## Quick Start
 
 ```bash
 # Install
@@ -50,13 +48,45 @@ curl -X POST http://localhost:8000/search \
   -d '{"q": "latest AI research", "engine": "google"}'
 ```
 
-That's it. You're searching across 9 engines with hybrid ranking, caching, and structured extraction — all running locally on your machine.
+You're now searching across 9 engines with hybrid ranking, caching, and structured extraction — all running locally on your machine.
+
+**Cloud API (no server needed):**
+```bash
+# Authenticate via browser
+jiro auth login
+
+# Search with cloud API
+curl -X POST https://searchjiro.vercel.app/api/proxy/search \
+  -H "Authorization: Bearer jsk_live_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"q": "latest AI research", "engine": "google"}'
+```
+
+---
+
+## Search Engines
+
+| Engine | Type | Notes |
+|--------|------|-------|
+| Google | Web | Full SERP data |
+| Bing | Web | Rich snippets |
+| Brave | Web | Privacy-focused |
+| DuckDuckGo | Web | Instant answers |
+| YouTube | Video | Transcripts, metadata |
+| Amazon | Shopping | Product data |
+| eBay | Shopping | Listings, prices |
+| Yandex | Web | Russian market |
+| Baidu | Web | Chinese market |
+
+## Social Platforms
+
+Reddit · Twitter/X · YouTube · LinkedIn · TikTok · Instagram · Facebook · Threads · Hacker News · Bluesky · Telegram · Pinterest
 
 ---
 
 ## Official SDKs
 
-### Python SDK
+### Python
 
 ```bash
 pip install jiro-sdk
@@ -67,23 +97,14 @@ from jiro_sdk import JiroClient
 
 client = JiroClient(api_key="your-key")
 
-# Search
 results = client.search("python web scraping")
-
-# Scrape
 content = client.scrape("https://example.com")
-
-# AI Research
 answer = client.ai_ask("What is Python?")
-
-# Parallel Search
 results = client.search_parallel("AI news", num_engines=3)
-
-# Batch Operations
 job = client.batch_search(["python", "javascript", "go"])
 ```
 
-### JavaScript/TypeScript SDK
+### JavaScript / TypeScript
 
 ```bash
 npm install jiro-sdk
@@ -94,13 +115,8 @@ import { JiroClient } from 'jiro-sdk';
 
 const client = new JiroClient({ apiKey: 'your-key' });
 
-// Search
 const results = await client.search('python web scraping');
-
-// Scrape
 const content = await client.scrape('https://example.com');
-
-// AI Research
 const answer = await client.aiAsk('What is Python?');
 
 // WebSocket Streaming
@@ -108,7 +124,7 @@ const ws = client.createSearchStream('AI news');
 ws.onmessage = (event) => console.log(JSON.parse(event.data));
 ```
 
-### Go SDK
+### Go
 
 ```bash
 go get github.com/DevAnimecx/jiro/sdk/go
@@ -119,57 +135,10 @@ import "github.com/DevAnimecx/jiro/sdk/go"
 
 client := jiro.NewClient(jiro.WithAPIKey("your-key"))
 
-// Search
 results, _ := client.Search("python web scraping", nil)
-
-// Scrape
 content, _ := client.Scrape("https://example.com", nil)
-
-// AI Research
 answer, _ := client.AiAsk("What is Python?", nil)
 ```
-
----
-
-## Features
-
-<table>
-<tr>
-<td width="50%">
-
-### Search Intelligence
-- **Hybrid Search** — keyword + semantic + freshness
-- **Multi-Query** — parallel query expansion
-- **Answer Synthesis** — extractive answers from results
-- **Search Filters** — domain, time range, category
-- **Highlights** — query-aware snippet extraction
-- **Parallel Search** — multi-engine concurrent search
-
-### Social Scraping (12 Platforms)
-- Reddit, Twitter/X, YouTube, LinkedIn
-- TikTok, Instagram, Facebook, Threads
-- Hacker News, Bluesky, Telegram, Pinterest
-
-</td>
-<td width="50%">
-
-### AI-Powered
-- **Smart Search** — intent-aware auto-routing
-- **Structured Extraction** — JSON schema-based data extraction
-- **AI Research** — agentic search with citations *(Enterprise)*
-- **Intent Classification** — 16 intent types
-
-### Enterprise Ready
-- **Rate Limiting** — sliding window with tiers
-- **Usage Quotas** — monthly limits per tier
-- **Plugin System** — custom engines & scrapers
-- **Advanced Caching** — LRU/LFU with analytics
-- **Batch Operations** — concurrent search & scrape
-- **Monitoring** — Prometheus metrics, health checks
-
-</td>
-</tr>
-</table>
 
 ---
 
@@ -189,8 +158,15 @@ jiro scrape "free SaaS directories"  # Search + scrape top result
 jiro ai ask "What is Python?"
 jiro ai setup --provider openai -k sk-...
 
-# Benchmark
-jiro bench --iterations 5
+# Auth (Cloud)
+jiro auth login       # Device code flow
+jiro auth whoami      # Show account + credits
+jiro auth status      # Test API key
+
+# License (Self-Hosted)
+jiro license activate JIRO-PRO-A1B2-C3D4-E5F6
+jiro license info
+jiro license deactivate
 
 # System
 jiro status
@@ -200,106 +176,35 @@ jiro serve --port 8000
 
 ---
 
-## Free vs Enterprise
+## Pricing
 
-| Feature | Free | Enterprise |
-|---------|:----:|:----------:|
-| **Rate Limits** | 100 RPM / 10K RPD | 1,000 RPM / 1M RPD |
-| **Search Engines** | 9 engines | 9 engines |
-| **Social Platforms** | 12 platforms | 12 platforms |
-| **Hybrid Search** | ✅ | ✅ |
-| **Smart Search** | ✅ | ✅ |
-| **Structured Extraction** | ✅ | ✅ |
-| **Parallel Search** | ✅ (3 engines) | ✅ (5 engines) |
-| **WebSocket Streaming** | ✅ | ✅ |
-| **Batch Operations** | ✅ (10/batch) | ✅ (100/batch) |
-| **Social Batch** | ✅ (5/batch) | ✅ (500/batch) |
-| **Self-Learning** | ✅ (basic) | ✅ (advanced) |
-| **AI Research** | ❌ | ✅ |
-| **Advanced Healing** | ❌ | ✅ |
-| **Custom Models** | ❌ | ✅ |
-| **Commercial Use** | ❌ | ✅ |
-| **White Label** | ❌ | ✅ |
-| **Premium Support** | ❌ | ✅ |
-| **Price** | **$0 forever** | **$499/mo** |
+### Cloud (Managed)
 
----
+| | Free | Pro | Enterprise |
+|---|:---:|:---:|:---:|
+| **Price** | ₹0/mo | ₹999/mo | Custom |
+| **Credits** | 1,000 | 25,000 | Unlimited |
+| **Rate Limit** | 5 RPM | 120 RPM | 1,000 RPM |
+| **Search Engines** | 3 | All 9 | All + Custom |
+| **AI Search** | — | ✓ | ✓ |
+| **MCP & Webhooks** | — | ✓ | ✓ |
+| **Support** | Community | Priority | Dedicated |
 
-## API Examples
+[Start Free →](https://searchjiro.vercel.app/auth) · [View Pricing →](https://searchjiro.vercel.app/pricing)
 
-### Search the Web
+### Self-Hosted (One-Time)
 
-```bash
-# Basic search
-curl -X POST http://localhost:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"q": "python web scraping", "engine": "google", "num": 10}'
+| | Free | Pro | Enterprise |
+|---|:---:|:---:|:---:|
+| **Price** | ₹0 | ₹4,999 | ₹14,999 |
+| **RPM** | 100 | 500 | 1,000 |
+| **RPD** | 10K | 100K | 1M |
+| **AI Search** | — | ✓ | ✓ |
+| **Commercial Use** | — | ✓ | ✓ |
+| **Custom Models** | — | — | ✓ |
+| **White Label** | — | — | ✓ |
 
-# Parallel search
-curl "http://localhost:8000/search.json?q=AI+news&parallel=true&num_engines=3"
-
-# Hybrid search with answer synthesis
-curl -X POST http://localhost:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"q": "latest AI research", "hybrid": true, "answer": true}'
-```
-
-### Scrape Any URL
-
-```bash
-# Scrape to markdown
-curl -X POST http://localhost:8000/scrape \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://docs.python.org", "format": "markdown"}'
-
-# Batch scrape
-curl -X POST http://localhost:8000/scrape/batch \
-  -H "Content-Type: application/json" \
-  -d '{"urls": ["https://example.com", "https://docs.python.org"]}'
-```
-
-### WebSocket Streaming
-
-```javascript
-// Real-time search results
-const ws = new WebSocket('ws://localhost:8000/ws/search?query=AI+news');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(data);
-};
-```
-
-### Social Media
-
-```bash
-# Scrape a Reddit post
-curl -X POST http://localhost:8000/social \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://reddit.com/r/programming/comments/abc123"}'
-
-# Search across platforms
-curl -X POST http://localhost:8000/social/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "machine learning", "platform": "reddit", "limit": 10}'
-```
-
-### AI Research
-
-```bash
-# Ask a research question
-curl -X POST http://localhost:8000/ai/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Compare React vs Vue", "max_sources": 5}'
-```
-
-### Batch Operations
-
-```bash
-# Batch search
-curl -X POST http://localhost:8000/batch/search \
-  -H "Content-Type: application/json" \
-  -d '{"queries": ["python", "javascript", "go"], "num_results": 5}'
-```
+[Install from GitHub →](https://github.com/DevAnimecx/jiro)
 
 ---
 
@@ -331,60 +236,49 @@ Works with any MCP-compatible client:
 | `monitor_status` | Free | Health metrics |
 | `health_check` | Free | Quick health check |
 | `cache_stats` | Free | Cache statistics |
-| `ai_search` | Enterprise | AI research with citations |
-| `search_hybrid` | Enterprise | Hybrid multi-signal search |
-| `search_structured` | Enterprise | Structured data extraction |
-| `social_scrape` | Enterprise | Scrape social media |
-| `social_search` | Enterprise | Search social platforms |
-| `social_batch` | Enterprise | Batch scrape URLs |
-| `smart_search` | Enterprise | Intent-aware routing |
+| `ai_search` | Pro | AI research with citations |
+| `search_hybrid` | Pro | Hybrid multi-signal search |
+| `search_structured` | Pro | Structured data extraction |
+| `social_scrape` | Pro | Scrape social media |
+| `social_search` | Pro | Search social platforms |
+| `social_batch` | Pro | Batch scrape URLs |
+| `smart_search` | Pro | Intent-aware routing |
 
 ---
 
-## Monitoring & Observability
+## Features
 
-```bash
-# Prometheus metrics
-curl http://localhost:8000/metrics
+### Search Intelligence
+- **Hybrid Search** — keyword + semantic + freshness signals
+- **Multi-Query** — parallel query expansion
+- **Answer Synthesis** — extractive answers from results
+- **Search Filters** — domain, time range, category
+- **Highlights** — query-aware snippet extraction
+- **Parallel Search** — multi-engine concurrent search
 
-# Health check
-curl http://localhost:8000/health
+### Web Scraping
+- **Stealth Engine** — TLS/JA3 fingerprint rotation
+- **Anti-Bot Bypass** — Cloudflare, DataDome, PerimeterX
+- **JavaScript Rendering** — full browser automation
+- **Structured Extraction** — JSON schema-based data extraction
+- **Social Scraping** — 12 platforms with normalized output
 
-# System status
-jiro status
-```
+### AI-Powered
+- **Smart Search** — intent-aware auto-routing
+- **AI Research** — agentic search with citations
+- **Intent Classification** — 16 intent types
+- **Self-Learning** — adapts to search patterns
+- **Advanced Healing** — automatic retry with fallback
 
----
-
-## Pricing
-
-### Free — $0/forever
-
-The most generous free tier in search APIs. No credit card required.
-
-- 100 requests/minute
-- 10,000 requests/day
-- 9 search engines
-- 12 social platforms
-- Hybrid search & smart routing
-- WebSocket streaming
-- MCP integration
-- Community support
-
-### Enterprise — $499/mo
-
-Everything in Free, plus unlimited power.
-
-- 1,000 requests/minute
-- 1,000,000 requests/day
-- AI-powered agentic research
-- Custom LLM models
-- White-label customization
-- SOC2 compliance
-- Premium support
-- Commercial use license
-
-[Get Enterprise →](mailto:sales@jiro.ai)
+### Enterprise Ready
+- **Rate Limiting** — sliding window with tiers
+- **Usage Quotas** — monthly limits per tier
+- **Plugin System** — custom engines & scrapers
+- **Advanced Caching** — LRU/LFU with analytics
+- **Batch Operations** — concurrent search & scrape
+- **Monitoring** — Prometheus metrics, health checks
+- **WebSocket Streaming** — real-time results
+- **MCP Integration** — 16 tools for AI clients
 
 ---
 
@@ -409,13 +303,20 @@ pip install jirosearch
 jiro serve --host 0.0.0.0 --port 8000
 ```
 
+### Cloud
+
+```bash
+# No server needed — use cloud API
+jiro auth login
+```
+
 ---
 
 ## Comparisons
 
 ### vs SerpAPI
 
-| Feature | Jiro | SerpAPI |
+| Feature | JIRO | SerpAPI |
 |---------|:----:|:-------:|
 | Self-hosted | ✅ | ❌ |
 | Free tier | 10K RPD | 100/mo |
@@ -424,11 +325,11 @@ jiro serve --host 0.0.0.0 --port 8000
 | WebSocket streaming | ✅ | ❌ |
 | Official SDKs | Python, JS, Go | Python, JS |
 | MCP integration | ✅ | ❌ |
-| Price (paid) | $499/mo | $50/mo |
+| Price (paid) | ₹999/mo | $50/mo |
 
 ### vs ScraperAPI
 
-| Feature | Jiro | ScraperAPI |
+| Feature | JIRO | ScraperAPI |
 |---------|:----:|:----------:|
 | Search engines | 9 | ❌ |
 | Social platforms | 12 | ❌ |
@@ -438,9 +339,9 @@ jiro serve --host 0.0.0.0 --port 8000
 
 ### vs Bright Data
 
-| Feature | Jiro | Bright Data |
+| Feature | JIRO | Bright Data |
 |---------|:----:|:-----------:|
-| Price | $499/mo | $500+/mo |
+| Price | ₹999/mo | $500+/mo |
 | Self-hosted | ✅ | ❌ |
 | Hybrid search | ✅ | ❌ |
 | WebSocket streaming | ✅ | ❌ |
@@ -476,34 +377,25 @@ jiro/
 ├── mcp.py            MCP server (16 tools)
 ├── pro.py            Tier system
 ├── licensing.py      HMAC license tokens
+├── secure_store.py   Encrypted credentials
+├── device_auth.py    RFC 8628 device code flow
+├── cloud_auth.py     Cloud authentication
 ├── db.py             SQLite/PostgreSQL
 └── dashboard.py      Web UI
 ```
 
 ---
 
-## Development
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Run linter
-ruff check jiro/
-```
-
----
-
 ## Community
 
-- [Website](https://jiro.dev) — Home
+- [Website](https://searchjiro.vercel.app) — Home
 - [GitHub](https://github.com/DevAnimecx/jiro) — Source code
+- [Documentation](https://searchjiro.vercel.app/docs) — Guides & tutorials
+- [Pricing](https://searchjiro.vercel.app/pricing) — Plans & tiers
+- [Blog](https://searchjiro.vercel.app/blog) — Articles & tutorials
+- [Changelog](https://searchjiro.vercel.app/changelog) — Release notes
 - [Discord](https://discord.gg/jiro) — Community chat
 - [Twitter](https://twitter.com/jirosearch) — Updates
-- [Documentation](https://jiro.dev/docs) — Guides & tutorials
 
 ---
 
@@ -517,6 +409,6 @@ MIT License — use freely, commercially, or privately.
 
 **Built with ❤️ by [Blackvault Technology](https://github.com/DevAnimecx)**
 
-[Get Started Free](#quick-start) · [Enterprise](#pricing)
+[Get Started Free](https://searchjiro.vercel.app/auth) · [View Pricing](https://searchjiro.vercel.app/pricing) · [Read Docs](https://searchjiro.vercel.app/docs)
 
 </div>

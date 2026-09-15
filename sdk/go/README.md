@@ -1,9 +1,9 @@
-# Jiro Go SDK
+# Jiro Go SDK — Search API & Web Scraping
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/DevAnimecx/jiro/sdk/go.svg)](https://pkg.go.dev/github.com/DevAnimecx/jiro/sdk/go)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-Official Go SDK for [Jiro Search API](https://github.com/DevAnimecx/jiro).
+Official Go SDK for [Jiro Search API](https://searchjiro.vercel.app) — web scraping across 9 search engines and 12 social platforms.
 
 ## Installation
 

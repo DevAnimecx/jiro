@@ -1,0 +1,51 @@
+name: Sync Data to jiro-web
+
+on:
+  push:
+    paths:
+      - 'data/**'
+      - 'jiro/__init__.py'
+      - 'CHANGELOG.md'
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jiro-search
+        uses: actions/checkout@v4
+        with:
+          path: jiro-search
+
+      - name: Checkout jiro-web
+        uses: actions/checkout@v4
+        with:
+          repository: DevAnimecx/jiro-web
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: jiro-web
+
+      - name: Copy data files
+        run: |
+          rm -rf jiro-web/public/data
+          cp -r jiro-search/data jiro-web/public/data
+
+      - name: Extract version from __init__.py
+        id: version
+        run: |
+          VERSION=$(grep -oP '__version__ = "\K[^"]+' jiro-search/jiro/__init__.py || echo "0.2.15")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update jiro-web package.json version
+        run: |
+          cd jiro-web
+          sed -i "s/\"version\": \".*\"/\"version\": \"${{ steps.version.outputs.version }}\"/" package.json
+
+      - name: Commit and push
+        run: |
+          cd jiro-web
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data package.json
+          git diff --staged --quiet || git commit -m "chore: sync data from jiro-search v${{ steps.version.outputs.version }}"
+          git push

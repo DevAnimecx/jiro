@@ -1,9 +1,9 @@
-# Jiro JavaScript/TypeScript SDK
+# Jiro JavaScript/TypeScript SDK — Search API & Web Scraping
 
 [![npm version](https://img.shields.io/npm/v/jiro-sdk.svg)](https://www.npmjs.com/package/jiro-sdk)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-Official JavaScript/TypeScript SDK for [Jiro Search API](https://github.com/DevAnimecx/jiro).
+Official JavaScript/TypeScript SDK for [Jiro Search API](https://searchjiro.vercel.app) — web scraping across 9 search engines and 12 social platforms.
 
 ## Installation
 

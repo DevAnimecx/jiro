@@ -1,8 +1,9 @@
 # Jiro Search — Documentation Hub
 
 Welcome to the **Jiro Search** documentation. Jiro is a **local-first, AI-native
-web search & scraping API** — a **self-hosted SerpAPI alternative** with an
-**MCP server**, agentic research, and a built-in legal compliance layer.
+search API & web scraping platform** — a **self-hosted SerpAPI alternative** with
+**9 search engines, 12 social platforms**, an **MCP server**, agentic research,
+and a built-in legal compliance layer.
 
 ## Quick Navigation
 

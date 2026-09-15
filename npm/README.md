@@ -1,11 +1,11 @@
-# jiro-cli
+# jiro-cli — Search API & Web Scraping CLI
 
-> Jiro Search CLI - Local-first, AI-native web search & scraping platform
+> Jiro Search CLI — 9 search engines, 12 social platforms, AI-native web scraping
 
 [![npm](https://img.shields.io/npm/v/jiro-cli.svg)](https://www.npmjs.com/package/jiro-cli)
 [![License](https://img.shields.io/npm/l/jiro-cli.svg)](https://opensource.org/licenses/MIT)
 
-A Node.js CLI wrapper for [Jiro Search](https://github.com/DevAnimecx/jiro), a drop-in, self-hosted SerpAPI alternative with MCP server, agentic research, and built-in legal compliance.
+A Node.js CLI wrapper for [Jiro Search](https://searchjiro.vercel.app) — a drop-in, self-hosted SerpAPI alternative with web scraping, MCP server, agentic research, and built-in legal compliance.
 
 ## Features
 
@@ -160,9 +160,10 @@ curl -X POST http://localhost:8000/v1/smart \
 ## Links
 
 - **GitHub**: https://github.com/DevAnimecx/jiro
-- **Documentation**: https://jiro.dev/docs
+- **Documentation**: https://searchjiro.vercel.app/docs
 - **Discord**: https://discord.gg/jiro
 - **Twitter**: @jirosearch
+- **Contact**: sales@searchjiro.vercel.app
 
 ## License
 

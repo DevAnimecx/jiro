@@ -1,6 +1,6 @@
-# Jiro Search
+# Jiro Search — Search API & Web Scraping
 
-> Local-first, AI-native web search & scraping platform
+> 9 search engines, 12 social platforms, AI-native web scraping
 
 ## What is Jiro?
 
@@ -46,7 +46,7 @@ docker-compose up -d
 ### Kubernetes (Helm)
 
 ```bash
-helm repo add jiro https://charts.jiro.dev
+helm repo add jiro https://charts.searchjiro.vercel.app
 helm install jiro jiro/jiro --version 0.2.1
 ```
 
@@ -181,12 +181,13 @@ Add to `.cursor/mcp.json`:
 ## Links
 
 - **GitHub**: https://github.com/DevAnimecx/jiro
-- **Documentation**: https://jiro.dev/docs
+- **Documentation**: https://searchjiro.vercel.app/docs
 - **PyPI**: https://pypi.org/project/jirosearch/
 - **npm**: https://www.npmjs.com/package/jiro-cli
 - **Docker Hub**: https://hub.docker.com/r/jiro/jiro
 - **Discord**: https://discord.gg/jiro
 - **Twitter**: @jirosearch
+- **Contact**: sales@searchjiro.vercel.app
 
 ## License
 
