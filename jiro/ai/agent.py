@@ -17,8 +17,11 @@ from typing import Any, Dict, List, Optional
 from jiro.ai.llm import LLM, count_tokens
 from jiro.config import Settings
 from jiro.errors import LLMError
+from jiro.log import get_logger
 from jiro.models import SearchRequest
 from jiro.scraping.engines import SearchOrchestrator
+
+log = get_logger("jiro.agent")
 
 MAX_SNIPPET_CHARS = 600
 
@@ -243,6 +246,10 @@ class Agent:
                 pass
         return (LLM.synthesize_without_llm(query, sources),
                 "extractive-fallback", None)
+
+    def _synthesize_fallback(self, query: str, sources: List[Dict[str, Any]]) -> tuple:
+        """Non-streaming extractive fallback for when LLM is unavailable."""
+        return (LLM.synthesize_without_llm(query, sources), "extractive-fallback", None)
 
     @staticmethod
     def _build_context(sources: List[Dict[str, Any]]) -> str:
@@ -475,14 +482,25 @@ class Agent:
             if len(seen_links) >= max_sources * 3:
                 break
 
+        # Scrape with a hard 8s per-URL timeout so we never hang.
+        # Cap total scraping to 20s regardless of how many URLs remain.
+        scrape_budget_at = time.monotonic() + 20
+        scrape_timeout = 8.0
         for src in list(seen_links.values())[: max_sources * 2]:
             if len(sources) >= max_sources:
                 break
-            if self._deadline_exceeded(deadline_at):
-                yield {"type": "stop", "reason": "deadline_exceeded"}
+            if self._deadline_exceeded(deadline_at) or time.monotonic() >= scrape_budget_at:
                 break
+            # Always add the source with at least the snippet so we have something
+            # to synthesize from even if scraping fails.
+            fallback_source = {
+                "title": src["title"], "url": src["url"],
+                "snippet": src.get("snippet", ""), "content": "",
+            }
             try:
-                page = await self.scraper(src["url"])
+                page = await asyncio.wait_for(
+                    self.scraper(src["url"]), timeout=scrape_timeout,
+                )
                 content = (page.get("content") or "")[:3000]
                 content = content[: max(0, content_left)]
                 content_left -= len(content)
@@ -495,15 +513,42 @@ class Agent:
                 yield {"type": "source", "url": src["url"], "title": src["title"]}
             except Exception:
                 yield {"type": "source", "url": src["url"], "status": "failed"}
+                # Still add as a snippet-only source so we have data to synthesize
                 if src.get("snippet"):
-                    sources.append({
-                        "title": src["title"], "url": src["url"],
-                        "snippet": src.get("snippet", ""), "content": "",
-                    })
+                    sources.append(fallback_source)
 
-        answer, provider_used, model_used = await self._synthesize(
-            query, sources, provider=provider, model=model, used_llm_flag=[False]
-        )
+        # --- streaming synthesis: emit tokens as they arrive ---
+        if self.llm.available:
+            try:
+                context = self._build_context(sources)
+                system = ("You are Jiro, a precise research assistant. Answer the "
+                          "question using ONLY the web excerpts below. Use numbered "
+                          "citations like [1], [2] referring to the source list. Say "
+                          "when sources are insufficient. Be concise and factual.")
+                user = (f"Question: {query}\n\n"
+                        f"Sources:\n{context}\n\n"
+                        f"Answer with citations [n].")
+                provider_used = self.llm.provider_name
+                model_used = self.llm.model
+                yield {"type": "synthesize", "provider": provider_used,
+                       "sources_used": len(sources)}
+                full_answer = ""
+                async for token in self.llm.complete_stream(
+                    [{"role": "user", "content": user}], system=system
+                ):
+                    full_answer += token
+                    yield {"type": "answer_token", "token": token}
+                yield {"type": "answer", "answer": full_answer, "citations": [
+                    {"title": s["title"], "url": s["url"], "snippet": s["snippet"][:200]}
+                    for s in sources
+                ]}
+                return
+            except Exception as exc:
+                log.warning("streaming synthesis failed, falling back to extractive",
+                           extra={"error": str(exc)})
+
+        # --- fallback: non-streaming extractive synthesis ---
+        answer, provider_used, _ = self._synthesize_fallback(query, sources)
         yield {"type": "synthesize", "provider": provider_used,
                "sources_used": len(sources)}
         yield {"type": "answer", "answer": answer, "citations": [

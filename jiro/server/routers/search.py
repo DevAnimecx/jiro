@@ -16,6 +16,7 @@ from jiro.audit import AuditEventType, ComplianceLogger
 from jiro.auth import AuthContext
 from jiro.cache import CacheManager
 from jiro.errors import EngineError
+from jiro.log import get_logger
 from jiro.models import SearchRequest, SearchResponse, MultiQuerySearchRequest
 from jiro.server.deps import (
     get_auth_context,
@@ -25,6 +26,8 @@ from jiro.server.deps import (
     record_usage,
     require_feature,
 )
+
+log = get_logger("jiro.search")
 
 router = APIRouter(tags=["search"])
 

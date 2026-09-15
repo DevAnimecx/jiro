@@ -46,10 +46,12 @@ app = typer.Typer(
          "  jiro scrape \"free SaaS directories\"    Search + scrape top result\n"
          "  jiro ai ask \"compare React vs Vue\"     AI research with citations\n"
          "  jiro ai setup --provider openai -k sk-...  Configure AI provider\n"
+         "  jiro login                              Sign in for cloud access\n"
          "  jiro doctor                             Diagnose issues",
     add_completion=False,
     no_args_is_help=True,
 )
+auth_app = typer.Typer(help="Cloud authentication.", no_args_is_help=True)
 search_app = typer.Typer(help="Search the web from the CLI.", no_args_is_help=True)
 
 
@@ -59,6 +61,7 @@ dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_
 social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
 ai_app = typer.Typer(help="AI features: ask questions, setup providers, check status.", no_args_is_help=True)
+license_app = typer.Typer(help="License management for self-hosted.", no_args_is_help=True)
 app.add_typer(search_app, name="search")
 app.add_typer(keys_app, name="keys")
 app.add_typer(config_app, name="config")
@@ -66,6 +69,8 @@ app.add_typer(plugin_app, name="plugins")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(social_app, name="social")
 app.add_typer(ai_app, name="ai")
+app.add_typer(auth_app, name="auth")
+app.add_typer(license_app, name="license")
 
 console = Console()
 
@@ -163,6 +168,330 @@ def serve(
 
 
 # --------------------------------------------------------------------------
+# auth login — RFC 8628 Device Code Flow
+# --------------------------------------------------------------------------
+@auth_app.command("login", help="Sign in to Jiro Cloud (device code flow).")
+def auth_login(
+    server: str = typer.Option(None, "--server", help="Jiro web server URL"),
+    dev: bool = typer.Option(False, "--dev", help="Use development server"),
+) -> None:
+    """Sign in using OAuth 2.0 Device Authorization Grant (RFC 8628).
+
+    Flow:
+      1. CLI requests a device code from the server
+      2. Opens browser to verification URL
+      3. User enters code and signs in with Google
+      4. CLI polls until authorized
+      5. Credentials saved encrypted to ~/.jiro/credentials.enc
+    """
+    import webbrowser
+    import time
+    from jiro.cloud_auth import (
+        save_cloud_credentials, load_cloud_credentials,
+        CloudCredentials, JIRO_WEB_BASE,
+    )
+    from jiro.device_auth import DeviceAuthManager, DeviceAuthError
+
+    web_base = "http://localhost:3000" if dev else (server or JIRO_WEB_BASE)
+
+    # Check if already logged in
+    existing = load_cloud_credentials()
+    if existing:
+        console.print(f"[green]Already signed in as[/] [bold]{existing.email}[/]")
+        if not typer.confirm("Sign in with a different account?"):
+            return
+
+    console.print(Panel.fit(
+        "[bold]Jiro Cloud Login[/]",
+        subtitle="RFC 8628 Device Authorization"
+    ))
+
+    # Step 1: Request device code
+    console.print("[cyan]Step 1:[/] Requesting device code...")
+    auth = DeviceAuthManager(web_base)
+
+    try:
+        code_data = auth.request_code()
+    except DeviceAuthError as e:
+        console.print(f"[red]Failed to request device code: {e}[/]")
+        raise typer.Exit(1)
+
+    user_code = code_data["user_code"]
+    verify_url = code_data["verification_uri_complete"]
+
+    # Step 2: Display code and open browser
+    console.print("\n[bold]To sign in:[/]")
+    console.print(f"  1. Go to: [link={verify_url}][cyan]{code_data['verification_uri']}[/][/link]")
+    console.print(f"  2. Enter code: [bold yellow]{user_code}[/]")
+    console.print(f"\n[dim]Code expires in {code_data['expires_in'] // 60} minutes[/]")
+
+    # Try to open browser
+    try:
+        webbrowser.open(verify_url)
+        console.print("[dim]Browser opened automatically.[/]")
+    except Exception:
+        console.print(f"[dim]Open this URL in your browser:[/] {verify_url}")
+
+    # Step 3: Poll for authorization
+    console.print("\n[cyan]Step 2:[/] Waiting for authorization...")
+
+    def on_poll(remaining: int):
+        mins, secs = divmod(remaining, 60)
+        console.print(f"  [dim]Polling... ({mins}m {secs}s remaining)[/]", end="\r")
+
+    try:
+        result = auth.wait_for_authorization(on_poll=on_poll)
+    except DeviceAuthError as e:
+        console.print(f"\n[red]{e}[/]")
+        raise typer.Exit(1)
+
+    # Step 4: Save credentials
+    console.print("\n\n[bold green]+[/] Authenticated successfully!")
+
+    credits = result.get("credits", {})
+    user = result.get("user", {})
+
+    creds = CloudCredentials(
+        api_key=result["api_key"],
+        user_id=user.get("id", "unknown"),
+        email=user.get("email", "unknown"),
+        name=user.get("name", "User"),
+        plan=result.get("plan", "FREE"),
+        role=user.get("role", "USER"),
+        credits_used=credits.get("used", 0),
+        credits_included=credits.get("included", 1000),
+        credits_remaining=credits.get("remaining", 1000),
+        rate_limit_rpm=5,
+    )
+
+    # Set rate limit based on plan
+    if creds.plan == "PRO":
+        creds.rate_limit_rpm = 120
+    elif creds.plan == "ENTERPRISE":
+        creds.rate_limit_rpm = 1000
+
+    save_cloud_credentials(creds)
+
+    # Display account info
+    _display_account_info(creds)
+    console.print(f"\n[dim]Run 'jiro auth logout' to sign out.[/]")
+
+
+def _display_account_info(creds) -> None:
+    """Display account info in a formatted table."""
+    table = Table(title="Cloud Account")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Email", creds.email)
+    table.add_row("Name", creds.name)
+    table.add_row("Plan", f"[bold]{creds.plan}[/]")
+    table.add_row(
+        "Credits",
+        f"{creds.credits_remaining:,} / {creds.credits_included:,} remaining"
+        if creds.credits_included > 0 else "Unlimited"
+    )
+    table.add_row("Rate Limit", f"{creds.rate_limit_rpm} RPM")
+    table.add_row("API Key", f"***{creds.api_key[-4:]}" if len(creds.api_key) > 4 else creds.api_key)
+    console.print(table)
+
+
+@auth_app.command("logout", help="Sign out of Jiro Cloud.")
+def auth_logout() -> None:
+    """Remove stored cloud credentials (encrypted)."""
+    from jiro.cloud_auth import clear_cloud_credentials, is_cloud_configured
+
+    if not is_cloud_configured():
+        console.print("[yellow]Not signed in.[/]")
+        return
+
+    if typer.confirm("Sign out of Jiro Cloud?"):
+        clear_cloud_credentials()
+        console.print("[bold green]+[/] Signed out successfully.")
+    else:
+        console.print("[dim]Cancelled.[/]")
+
+
+@auth_app.command("whoami", help="Show current cloud account info.")
+def auth_whoami(
+    refresh: bool = typer.Option(False, "--refresh", "-r", help="Refresh credits from server"),
+) -> None:
+    """Display current cloud authentication status and credit balance."""
+    from jiro.cloud_auth import load_cloud_credentials, refresh_credits
+
+    creds = load_cloud_credentials()
+    if not creds:
+        console.print("[yellow]Not signed in.[/]")
+        console.print("[dim]Run 'jiro auth login' to sign in.[/]")
+        raise typer.Exit(0)
+
+    if refresh:
+        console.print("[dim]Refreshing credits from server...[/]")
+        creds = refresh_credits(creds)
+
+    _display_account_info(creds)
+
+
+@auth_app.command("status", help="Check auth status and test API key.")
+def auth_status() -> None:
+    """Verify API key is valid and show credit balance."""
+    from jiro.cloud_auth import load_cloud_credentials, fetch_credits_from_server
+
+    creds = load_cloud_credentials()
+    if not creds:
+        console.print("[yellow]Not signed in.[/]")
+        console.print("[dim]Run 'jiro auth login' to sign in.[/]")
+        raise typer.Exit(0)
+
+    console.print("[dim]Testing API key...[/]")
+    data = fetch_credits_from_server(creds.api_key)
+
+    if data:
+        console.print("[bold green]+[/] API key is valid")
+        # Update local cache
+        credits = data.get("credits", {})
+        rate = data.get("rateLimit", {})
+        creds.credits_used = credits.get("used", creds.credits_used)
+        creds.credits_included = credits.get("included", creds.credits_included)
+        creds.credits_remaining = credits.get("remaining", creds.credits_remaining)
+        creds.rate_limit_rpm = rate.get("rpm", creds.rate_limit_rpm)
+        from jiro.cloud_auth import save_cloud_credentials
+        save_cloud_credentials(creds)
+        _display_account_info(creds)
+    else:
+        console.print("[bold red]![/] API key is invalid or server is unreachable")
+        console.print("[dim]Try 'jiro auth login' to re-authenticate.[/]")
+        raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------
+# license — Self-hosted license management
+# --------------------------------------------------------------------------
+@license_app.command("activate", help="Activate a license key for self-hosted.")
+def license_activate(
+    key: str = typer.Argument(..., help="License key (e.g., JIRO-PRO-A1B2-C3D4-E5F6)"),
+) -> None:
+    """Activate a license key for premium self-hosted features.
+
+    The license is validated offline (HMAC-SHA256) and bound to this machine.
+    """
+    from jiro.licensing import get_license_manager, LicenseInfo
+
+    manager = get_license_manager()
+
+    # Check if already licensed
+    existing = manager.get_license()
+    if existing.valid and not existing.is_expired:
+        console.print(f"[green]Already licensed:[/] [bold]{existing.tier}[/] tier")
+        if not typer.confirm("Replace with new license?"):
+            return
+
+    console.print("[dim]Validating license key...[/]")
+
+    info = manager.validate_token(key.strip())
+
+    if not info.valid:
+        console.print(f"[red]Invalid license: {info.error}[/]")
+        raise typer.Exit(1)
+
+    # Save the license
+    manager.save_license(key.strip())
+
+    console.print(f"\n[bold green]+[/] License activated!")
+    console.print(f"  Tier:      [bold]{info.tier.upper()}[/]")
+    console.print(f"  Customer:  [cyan]{info.customer_id}[/]")
+    console.print(f"  Expires:   [dim]{time.strftime('%Y-%m-%d', time.localtime(info.expires_at))}[/]")
+    console.print(f"  Features:  [dim]{len(info.features)} enabled[/]")
+    console.print(f"  Hardware:  [dim]bound to this machine[/]")
+
+
+@license_app.command("info", help="Show current license details.")
+def license_info() -> None:
+    """Display current license information and status."""
+    from jiro.licensing import get_license_manager, get_features_for_tier, FEATURE_DEFINITIONS
+
+    manager = get_license_manager()
+    info = manager.get_license()
+
+    if not info.valid and not info.in_grace_period:
+        console.print("[yellow]No active license.[/]")
+        console.print("[dim]Running in Free tier.[/]")
+        console.print("[dim]Run 'jiro license activate <KEY>' to upgrade.[/]")
+        raise typer.Exit(0)
+
+    # Status
+    if info.grace_mode:
+        status = f"[yellow]GRACE PERIOD[/] ({int(info.remaining_grace // 3600)}h remaining)"
+    elif info.is_expired:
+        status = "[red]EXPIRED[/]"
+    else:
+        status = "[green]ACTIVE[/]"
+
+    # Table
+    table = Table(title="License Info")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Status", status)
+    table.add_row("Tier", f"[bold]{info.tier.upper()}[/]")
+    table.add_row("Customer", info.customer_id)
+    table.add_row("License ID", info.license_id[:16] + "...")
+    table.add_row("Issued", time.strftime("%Y-%m-%d", time.localtime(info.issued_at)))
+    table.add_row("Expires", time.strftime("%Y-%m-%d", time.localtime(info.expires_at)))
+    table.add_row("Max Devices", str(info.max_devices))
+    table.add_row("Features", str(len(info.features)))
+    console.print(table)
+
+    # Features
+    features_table = Table(title="Enabled Features")
+    features_table.add_column("Feature", style="cyan")
+    features_table.add_column("Description", style="white")
+    for feat in sorted(info.features):
+        desc = FEATURE_DEFINITIONS.get(feat, {}).get("description", feat)
+        features_table.add_row(feat, desc)
+    console.print(features_table)
+
+
+@license_app.command("deactivate", help="Remove the current license.")
+def license_deactivate() -> None:
+    """Remove the stored license key (reverts to Free tier)."""
+    from jiro.licensing import get_license_manager
+
+    manager = get_license_manager()
+    info = manager.get_license()
+
+    if not info.valid and not info.in_grace_period:
+        console.print("[yellow]No active license to remove.[/]")
+        return
+
+    console.print(f"Current tier: [bold]{info.tier.upper()}[/]")
+    if typer.confirm("Remove this license?"):
+        manager.clear_license()
+        console.print("[bold green]+[/] License removed. Reverted to Free tier.")
+    else:
+        console.print("[dim]Cancelled.[/]")
+
+
+@license_app.command("validate", help="Validate a license key without activating.")
+def license_validate(
+    key: str = typer.Argument(..., help="License key to validate"),
+) -> None:
+    """Check if a license key is valid without saving it."""
+    from jiro.licensing import get_license_manager
+
+    manager = get_license_manager()
+    info = manager.validate_token(key.strip())
+
+    if info.valid:
+        console.print(f"[bold green]+[/] Valid license")
+        console.print(f"  Tier:     {info.tier.upper()}")
+        console.print(f"  Customer: {info.customer_id}")
+        console.print(f"  Expires:  {time.strftime('%Y-%m-%d', time.localtime(info.expires_at))}")
+        console.print(f"  Features: {len(info.features)}")
+    else:
+        console.print(f"[bold red]![/] Invalid license: {info.error}")
+        raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------
 # search
 # --------------------------------------------------------------------------
 @search_app.command("web", help="Web search (JSON output).")
@@ -177,9 +506,12 @@ def search_web(
     num_engines: int = typer.Option(3, "--engines", help="Number of engines for parallel search (max 5)"),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive search mode"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
-    if interactive or q is None:
+    if cloud:
+        asyncio.run(_cloud_search(q, engine, type, num, location, language, json_output))
+    elif interactive or q is None:
         _interactive_search(engine, type, num, location, language, parallel, num_engines, json_output, config)
     else:
         asyncio.run(_cli_search(q, engine, type, num, location, language,
@@ -239,6 +571,62 @@ async def _cli_search(q, engine, type, num, location, language, parallel, num_en
         console.print(table)
 
 
+async def _cloud_search(q, engine, type, num, location, language, json_output):
+    """Search via Jiro Cloud API."""
+    from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE, refresh_credits
+
+    creds = load_cloud_credentials()
+    if not creds:
+        console.print("[red]Not signed in. Run 'jiro auth login' first.[/]")
+        raise typer.Exit(1)
+
+    # Check credits before making call
+    creds = refresh_credits(creds)
+    if creds.credits_remaining <= 0:
+        console.print("[red]No credits remaining.[/]")
+        console.print("[dim]Upgrade at searchjiro.vercel.app/dashboard/billing[/]")
+        raise typer.Exit(1)
+
+    if creds.credits_remaining < 10:
+        console.print(f"[yellow]Warning: Only {creds.credits_remaining} credits remaining[/]")
+
+    import urllib.request
+    import urllib.error
+
+    params = f"q={q}&engine={engine}&type={type}&num={num}&location={location}&language={language}"
+    url = f"{JIRO_CLOUD_BASE}/v1/search?{params}"
+
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {creds.api_key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        console.print(f"[red]Cloud API error ({e.code}): {body}[/]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Request failed: {e}[/]")
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print(json.dumps(data, indent=2, default=str))
+        return
+
+    meta = data.get("search_metadata", {})
+    console.print(f"[bold]{meta.get('engine', '?')}[/] [dim](cloud)[/] · "
+                  f"cached={meta.get('cached', False)} "
+                  f"time={meta.get('total_time_taken', 0)}s")
+    table = Table(title=f"Results for \u201c{q}\u201d")
+    table.add_column("#", justify="right")
+    table.add_column("Title")
+    table.add_column("Source")
+    table.add_column("Snippet", overflow="fold")
+    for r in data.get("organic_results", []):
+        table.add_row(str(r.get("position", "")), r.get("title", ""),
+                      r.get("source", ""), (r.get("snippet") or "")[:140])
+    console.print(table)
+
+
 def _safe_print(text: str) -> str:
     """Sanitize text for Windows console output (cp1252)."""
     if not isinstance(text, str):
@@ -266,6 +654,7 @@ def scrape(
     url: str = typer.Argument(..., help="URL or search query to scrape"),
     format: str = typer.Option("markdown", "--format", "-f",
                                help="Output format: markdown, text, html, json"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """Scrape a URL and extract readable content.
@@ -280,6 +669,10 @@ def scrape(
     """
     from jiro.server import create_app
     from starlette.testclient import TestClient
+
+    if cloud:
+        asyncio.run(_cloud_scrape(url, format))
+        return
 
     # Auto-prepend https:// if no scheme is provided but looks like a domain
     if not _is_url(url):
@@ -342,7 +735,53 @@ async def _scrape_search_query(query: str, format: str, config: str) -> None:
         url = data.get("url", "")
         console.print(f"[bold]{title}[/]  [dim]({url})[/]")
         console.print(_safe_print(data.get("content", ""))[:4000])
-        console.print(content)
+        print(content)
+
+
+async def _cloud_scrape(url, format):
+    """Scrape via Jiro Cloud API."""
+    from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE, refresh_credits
+
+    creds = load_cloud_credentials()
+    if not creds:
+        console.print("[red]Not signed in. Run 'jiro auth login' first.[/]")
+        raise typer.Exit(1)
+
+    # Check credits before making call
+    creds = refresh_credits(creds)
+    if creds.credits_remaining <= 0:
+        console.print("[red]No credits remaining.[/]")
+        console.print("[dim]Upgrade at searchjiro.vercel.app/dashboard/billing[/]")
+        raise typer.Exit(1)
+
+    if creds.credits_remaining < 10:
+        console.print(f"[yellow]Warning: Only {creds.credits_remaining} credits remaining[/]")
+
+    import urllib.request
+    import urllib.error
+
+    body = json.dumps({"url": url, "format": format}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{JIRO_CLOUD_BASE}/v1/scrape",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {creds.api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        console.print(f"[red]Cloud API error ({e.code}): {err_body}[/]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Request failed: {e}[/]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]{_safe_print(data.get('title', ''))}[/]  [dim]({data.get('url')})[/]")
+    console.print(_safe_print(data.get("content", ""))[:4000])
 
 
 # --------------------------------------------------------------------------
@@ -651,6 +1090,7 @@ def mcp_setup(
     ),
     auto: bool = typer.Option(False, "--auto", help="Detect and configure all found clients"),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
+    remote: bool = typer.Option(False, "--remote", "-r", help="Configure for remote cloud access (requires login)"),
 ) -> None:
     from jiro.mcp_setup import run_auto_setup, run_setup, list_supported_clients
     if auto:
@@ -660,7 +1100,7 @@ def mcp_setup(
         console.print(f"[red]Unknown client: {client}[/]")
         console.print(f"Supported: {', '.join(valid)}")
         raise typer.Exit(1)
-    raise typer.Exit(run_setup(client, force=force))
+    raise typer.Exit(run_setup(client, force=force, remote=remote))
 
 
 @mcp_app.command("status", help="Detect configured MCP clients.")

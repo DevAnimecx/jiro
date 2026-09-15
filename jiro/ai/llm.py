@@ -8,8 +8,9 @@ to an extractive synthesizer so ``/ai/search`` always works.
 
 from __future__ import annotations
 
+import json as _json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -89,6 +90,47 @@ class OpenAICompatProvider(LLMProvider):
             raise LLMError(f"{self.name} completion failed") from exc
 
 
+    async def complete_stream(self, messages: List[Dict[str, str]], *,
+                               system: Optional[str] = None) -> AsyncIterator[str]:
+        """Yield answer tokens as they arrive from the LLM."""
+        if not self.api_key and self.name != "ollama":
+            raise LLMError(f"no API key configured for provider '{self.name}'")
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": ([{"role": SYSTEM_ROLE, "content": system}] if system else [])
+            + messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": True,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream("POST", self.url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        chunk = line[6:]
+                        if chunk.strip() == "[DONE]":
+                            break
+                        try:
+                            obj = _json.loads(chunk)
+                            delta = obj["choices"][0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except (ValueError, KeyError, IndexError):
+                            continue
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"{self.name} streaming failed (HTTP {status})") from exc
+        except Exception as exc:
+            raise LLMError(f"{self.name} streaming failed") from exc
+
+
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
 
@@ -133,6 +175,48 @@ class AnthropicProvider(LLMProvider):
             raise LLMError("anthropic completion failed") from exc
 
 
+    async def complete_stream(self, messages: List[Dict[str, str]], *,
+                               system: Optional[str] = None) -> AsyncIterator[str]:
+        """Yield answer tokens as they arrive from Anthropic."""
+        if not self.api_key:
+            raise LLMError("no API key configured for provider 'anthropic'")
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [m for m in messages if m["role"] != SYSTEM_ROLE],
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": True,
+        }
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        if system:
+            payload["system"] = system
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream("POST", "https://api.anthropic.com/v1/messages",
+                                         json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            obj = _json.loads(line[6:])
+                            if obj.get("type") == "content_block_delta":
+                                text = obj.get("delta", {}).get("text", "")
+                                if text:
+                                    yield text
+                        except (ValueError, KeyError):
+                            continue
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"anthropic streaming failed (HTTP {status})") from exc
+        except Exception as exc:
+            raise LLMError("anthropic streaming failed") from exc
+
+
 class GeminiProvider(LLMProvider):
     name = "gemini"
 
@@ -162,7 +246,7 @@ class GeminiProvider(LLMProvider):
             headers["x-goog-api-key"] = self.api_key
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(url, json=payload)
+                resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -171,6 +255,51 @@ class GeminiProvider(LLMProvider):
             raise LLMError(f"gemini completion failed (HTTP {status})") from exc
         except Exception as exc:
             raise LLMError("gemini completion failed") from exc
+
+
+    async def complete_stream(self, messages: List[Dict[str, str]], *,
+                               system: Optional[str] = None) -> AsyncIterator[str]:
+        """Yield answer tokens as they arrive from Gemini."""
+        if not self.api_key:
+            raise LLMError("no API key configured for provider 'gemini'")
+        contents = []
+        for m in messages:
+            if m["role"] == SYSTEM_ROLE:
+                continue
+            role = "user" if m["role"] == USER_ROLE else "model"
+            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+        payload: Dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"temperature": self.temperature, "maxOutputTokens": self.max_tokens},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{self.model}:streamGenerateContent?alt=sse")
+        headers = {}
+        if self.api_key:
+            headers["x-goog-api-key"] = self.api_key
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            obj = _json.loads(line[6:])
+                            parts = obj.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                            for part in parts:
+                                text = part.get("text", "")
+                                if text:
+                                    yield text
+                        except (ValueError, KeyError, IndexError):
+                            continue
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response else "?"
+            raise LLMError(f"gemini streaming failed (HTTP {status})") from exc
+        except Exception as exc:
+            raise LLMError("gemini streaming failed") from exc
 
 
 PROVIDERS: Dict[str, Any] = {
@@ -225,6 +354,21 @@ class LLM:
                 self.settings, provider=self.provider_name, model=self.model
             )
         return await self._llm.complete(messages, system=system)
+
+    async def complete_stream(self, messages: List[Dict[str, str]], *,
+                              system: Optional[str] = None) -> AsyncIterator[str]:
+        """Yield answer tokens as they arrive from the LLM."""
+        if self._llm is None:
+            self._llm = build_provider(
+                self.settings, provider=self.provider_name, model=self.model
+            )
+        if hasattr(self._llm, "complete_stream"):
+            async for token in self._llm.complete_stream(messages, system=system):
+                yield token
+        else:
+            # Fallback: non-streaming provider — yield full answer at once
+            result = await self._llm.complete(messages, system=system)
+            yield result
 
     # --------------------------------------------------- extractive fallback
     @staticmethod

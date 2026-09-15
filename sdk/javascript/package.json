@@ -1,6 +1,6 @@
 {
   "name": "jiro-sdk",
-  "version": "0.2.15",
+  "version": "0.3.0",
   "description": "Official JavaScript/TypeScript SDK for Jiro Search API",
   "main": "jiro-sdk.js",
   "module": "jiro-sdk.js",

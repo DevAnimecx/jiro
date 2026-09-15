@@ -552,12 +552,12 @@ class FeatureGate:
             raise LicenseError(
                 f"Feature '{feature}' requires a paid plan. "
                 f"Current tier: {current_tier}. "
-                f"Upgrade at https://jiro.ai/pricing",
+                f"Upgrade at https://searchjiro.vercel.app/pricing",
                 details={
                     "feature": feature,
                     "current_tier": current_tier,
                     "required_tiers": FEATURE_DEFINITIONS.get(feature, {}).get("tiers", []),
-                    "upgrade_url": "https://jiro.ai/pricing",
+                    "upgrade_url": "https://searchjiro.vercel.app/pricing",
                 },
             )
 

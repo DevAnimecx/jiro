@@ -457,7 +457,7 @@ class ScrapingClient:
         if self.browser_fallback is not None:
             await self.browser_fallback.close()
 
-    def _headers(self, engine: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    async def _headers(self, engine: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         from jiro.stealth import build_stealth_headers, get_stealth
 
         # Use stealth engine for realistic browser headers with fingerprint rotation
@@ -481,7 +481,8 @@ class ScrapingClient:
         # Simulate human-like delay before request (anti-detection)
         if self.settings.get("scraping.stealth.delay_between_requests", True):
             if random.random() < 0.1:  # 10% of requests get a small delay
-                time.sleep(0.1 + random.random() * 0.2)
+                import asyncio as _asyncio
+                await _asyncio.sleep(0.1 + random.random() * 0.2)
 
         return headers
 
@@ -679,7 +680,7 @@ class ScrapingClient:
                                   extra_headers, proxy):
         """POST via curl_cffi."""
         session = await self._get_curl_session(engine)
-        h = self._headers(engine, extra_headers)
+        h = await self._headers(engine, extra_headers)
         body = json if json is not None else data
         content_type = "application/json" if json is not None else "application/x-www-form-urlencoded"
         h["Content-Type"] = content_type
@@ -692,7 +693,7 @@ class ScrapingClient:
     async def _request_httpx_post(self, url, *, data, json, params, engine,
                                    extra_headers, proxy):
         """POST via httpx."""
-        h = self._headers(engine, extra_headers)
+        h = await self._headers(engine, extra_headers)
         async with httpx.AsyncClient(
             timeout=self.timeout, follow_redirects=True, trust_env=False,
             proxy=proxy,
@@ -767,7 +768,7 @@ class ScrapingClient:
                             proxy: Optional[str]) -> Any:
         """Request via curl_cffi with TLS fingerprint impersonation."""
         session = await self._get_curl_session(engine)
-        headers = self._headers(engine, extra_headers)
+        headers = await self._headers(engine, extra_headers)
         # Simulate referer chain
         chain = _REFERER_CHAINS.get(engine, [])
         if chain:
@@ -806,13 +807,13 @@ class ScrapingClient:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
                 follow_redirects=True,
-                headers=self._headers(engine, extra_headers),
+                headers=await self._headers(engine, extra_headers),
                 http2=_HTTP2_AVAILABLE,
                 trust_env=False,
                 proxy=proxy,
             ) as proxy_client:
                 return await proxy_client.get(url, params=params)
-        return await client.get(url, params=params, headers=self._headers(engine, extra_headers))
+        return await client.get(url, params=params, headers=await self._headers(engine, extra_headers))
 
     async def get_rendered(self, url: str, *, engine: str,
                            params: Optional[Dict[str, Any]] = None) -> str:

@@ -27,8 +27,9 @@ log = get_logger("jiro.pro")
 
 
 class PlanTier(str, Enum):
-    """API plan tiers — two tiers: Free and Enterprise."""
+    """API plan tiers — Free, Pro, and Enterprise."""
     FREE = "free"
+    PRO = "pro"
     ENTERPRISE = "enterprise"
 
 
@@ -59,7 +60,8 @@ class PlanLimits:
 
 
 # ── Plan tier definitions ─────────────────────────────────────────────
-# FREE tier: very generous limits, most features unlocked
+# FREE tier: generous limits, most features unlocked
+# PRO tier: higher limits, AI features, commercial use
 # ENTERPRISE tier: maximum everything, all features unlocked
 PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
     PlanTier.FREE: PlanLimits(
@@ -82,6 +84,27 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         webhook_alerts=True,
         custom_models=False,
         commercial_use=False,
+    ),
+    PlanTier.PRO: PlanLimits(
+        # 5x free tier limits
+        rpm=500,
+        rpd=100000,
+        rpm_search=250,
+        rpd_search=50000,
+        rpm_scrape=150,
+        rpd_scrape=30000,
+        max_results=100,
+        max_concurrent=30,
+        max_batch_size=100,
+        priority=5,
+        # Pro features — AI + commercial use unlocked
+        hybrid_search=True,
+        structured_extraction=True,
+        social_scraping=True,
+        smart_search=True,
+        webhook_alerts=True,
+        custom_models=False,
+        commercial_use=True,
     ),
     PlanTier.ENTERPRISE: PlanLimits(
         # Maximum everything
@@ -130,14 +153,14 @@ _FEATURE_MIN_TIERS: Dict[str, str] = {
     "social_search": "free",
     "social_timeline": "free",
     "social_batch": "free",
-    "ai_search": "enterprise",
+    "ai_search": "pro",
     "smart_search": "free",
     "structured_extraction": "free",
     "self_learning": "free",
-    "advanced_healing": "enterprise",
-    "high_volume": "enterprise",
+    "advanced_healing": "pro",
+    "high_volume": "pro",
     "custom_models": "enterprise",
-    "commercial_use": "enterprise",
+    "commercial_use": "pro",
     "premium_support": "enterprise",
     "white_label": "enterprise",
     "webhook_alerts": "free",
@@ -146,7 +169,8 @@ _FEATURE_MIN_TIERS: Dict[str, str] = {
 # Tier hierarchy for quick comparison
 _TIER_LEVELS = {
     "free": 0,
-    "enterprise": 1,
+    "pro": 1,
+    "enterprise": 2,
 }
 
 

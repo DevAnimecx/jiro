@@ -108,8 +108,8 @@ async def ai_search_stream(
         except Exception as exc:  # pragma: no cover - safety
             yield _sse("error", {"error": str(exc)})
         yield _sse("done", {})
+        await record_usage(request, endpoint="/ai/search/stream", status=200, query=query)
 
-    await record_usage(request, endpoint="/ai/search/stream", status=200, query=query)
     return StreamingResponse(gen(), headers=SSE_HEADERS,
                              media_type="text/event-stream")
 
@@ -142,8 +142,8 @@ async def ai_agent_stream(
         except Exception as exc:  # pragma: no cover
             yield _sse("error", {"error": str(exc)})
         yield _sse("done", {})
+        await record_usage(request, endpoint="/ai/agent/stream", status=200, query=goal)
 
-    await record_usage(request, endpoint="/ai/agent/stream", status=200, query=goal)
     return StreamingResponse(gen(), headers=SSE_HEADERS,
                              media_type="text/event-stream")
 
@@ -296,8 +296,8 @@ async def _stream_search_results(query: str, engine: str, num: int,
     """Stream search results as they arrive."""
     import httpx
 
-    with httpx.Client(timeout=30) as client:
-        resp = client.get("http://localhost:8000/search.json", params={
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get("http://localhost:8000/search.json", params={
             "q": query, "engine": engine, "num": num,
             "location": location, "language": language,
         })
@@ -317,9 +317,9 @@ async def _stream_search_results(query: str, engine: str, num: int,
 async def _fetch_url_content(url: str) -> str:
     """Fetch URL content for monitoring (lightweight)."""
     import httpx
-    from jiro.scraping.frontend import ScrapingEngine
-    # This is a simplified fetch - in production would use the full client
-    async with httpx.AsyncClient(timeout=15) as client:
+    # Use httpx directly for lightweight content fetch
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True,
+                                  trust_env=False) as client:
         resp = await client.get(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                           "AppleWebKit/537.36 (KHTML, like Gecko) "

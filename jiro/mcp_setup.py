@@ -232,7 +232,8 @@ def _save_config(path: Path, data: Dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def setup_client(client_id: str, force: bool = False) -> Dict[str, Any]:
+def setup_client(client_id: str, force: bool = False, remote: bool = False) -> Dict[str, Any]:
+    """Configure a client for local (stdio) or remote (HTTP) MCP."""
     client = CLIENTS.get(client_id)
     if not client:
         return {"ok": False, "error": f"Unknown client: {client_id}"}
@@ -251,7 +252,27 @@ def setup_client(client_id: str, force: bool = False) -> Dict[str, Any]:
     else:
         data = _load_config(config_path)
 
-    config_value = client["config"]()
+    if remote:
+        # Load API key from cloud credentials
+        from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE
+        creds = load_cloud_credentials()
+        if not creds or not creds.api_key:
+            return {
+                "ok": False,
+                "error": "Not signed in. Run 'jiro auth login' first to get an API key for remote MCP.",
+            }
+        api_key = creds.api_key
+        config_value = {
+            "url": f"{JIRO_CLOUD_BASE}/mcp",
+            "headers": {
+                "Authorization": f"Bearer {api_key}",
+            },
+        }
+        hint = f"Remote MCP configured. Restart {client['name']} to use cloud backend."
+    else:
+        config_value = client["config"]()
+        hint = client.get("launch_hint", "")
+
     keys = client["config_key"]
 
     if not force and keys[-1] in _deep_get(data, keys[:-1]):
@@ -265,12 +286,14 @@ def setup_client(client_id: str, force: bool = False) -> Dict[str, Any]:
     _deep_set(data, keys, config_value)
     _save_config(config_path, data)
 
+    mode = "remote (cloud)" if remote else "local (stdio)"
     return {
         "ok": True,
         "path": str(config_path),
         "client": client["name"],
-        "launch_hint": client.get("launch_hint", ""),
-        "message": f"Configured {client['name']} at {config_path}",
+        "mode": mode,
+        "launch_hint": hint,
+        "message": f"Configured {client['name']} ({mode}) at {config_path}",
     }
 
 
@@ -290,8 +313,8 @@ def detect_configured() -> List[str]:
     return _detect_all()
 
 
-def run_setup(client_id: str, force: bool = False) -> int:
-    result = setup_client(client_id, force)
+def run_setup(client_id: str, force: bool = False, remote: bool = False) -> int:
+    result = setup_client(client_id, force, remote=remote)
     if result.get("ok"):
         print(f"[OK] {result['message']}")
         if result.get("launch_hint"):
