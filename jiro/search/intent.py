@@ -33,6 +33,7 @@ class IntentType(Enum):
     SOCIAL_FACEBOOK = "social_facebook"  # facebook
     SOCIAL_PINTEREST = "social_pinterest" # pinterest
     SOCIAL_HACKERNEWS = "social_hackernews" # hackernews
+    FACTUAL = "factual"                    # what is X, math, simple facts
     RESEARCH_ANSWER = "research_answer"   # what is, how to, best, compare
     NEWS_SEARCH = "news_search"           # news, today, latest, breaking
     TRENDING = "trending"                 # trending, viral
@@ -130,6 +131,16 @@ class IntentClassifier:
                 re.compile(r'\b(hackernews|hacker news|hn)\b', re.IGNORECASE),
             ], 0.95),
             
+            # Factual queries (simple answers: math, definitions, time, colors, etc.)
+            # Must come BEFORE RESEARCH_ANSWER to intercept "what is X" that are
+            # simple facts rather than research topics.
+            (IntentType.FACTUAL, [
+                re.compile(r'^\d+\s*[+\-*/÷×^]\s*\d+'),  # math: 2+2, 3*4, 10/2
+                re.compile(r'^\d+\s*(plus|minus|times|divided by|multiplied by|to the power of)\s*\d+', re.IGNORECASE),
+                re.compile(r'\b(what time|what date|what year|what day|what color|what colour|what number|what planet|what country|what city|what language|what currency|what is the capital)\b', re.IGNORECASE),
+                re.compile(r'\b(how many|how much|how tall|how long|how far|how old|how fast)\b', re.IGNORECASE),
+            ], 0.95),
+
             # Research/Answer patterns
             (IntentType.RESEARCH_ANSWER, [
                 re.compile(r'^(what|who|where|when|why|how)\s', re.IGNORECASE),
@@ -233,6 +244,8 @@ class IntentClassifier:
                         action = "post"
                     elif intent_type == IntentType.NEWS_SEARCH:
                         platform = "google"  # Best for news
+                    elif intent_type == IntentType.FACTUAL:
+                        platform = None  # Direct answer, no special platform
                     elif intent_type == IntentType.RESEARCH_ANSWER:
                         platform = None  # Will use AI search
                     

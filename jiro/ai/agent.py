@@ -170,6 +170,10 @@ class Agent:
     async def _plan_queries(self, query: str, *, provider: Optional[str],
                             model: Optional[str], used_llm_flag: List[bool]) -> Dict[str, Any]:
         """Return up to 3 queries. Optionally uses the LLM to derive them."""
+        # Factual queries: use the original question as-is (no mangling)
+        if self._is_factual(query):
+            return {"queries": [query], "_used_llm": False}
+
         if self.llm.available:
             try:
                 prompt = (
@@ -222,6 +226,41 @@ class Agent:
                 seen.add(ql)
                 unique.append(q)
         return {"queries": unique[:3], "_used_llm": False}
+
+    @staticmethod
+    def _is_factual(query: str) -> bool:
+        """Detect short factual queries (math, definitions, time, colors, etc.)."""
+        q = query.strip()
+        # Math expressions: 2+2, 3*4, 10/2, 2^8
+        if re.match(r'^\d+\s*[+\-*/÷×^]\s*\d+', q):
+            return True
+        # Word-based math: "2 plus 2", "3 times 4"
+        if re.match(r'^\d+\s*(plus|minus|times|divided by|multiplied by|to the power of)\s*\d+', q, re.IGNORECASE):
+            return True
+        q_lower = q.lower()
+        # Short factual questions (under 60 chars to avoid research queries)
+        if len(q) < 60:
+            factual_prefixes = (
+                "what time", "what date", "what year", "what day",
+                "what color", "what colour", "what number", "what planet",
+                "what country", "what city", "what language", "what currency",
+                "what is the capital", "how many", "how much", "how tall",
+                "how long", "how far", "how old", "how fast",
+                "who wrote", "who invented", "who discovered",
+                "where is", "where was", "when was", "when did",
+            )
+            if any(q_lower.startswith(p) for p in factual_prefixes):
+                return True
+            # "what is X" where X is short and doesn't sound like a research topic
+            m = re.match(r'^what is (?:a |an |the )?(.+?)(?:\?*\s*)$', q_lower)
+            if m:
+                topic = m.group(1).strip()
+                research_words = {"best", "top", "good", "great", "recommended",
+                                  "vs", "versus", "compared", "review", "guide",
+                                  "tutorial", "how to", "way to", "way of"}
+                if len(topic) < 40 and not any(w in topic for w in research_words):
+                    return True
+        return False
 
     # ------------------------------------------------------------ synthesize
     async def _synthesize(self, query: str, sources: List[Dict[str, Any]], *,

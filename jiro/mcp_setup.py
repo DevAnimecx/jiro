@@ -166,7 +166,7 @@ CLIENTS: Dict[str, Dict[str, Any]] = {
 # ── Helpers ───────────────────────────────────────────────────────────
 
 def _get_system() -> str:
-    return platform.system().lower()
+    return sys.platform
 
 
 def _expand(path: str) -> Path:

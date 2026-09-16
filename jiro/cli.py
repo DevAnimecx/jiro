@@ -263,6 +263,9 @@ def auth_login(
         console.print()
         console.print(dim(f"  Open this URL: {verify_url}"))
 
+    console.print()
+    console.print(dim("  No account? Sign up at https://searchjiro.vercel.app/register"))
+
     # --- Step 3: Poll for authorization -------------------------------------
     console.print()
     console.print(step(3, 3, "Waiting for authorization"))
@@ -498,13 +501,31 @@ def license_activate(
 
 
 @license_app.command("info", help="Show current license details.")
-def license_info() -> None:
+def license_info(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
+) -> None:
     """Display current license information and status."""
     from jiro.licensing import get_license_manager, get_features_for_tier, FEATURE_DEFINITIONS
     from jiro.cli_ui import console as _c, warning, dim, rule
 
     manager = get_license_manager()
     info = manager.get_license()
+
+    if json_output:
+        print(json.dumps({
+            "valid": info.valid,
+            "tier": info.tier,
+            "customer_id": info.customer_id,
+            "license_id": info.license_id,
+            "issued_at": info.issued_at,
+            "expires_at": info.expires_at,
+            "max_devices": info.max_devices,
+            "features": list(info.features),
+            "is_expired": info.is_expired,
+            "in_grace_period": info.in_grace_period,
+            "grace_mode": info.grace_mode,
+        }, indent=2, default=str))
+        return
 
     if not info.valid and not info.in_grace_period:
         _c.print(warning("No active license."))
@@ -532,16 +553,30 @@ def license_info() -> None:
     table.add_row("Expires", time.strftime("%Y-%m-%d", time.localtime(info.expires_at)))
     table.add_row("Max Devices", str(info.max_devices))
     table.add_row("Features", str(len(info.features)))
+
+    # Days until expiration
+    days_left = (info.expires_at - time.time()) / 86400
+    if days_left > 0:
+        table.add_row("Expires in", f"{int(days_left)} days")
+    else:
+        table.add_row("Expired", f"{int(abs(days_left))} days ago")
+
+    # Grace period
+    if info.in_grace_period:
+        grace_hours = int(info.remaining_grace // 3600)
+        table.add_row("Grace Period", f"{grace_hours}h remaining")
+
     _c.print(table)
 
     # Features
-    features_table = Table(title="Enabled Features")
-    features_table.add_column("Feature", style="cyan")
-    features_table.add_column("Description", style="white")
-    for feat in sorted(info.features):
-        desc = FEATURE_DEFINITIONS.get(feat, {}).get("description", feat)
-        features_table.add_row(feat, desc)
-    _c.print(features_table)
+    if info.features:
+        features_table = Table(title="Enabled Features")
+        features_table.add_column("Feature", style="cyan")
+        features_table.add_column("Description", style="white")
+        for feat in sorted(info.features):
+            desc = FEATURE_DEFINITIONS.get(feat, {}).get("description", feat)
+            features_table.add_row(feat, desc)
+        _c.print(features_table)
 
 
 @license_app.command("deactivate", help="Remove the current license.")
@@ -751,8 +786,10 @@ def scrape(
     url: str = typer.Argument(..., help="URL or search query to scrape"),
     format: str = typer.Option("markdown", "--format", "-f",
                                help="Output format: markdown, text, html, json"),
+    full: bool = typer.Option(False, "--full", help="Show full content (no truncation)"),
     cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
     config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
     """Scrape a URL and extract readable content.
 
@@ -776,7 +813,7 @@ def scrape(
         # Treat as search query - search first, then scrape top result
         from jiro.cli_ui import dim
         console.print(dim(f"Searching for '{url}'..."))
-        asyncio.run(_scrape_search_query(url, format, config))
+        asyncio.run(_scrape_search_query(url, format, config, full=full))
         return
 
     if not url.startswith(("http://", "https://")):
@@ -785,6 +822,9 @@ def scrape(
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/scrape", json={"url": url, "format": format})
         data = resp.json()
+        if json_output:
+            print(json.dumps(data, indent=2, default=str))
+            return
         if resp.status_code != 200:
             from jiro.cli_ui import error
             console.print(error(data.get('error', resp.text)))
@@ -800,7 +840,7 @@ def scrape(
         console.print()
 
 
-async def _scrape_search_query(query: str, format: str, config: str) -> None:
+async def _scrape_search_query(query: str, format: str, config: str, full: bool = False) -> None:
     """Search for a query and scrape the first result."""
     import re
     from jiro.server import create_app
@@ -844,6 +884,7 @@ async def _scrape_search_query(query: str, format: str, config: str) -> None:
             _safe_print(data.get("title", "")),
             data.get("url", ""),
             _safe_print(data.get("content", "")),
+            max_chars=999999 if full else 3000,
         )
         console.print()
         console.print(card)
@@ -899,6 +940,7 @@ async def _cloud_scrape(url, format):
         _safe_print(data.get("title", "")),
         data.get("url", ""),
         _safe_print(data.get("content", "")),
+        max_chars=999999 if full else 3000,
     )
     console.print(card)
     console.print()
@@ -1263,6 +1305,14 @@ def mcp_status() -> None:
 # keys
 # --------------------------------------------------------------------------
 def _admin_key_required() -> str:
+    import os as _os
+    key = _os.environ.get("JIRO_ADMIN_KEY")
+    if key:
+        return key
+    if not sys.stdin.isatty():
+        from jiro.cli_ui import console as _c, error
+        _c.print(error("Admin API key required. Set JIRO_ADMIN_KEY env var or pass --admin-key."))
+        raise typer.Exit(1)
     key = typer.prompt("Admin API key", hide_input=True)
     return key
 
@@ -1304,6 +1354,7 @@ def keys_create(
 def keys_list(
     admin_key: Optional[str] = typer.Option(None, "--admin-key", envvar="JIRO_ADMIN_KEY"),
     config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
@@ -1316,13 +1367,17 @@ def keys_list(
         if resp.status_code != 200:
             _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
+        keys = resp.json()
+        if json_output:
+            print(json.dumps(keys, indent=2, default=str))
+            return
         table = Table(title="API keys")
         table.add_column("ID")
         table.add_column("Name")
         table.add_column("Prefix")
         table.add_column("Role")
         table.add_column("Created")
-        for k in resp.json():
+        for k in keys:
             table.add_row(k["id"][:12], k["name"], k["key_prefix"], k["role"],
                           k["created_at"][:10])
         _c.print(table)
@@ -1355,6 +1410,7 @@ def usage(
     days: int = typer.Option(7, "--days"),
     admin_key: Optional[str] = typer.Option(None, "--admin-key", envvar="JIRO_ADMIN_KEY"),
     config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
@@ -1368,6 +1424,9 @@ def usage(
             _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
         data = resp.json()
+        if json_output:
+            print(json.dumps(data, indent=2, default=str))
+            return
         _c.print(f"requests: [bold]{data['requests']}[/]  "
                       f"cached: {data['cached']}  tokens: {data['tokens_in'] + data['tokens_out']}")
         table = Table(title=f"By endpoint (last {days} days)")
@@ -1400,8 +1459,13 @@ def config_init(
 
 
 @config_app.command("show", help="Show the effective configuration.")
-def config_show(config: str = typer.Option(None, "--config", "-c")) -> None:
+def config_show(
+    section: str = typer.Argument(None, help="Show only a section (e.g., llm, server, logging)"),
+    config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON (default)"),
+) -> None:
     import copy
+    from jiro.cli_ui import error, dim
 
     SECRET_KEYS = {"api_key", "secret", "token", "password", "private_key", "auth_token", "sessionid", "c_user"}
 
@@ -1419,6 +1483,14 @@ def config_show(config: str = typer.Option(None, "--config", "-c")) -> None:
     settings = Settings.load(config)
     data = copy.deepcopy(settings.dump())
     _mask_secrets(data)
+
+    if section:
+        if section not in data:
+            console.print(error(f"Unknown section: '{section}'"))
+            console.print(dim(f"Available: {', '.join(sorted(data.keys()))}"))
+            raise typer.Exit(1)
+        data = {section: data[section]}
+
     console.print(json.dumps(data, indent=2, default=str))
 
 
@@ -1797,12 +1869,14 @@ def dev_install(
 
 
 @app.command(help="Show Jiro system status and health.")
-def status() -> None:
+def status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
+) -> None:
     """Show system status, version, and component health."""
-    asyncio.run(_run_status())
+    asyncio.run(_run_status(json_output))
 
 
-async def _run_status() -> None:
+async def _run_status(json_output: bool = False) -> None:
     """Check system status."""
     from pathlib import Path
     from jiro.cli_ui import (
@@ -1871,6 +1945,17 @@ async def _run_status() -> None:
     except Exception as e:
         checks.append(("Intent Classifier", False, str(e)))
 
+    if json_output:
+        passed = sum(1 for _, s, _ in checks if s)
+        print(json.dumps({
+            "version": __version__,
+            "components": [{"name": n, "ok": s, "details": d} for n, s, d in checks],
+            "healthy": passed == len(checks),
+            "passed": passed,
+            "total": len(checks),
+        }, indent=2, default=str))
+        return
+
     # Print results
     table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold orange1", padding=(0, 2))
     table.add_column("Component", style="bold white")
@@ -1898,12 +1983,15 @@ async def _run_status() -> None:
 # doctor
 # --------------------------------------------------------------------------
 @app.command(help="Diagnose common Jiro issues.")
-def doctor() -> None:
+def doctor(
+    fix: bool = typer.Option(False, "--fix", help="Auto-fix issues where possible"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
+) -> None:
     """Run diagnostics and suggest fixes."""
-    asyncio.run(_run_doctor())
+    asyncio.run(_run_doctor(json_output, fix))
 
 
-async def _run_doctor() -> None:
+async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
     from pathlib import Path
     from jiro.cli_ui import (
         console, rule, success, error, warning, dim, make_mini_logo,
@@ -1990,6 +2078,21 @@ async def _run_doctor() -> None:
         fixes.append("Check your internet connection")
         console.print(warning("No network connectivity"))
 
+    if json_output:
+        print(json.dumps({
+            "issues": issues,
+            "fixes": fixes,
+            "checks": {
+                "config": "ok" if not any("Config" in i for i in issues) else "fail",
+                "license": "ok" if not any("License" in i for i in issues) else "fail",
+                "database": "ok" if not any("Database" in i for i in issues) else "fail",
+                "python": "ok" if not any("Python" in i for i in issues) else "fail",
+                "dependencies": "ok" if not any("Missing" in i for i in issues) else "fail",
+                "network": "ok" if not any("network" in i.lower() for i in issues) else "fail",
+            },
+        }, indent=2, default=str))
+        raise typer.Exit(1 if issues else 0)
+
     # Summary
     console.print()
     if issues:
@@ -1999,9 +2102,31 @@ async def _run_doctor() -> None:
             console.print(Text(f"  {i}. {issue}", style="bold red"))
         if fixes:
             console.print()
-            console.print(Text("  Suggested fixes:", style="bold white"))
-            for fix in fixes:
-                console.print(Text(f"  -> {fix}", style="cyan"))
+            if do_fix:
+                console.print(Text("  Auto-fixing:", style="bold white"))
+                import subprocess
+                for fix in fixes:
+                    if fix.startswith("pip install "):
+                        pkgs = fix.replace("pip install ", "")
+                        console.print(Text(f"  -> Installing {pkgs}...", style="cyan"))
+                        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q"] + pkgs.split(),
+                                           capture_output=True, text=True)
+                        if r.returncode == 0:
+                            console.print(success(f"Installed {pkgs}"))
+                        else:
+                            console.print(error(f"Failed to install {pkgs}: {r.stderr[:200]}"))
+                    elif fix == "Run: jiro config init":
+                        console.print(Text("  -> Running jiro config init...", style="cyan"))
+                        from jiro.config import Settings
+                        Settings.init()
+                        console.print(success("Config initialized"))
+                    else:
+                        console.print(Text(f"  -> {fix} (manual)", style="dim"))
+            else:
+                console.print(Text("  Suggested fixes:", style="bold white"))
+                for fix in fixes:
+                    console.print(Text(f"  -> {fix}", style="cyan"))
+                console.print(dim("  Run with --fix to auto-fix where possible"))
         console.print()
         raise typer.Exit(1)
     else:
@@ -2340,6 +2465,7 @@ def bench(
     iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
     engines: int = typer.Option(2, "--engines", "-e", help="Number of search engines"),
     config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
     """Benchmark search and scrape performance.
 
@@ -2386,6 +2512,14 @@ def bench(
             scrape_times.append(elapsed)
             status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
             _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
+
+    if json_output:
+        def _stats(times):
+            if len(times) < 2:
+                return {"mean": times[0], "median": times[0], "stdev": 0, "min": times[0], "max": times[0], "total": times[0]}
+            return {"mean": mean(times), "median": median(times), "stdev": stdev(times), "min": min(times), "max": max(times), "total": sum(times)}
+        print(json.dumps({"query": query, "iterations": iterations, "engines": engines, "search": _stats(search_times), "scrape": _stats(scrape_times)}, indent=2, default=str))
+        return
 
     # Report
     _c.print()
