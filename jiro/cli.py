@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 import warnings
 from typing import List, Optional
 
@@ -190,7 +191,7 @@ def serve(
 
 
 # --------------------------------------------------------------------------
-# auth login — RFC 8628 Device Code Flow
+# auth login - RFC 8628 Device Code Flow
 # --------------------------------------------------------------------------
 @auth_app.command("login", help="Sign in to Jiro Cloud (device code flow).")
 def auth_login(
@@ -219,14 +220,14 @@ def auth_login(
         if not typer.confirm("\n  Sign in with a different account?"):
             return
 
-    # ── Header ─────────────────────────────────────────────────────
+    # --- Header -----------------------------------------------------------
     console.print()
     console.print(Align.center(make_mini_logo()), style="bold")
     console.print()
     console.print(rule("Cloud Login"))
     console.print()
 
-    # ── Step 1: Request device code ────────────────────────────────
+    # --- Step 1: Request device code ---------------------------------------
     console.print(step(1, 3, "Requesting device code"))
     console.print()
     auth = DeviceAuthManager(web_base)
@@ -247,7 +248,7 @@ def auth_login(
     console.print(success("Device code received"))
     console.print()
 
-    # ── Step 2: Display code + open browser ────────────────────────
+    # --- Step 2: Display code + open browser -------------------------------
     console.print(step(2, 3, "Authorize in browser"))
     console.print()
 
@@ -262,7 +263,7 @@ def auth_login(
         console.print()
         console.print(dim(f"  Open this URL: {verify_url}"))
 
-    # ── Step 3: Poll for authorization ─────────────────────────────
+    # --- Step 3: Poll for authorization -------------------------------------
     console.print()
     console.print(step(3, 3, "Waiting for authorization"))
     console.print()
@@ -286,7 +287,7 @@ def auth_login(
     console.print()
     console.print()
 
-    # ── Success! ───────────────────────────────────────────────────
+    # --- Success! ----------------------------------------------------------
     credits = result.get("credits", {})
     user = result.get("user", {})
 
@@ -454,7 +455,7 @@ def auth_status() -> None:
 
 
 # --------------------------------------------------------------------------
-# license — Self-hosted license management
+# license - Self-hosted license management
 # --------------------------------------------------------------------------
 @license_app.command("activate", help="Activate a license key for self-hosted.")
 def license_activate(
@@ -470,42 +471,45 @@ def license_activate(
 
     # Check if already licensed
     existing = manager.get_license()
+    from jiro.cli_ui import console as _c, success, error, dim
     if existing.valid and not existing.is_expired:
-        console.print(f"[green]Already licensed:[/] [bold]{existing.tier}[/] tier")
+        _c.print(success(f"Already licensed: [bold]{existing.tier}[/] tier"))
         if not typer.confirm("Replace with new license?"):
             return
 
-    console.print("[dim]Validating license key...[/]")
+    _c.print(dim("Validating license key..."))
 
     info = manager.validate_token(key.strip())
 
     if not info.valid:
-        console.print(f"[red]Invalid license: {info.error}[/]")
+        _c.print(error(f"Invalid license: {info.error}"))
         raise typer.Exit(1)
 
     # Save the license
     manager.save_license(key.strip())
 
-    console.print(f"\n[bold green]+[/] License activated!")
-    console.print(f"  Tier:      [bold]{info.tier.upper()}[/]")
-    console.print(f"  Customer:  [cyan]{info.customer_id}[/]")
-    console.print(f"  Expires:   [dim]{time.strftime('%Y-%m-%d', time.localtime(info.expires_at))}[/]")
-    console.print(f"  Features:  [dim]{len(info.features)} enabled[/]")
-    console.print(f"  Hardware:  [dim]bound to this machine[/]")
+    _c.print()
+    _c.print(success("License activated!"))
+    _c.print(f"  Tier:      [bold]{info.tier.upper()}[/]")
+    _c.print(f"  Customer:  [cyan]{info.customer_id}[/]")
+    _c.print(f"  Expires:   {dim(time.strftime('%Y-%m-%d', time.localtime(info.expires_at)))}")
+    _c.print(f"  Features:  {dim(f'{len(info.features)} enabled')}")
+    _c.print(f"  Hardware:  {dim('bound to this machine')}")
 
 
 @license_app.command("info", help="Show current license details.")
 def license_info() -> None:
     """Display current license information and status."""
     from jiro.licensing import get_license_manager, get_features_for_tier, FEATURE_DEFINITIONS
+    from jiro.cli_ui import console as _c, warning, dim, rule
 
     manager = get_license_manager()
     info = manager.get_license()
 
     if not info.valid and not info.in_grace_period:
-        console.print("[yellow]No active license.[/]")
-        console.print("[dim]Running in Free tier.[/]")
-        console.print("[dim]Run 'jiro license activate <KEY>' to upgrade.[/]")
+        _c.print(warning("No active license."))
+        _c.print(dim("Running in Free tier."))
+        _c.print(dim("Run 'jiro license activate <KEY>' to upgrade."))
         raise typer.Exit(0)
 
     # Status
@@ -528,7 +532,7 @@ def license_info() -> None:
     table.add_row("Expires", time.strftime("%Y-%m-%d", time.localtime(info.expires_at)))
     table.add_row("Max Devices", str(info.max_devices))
     table.add_row("Features", str(len(info.features)))
-    console.print(table)
+    _c.print(table)
 
     # Features
     features_table = Table(title="Enabled Features")
@@ -537,27 +541,28 @@ def license_info() -> None:
     for feat in sorted(info.features):
         desc = FEATURE_DEFINITIONS.get(feat, {}).get("description", feat)
         features_table.add_row(feat, desc)
-    console.print(features_table)
+    _c.print(features_table)
 
 
 @license_app.command("deactivate", help="Remove the current license.")
 def license_deactivate() -> None:
     """Remove the stored license key (reverts to Free tier)."""
     from jiro.licensing import get_license_manager
+    from jiro.cli_ui import console as _c, success, warning, dim
 
     manager = get_license_manager()
     info = manager.get_license()
 
     if not info.valid and not info.in_grace_period:
-        console.print("[yellow]No active license to remove.[/]")
+        _c.print(warning("No active license to remove."))
         return
 
-    console.print(f"Current tier: [bold]{info.tier.upper()}[/]")
+    _c.print(f"Current tier: [bold]{info.tier.upper()}[/]")
     if typer.confirm("Remove this license?"):
         manager.clear_license()
-        console.print("[bold green]+[/] License removed. Reverted to Free tier.")
+        _c.print(success("License removed. Reverted to Free tier."))
     else:
-        console.print("[dim]Cancelled.[/]")
+        _c.print(dim("Cancelled."))
 
 
 @license_app.command("validate", help="Validate a license key without activating.")
@@ -566,18 +571,19 @@ def license_validate(
 ) -> None:
     """Check if a license key is valid without saving it."""
     from jiro.licensing import get_license_manager
+    from jiro.cli_ui import console as _c, success, error
 
     manager = get_license_manager()
     info = manager.validate_token(key.strip())
 
     if info.valid:
-        console.print(f"[bold green]+[/] Valid license")
-        console.print(f"  Tier:     {info.tier.upper()}")
-        console.print(f"  Customer: {info.customer_id}")
-        console.print(f"  Expires:  {time.strftime('%Y-%m-%d', time.localtime(info.expires_at))}")
-        console.print(f"  Features: {len(info.features)}")
+        _c.print(success("Valid license"))
+        _c.print(f"  Tier:     {info.tier.upper()}")
+        _c.print(f"  Customer: {info.customer_id}")
+        _c.print(f"  Expires:  {time.strftime('%Y-%m-%d', time.localtime(info.expires_at))}")
+        _c.print(f"  Features: {len(info.features)}")
     else:
-        console.print(f"[bold red]![/] Invalid license: {info.error}")
+        _c.print(error(f"Invalid license: {info.error}"))
         raise typer.Exit(1)
 
 
@@ -610,25 +616,27 @@ def search_web(
 
 def _interactive_search(engine, type, num, location, language, parallel, num_engines, json_output, config):
     """Interactive search loop."""
-    console.print("[bold cyan]Jiro Interactive Search[/] (type 'quit' or 'exit' to stop)\n")
+    from jiro.cli_ui import console as _c, accent, dim
+    _c.print(accent("Jiro Interactive Search") + dim(" (type 'quit' or 'exit' to stop)\n"))
     
     while True:
         try:
-            q = console.input("[bold green]Search > [/]")
+            q = _c.input(accent("Search > "))
         except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]Goodbye![/]")
+            _c.print()
+            _c.print(dim("Goodbye!"))
             break
         
         q = q.strip()
         if not q:
             continue
         if q.lower() in ("quit", "exit", "q"):
-            console.print("[dim]Goodbye![/]")
+            _c.print(dim("Goodbye!"))
             break
         
         asyncio.run(_cli_search(q, engine, type, num, location, language,
                                 parallel, num_engines, json_output, config))
-        console.print()  # Empty line between results
+        _c.print()  # Empty line between results
 
 
 async def _cli_search(q, engine, type, num, location, language, parallel, num_engines, json_output, config):
@@ -663,21 +671,22 @@ async def _cli_search(q, engine, type, num, location, language, parallel, num_en
 async def _cloud_search(q, engine, type, num, location, language, json_output):
     """Search via Jiro Cloud API."""
     from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE, refresh_credits
+    from jiro.cli_ui import console as _c, error, warning, dim
 
     creds = load_cloud_credentials()
     if not creds:
-        console.print("[red]Not signed in. Run 'jiro auth login' first.[/]")
+        _c.print(error("Not signed in. Run 'jiro auth login' first."))
         raise typer.Exit(1)
 
     # Check credits before making call
     creds = refresh_credits(creds)
     if creds.credits_remaining <= 0:
-        console.print("[red]No credits remaining.[/]")
-        console.print("[dim]Upgrade at searchjiro.vercel.app/dashboard/billing[/]")
+        _c.print(error("No credits remaining."))
+        _c.print(dim("Upgrade at searchjiro.vercel.app/dashboard/billing"))
         raise typer.Exit(1)
 
     if creds.credits_remaining < 10:
-        console.print(f"[yellow]Warning: Only {creds.credits_remaining} credits remaining[/]")
+        _c.print(warning(f"Only {creds.credits_remaining} credits remaining"))
 
     import urllib.request
     import urllib.error
@@ -691,14 +700,14 @@ async def _cloud_search(q, engine, type, num, location, language, json_output):
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        console.print(f"[red]Cloud API error ({e.code}): {body}[/]")
+        _c.print(error(f"Cloud API error ({e.code}): {body}"))
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Request failed: {e}[/]")
+        _c.print(error(f"Request failed: {e}"))
         raise typer.Exit(1)
 
     if json_output:
-        console.print(json.dumps(data, indent=2, default=str))
+        _c.print(json.dumps(data, indent=2, default=str))
         return
 
     from jiro.cli_ui import search_result_card
@@ -710,9 +719,9 @@ async def _cloud_search(q, engine, type, num, location, language, json_output):
         cached=meta.get("cached", False),
         time_taken=meta.get("total_time_taken", 0),
     )
-    console.print()
-    console.print(card)
-    console.print()
+    _c.print()
+    _c.print(card)
+    _c.print()
 
 
 def _safe_print(text: str) -> str:
@@ -765,7 +774,8 @@ def scrape(
     # Auto-prepend https:// if no scheme is provided but looks like a domain
     if not _is_url(url):
         # Treat as search query - search first, then scrape top result
-        console.print(f"[dim]Searching for '{url}'...[/]")
+        from jiro.cli_ui import dim
+        console.print(dim(f"Searching for '{url}'..."))
         asyncio.run(_scrape_search_query(url, format, config))
         return
 
@@ -776,7 +786,8 @@ def scrape(
         resp = client.post("/scrape", json={"url": url, "format": format})
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', resp.text)}[/]")
+            from jiro.cli_ui import error
+            console.print(error(data.get('error', resp.text)))
             raise typer.Exit(1)
         from jiro.cli_ui import scrape_result_card
         card = scrape_result_card(
@@ -804,27 +815,29 @@ async def _scrape_search_query(query: str, format: str, config: str) -> None:
         data = resp.json()
         results = data.get("organic_results", [])
         if not results:
-            console.print(f"[red]No results found for '{query}'[/]")
+            from jiro.cli_ui import error
+            console.print(error(f"No results found for '{query}'"))
             raise typer.Exit(1)
 
         # Get the first result URL - prefer displayed_link over source
         first_result = results[0]
         target_url = first_result.get("displayed_link", "") or first_result.get("source", "")
         if not target_url:
-            console.print(f"[red]Could not extract URL from first result[/]")
+            console.print(error("Could not extract URL from first result"))
             raise typer.Exit(1)
 
         # Ensure URL has scheme
         if not target_url.startswith(("http://", "https://")):
             target_url = f"https://{target_url}"
 
-        console.print(f"[dim]Scraping: {target_url}[/]")
+        from jiro.cli_ui import dim
+        console.print(dim(f"Scraping: {target_url}"))
 
         # Scrape the URL
         resp = client.post("/scrape", json={"url": target_url, "format": format})
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', resp.text)}[/]")
+            console.print(error(data.get('error', resp.text)))
             raise typer.Exit(1)
         from jiro.cli_ui import scrape_result_card
         card = scrape_result_card(
@@ -840,21 +853,22 @@ async def _scrape_search_query(query: str, format: str, config: str) -> None:
 async def _cloud_scrape(url, format):
     """Scrape via Jiro Cloud API."""
     from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE, refresh_credits
+    from jiro.cli_ui import console as _c, error, warning, dim
 
     creds = load_cloud_credentials()
     if not creds:
-        console.print("[red]Not signed in. Run 'jiro auth login' first.[/]")
+        _c.print(error("Not signed in. Run 'jiro auth login' first."))
         raise typer.Exit(1)
 
     # Check credits before making call
     creds = refresh_credits(creds)
     if creds.credits_remaining <= 0:
-        console.print("[red]No credits remaining.[/]")
-        console.print("[dim]Upgrade at searchjiro.vercel.app/dashboard/billing[/]")
+        _c.print(error("No credits remaining."))
+        _c.print(dim("Upgrade at searchjiro.vercel.app/dashboard/billing"))
         raise typer.Exit(1)
 
     if creds.credits_remaining < 10:
-        console.print(f"[yellow]Warning: Only {creds.credits_remaining} credits remaining[/]")
+        _c.print(warning(f"Only {creds.credits_remaining} credits remaining"))
 
     import urllib.request
     import urllib.error
@@ -873,13 +887,13 @@ async def _cloud_scrape(url, format):
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="replace")
-        console.print(f"[red]Cloud API error ({e.code}): {err_body}[/]")
+        _c.print(error(f"Cloud API error ({e.code}): {err_body}"))
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Request failed: {e}[/]")
+        _c.print(error(f"Request failed: {e}"))
         raise typer.Exit(1)
 
-    console.print()
+    _c.print()
     from jiro.cli_ui import scrape_result_card
     card = scrape_result_card(
         _safe_print(data.get("title", "")),
@@ -900,21 +914,22 @@ def ask(
     json_output: bool = typer.Option(False, "--json"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
-    console.print("[yellow]Tip: Use 'jiro ai ask' instead for more options.[/]")
+    from jiro.cli_ui import warning
+    console.print(warning("Tip: Use 'jiro ai ask' instead for more options."))
     _run_ai_ask(query, max_sources, json_output, config)
 
 
 def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console, rule, dim, accent, Text, Panel, box, Group
+    from jiro.cli_ui import console, rule, dim, accent, Text, Panel, box, Group, error
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/ai/search", json={"query": query,
                                                "max_sources": max_sources})
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            console.print(error(data.get('error', data.get('detail', resp.text))))
             raise typer.Exit(1)
         if json_output:
             console.print(json.dumps(data, indent=2, default=str))
@@ -984,31 +999,32 @@ def ai_setup(
 
 def _ai_setup_interactive(config: str) -> None:
     """Interactive setup wizard."""
+    from jiro.cli_ui import console as _c, warning, dim, error
     settings = Settings.load(config)
     llm_cfg = settings.llm
 
-    console.print(Panel.fit("[bold]Jiro AI Setup Wizard[/]", subtitle="Configure your LLM provider"))
+    _c.print(Panel.fit("[bold]Jiro AI Setup Wizard[/]", subtitle="Configure your LLM provider"))
 
     # Provider
     providers = ["openai", "anthropic", "gemini", "openrouter", "ollama"]
     current_provider = llm_cfg.get("provider", "openai")
-    console.print(f"\n[bold]Current provider:[/] {current_provider}")
-    console.print("[dim]Providers: openai, anthropic, gemini, openrouter, ollama[/]")
+    _c.print(f"\n[bold]Current provider:[/] {current_provider}")
+    _c.print(dim("Providers: openai, anthropic, gemini, openrouter, ollama"))
     provider = typer.prompt("Provider", default=current_provider)
     if provider not in providers:
-        console.print(f"[red]Invalid provider: {provider}[/]")
+        _c.print(error(f"Invalid provider: {provider}"))
         raise typer.Exit(1)
 
     # API Key
     current_key = llm_cfg.get("api_key", "")
     has_key = bool(current_key)
-    console.print(f"\n[bold]API key:[/] {'configured' if has_key else 'not set'}")
+    _c.print(f"\n[bold]API key:[/] {'configured' if has_key else 'not set'}")
     if provider == "ollama":
         api_key = ""  # Ollama doesn't need an API key
     else:
         api_key = typer.prompt("API key", default="", hide_input=True)
         if not api_key and not has_key:
-            console.print("[yellow]No API key provided. AI features may not work.[/]")
+            _c.print(warning("No API key provided. AI features may not work."))
 
     # Model
     default_models = {
@@ -1019,7 +1035,7 @@ def _ai_setup_interactive(config: str) -> None:
         "ollama": "llama3",
     }
     current_model = llm_cfg.get("model", default_models.get(provider, "gpt-4o-mini"))
-    console.print(f"\n[bold]Model:[/] {current_model}")
+    _c.print(f"\n[bold]Model:[/] {current_model}")
     model = typer.prompt("Model", default=current_model)
 
     # Base URL (for custom endpoints)
@@ -1028,18 +1044,18 @@ def _ai_setup_interactive(config: str) -> None:
         default_url = {"ollama": "http://localhost:11434/v1", "openrouter": "https://openrouter.ai/api/v1"}.get(provider, "")
     else:
         default_url = ""
-    console.print(f"\n[bold]Base URL:[/] {current_base_url or '(default)'}")
-    console.print("[dim]Leave empty for default endpoint, or enter custom URL[/]")
+    _c.print(f"\n[bold]Base URL:[/] {current_base_url or '(default)'}")
+    _c.print(dim("Leave empty for default endpoint, or enter custom URL"))
     base_url = typer.prompt("Base URL", default=current_base_url or default_url or "")
 
     # Temperature
     current_temp = llm_cfg.get("temperature", 0.2)
-    console.print(f"\n[bold]Temperature:[/] {current_temp}")
+    _c.print(f"\n[bold]Temperature:[/] {current_temp}")
     temperature = typer.prompt("Temperature", default=current_temp, type=float)
 
     # Max tokens
     current_max = llm_cfg.get("max_tokens", 1024)
-    console.print(f"\n[bold]Max tokens:[/] {current_max}")
+    _c.print(f"\n[bold]Max tokens:[/] {current_max}")
     max_tokens = typer.prompt("Max tokens", default=current_max, type=int)
 
     _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens, config)
@@ -1049,6 +1065,7 @@ def _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens,
     """Apply AI configuration to the config file."""
     from pathlib import Path
     import yaml
+    from jiro.cli_ui import console as _c, success, warning
 
     config_path = Path(config).expanduser() if config else Path("~/.jiro/config.yaml").expanduser()
 
@@ -1082,34 +1099,35 @@ def _ai_setup_apply(provider, api_key, model, base_url, temperature, max_tokens,
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
-    console.print(f"[bold green]+[/] AI configuration saved to {config_path}")
+    _c.print(success(f"AI configuration saved to {config_path}"))
 
     # Show summary
-    console.print("\n[bold]Configuration:[/]")
-    console.print(f"  Provider:  {cfg['llm'].get('provider', 'openai')}")
-    console.print(f"  Model:     {cfg['llm'].get('model', 'gpt-4o-mini')}")
-    console.print(f"  API Key:   {'***' + cfg['llm'].get('api_key', '')[-4:] if cfg['llm'].get('api_key') else 'not set'}")
-    console.print(f"  Base URL:  {cfg['llm'].get('base_url', '(default)') or '(default)'}")
-    console.print(f"  Temp:      {cfg['llm'].get('temperature', 0.2)}")
-    console.print(f"  Max Tokens: {cfg['llm'].get('max_tokens', 1024)}")
+    _c.print("\n[bold]Configuration:[/]")
+    _c.print(f"  Provider:  {cfg['llm'].get('provider', 'openai')}")
+    _c.print(f"  Model:     {cfg['llm'].get('model', 'gpt-4o-mini')}")
+    _c.print(f"  API Key:   {'***' + cfg['llm'].get('api_key', '')[-4:] if cfg['llm'].get('api_key') else 'not set'}")
+    _c.print(f"  Base URL:  {cfg['llm'].get('base_url', '(default)') or '(default)'}")
+    _c.print(f"  Temp:      {cfg['llm'].get('temperature', 0.2)}")
+    _c.print(f"  Max Tokens: {cfg['llm'].get('max_tokens', 1024)}")
 
     # Test the connection
-    console.print("\n[bold]Testing connection...[/]")
+    _c.print("\n[bold]Testing connection...[/]")
     try:
         settings = Settings.load(config)
         from jiro.ai.llm import build_provider
         provider_obj = build_provider(settings)
-        console.print(f"[bold green]+[/] Provider '{provider_obj.name}' configured successfully")
+        _c.print(success(f"Provider '{provider_obj.name}' configured successfully"))
     except Exception as e:
-        console.print(f"[yellow]! Could not test provider: {e}[/]")
+        _c.print(warning(f"Could not test provider: {e}"))
 
 
 def _ai_setup_status(config: str) -> None:
     """Show current AI configuration status."""
+    from jiro.cli_ui import console as _c, success, warning, dim
     settings = Settings.load(config)
     llm_cfg = settings.llm
 
-    console.print(Panel.fit("[bold]Jiro AI Status[/]"))
+    _c.print(Panel.fit("[bold]Jiro AI Status[/]"))
 
     provider = llm_cfg.get("provider", "openai")
     model = llm_cfg.get("model", "gpt-4o-mini")
@@ -1129,16 +1147,16 @@ def _ai_setup_status(config: str) -> None:
     table.add_row("Temperature", str(temperature))
     table.add_row("Max Tokens", str(max_tokens))
 
-    console.print(table)
+    _c.print(table)
 
     # Check if LLM is available
     from jiro.ai.llm import LLM
     llm = LLM(settings)
     if llm.available:
-        console.print("[bold green]+[/] LLM is configured and ready")
+        _c.print(success("LLM is configured and ready"))
     else:
-        console.print("[bold yellow]![/] LLM is not configured (no API key)")
-        console.print("[dim]Run 'jiro ai setup --api-key YOUR_KEY' to configure[/]")
+        _c.print(warning("LLM is not configured (no API key)"))
+        _c.print(dim("Run 'jiro ai setup --api-key YOUR_KEY' to configure"))
 
 
 @ai_app.command("ask", help="Ask a research question with AI-powered answers.")
@@ -1164,21 +1182,23 @@ def ai_test(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """Send a test prompt to the configured LLM provider."""
+    from jiro.cli_ui import console as _c, error, dim, success
     settings = Settings.load(config)
     from jiro.ai.llm import LLM
 
     llm = LLM(settings)
     if not llm.available:
-        console.print("[red]LLM is not configured. Run 'jiro ai setup' first.[/]")
+        _c.print(error("LLM is not configured. Run 'jiro ai setup' first."))
         raise typer.Exit(1)
 
-    console.print(f"[dim]Testing {llm.provider_name}/{llm.model}...[/]")
+    _c.print(dim(f"Testing {llm.provider_name}/{llm.model}..."))
     try:
         import asyncio
         response = asyncio.run(llm.complete([{"role": "user", "content": prompt}]))
-        console.print(f"\n[bold green]+[/] Response:\n{response}")
+        _c.print()
+        _c.print(success(f"Response:\n{response}"))
     except Exception as e:
-        console.print(f"[red]Test failed: {e}[/]")
+        _c.print(error(f"Test failed: {e}"))
         raise typer.Exit(1)
 
 
@@ -1193,11 +1213,12 @@ def mcp(
     port: int = typer.Option(None, "--port", help="HTTP port (default from config)"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    from jiro.cli_ui import console as _c, accent
     settings = Settings.load(config)
     if transport == "http":
         _host = host or settings.host
         _port = port or settings.port
-        console.print(f"[bold green]jiro[/] MCP over HTTP on "
+        _c.print(accent("jiro") + f" MCP over HTTP on "
                       f"http://{_host}:{_port}/mcp  (+ /sse legacy transport, /docs)")
         import uvicorn
         from jiro.server import create_app
@@ -1221,11 +1242,12 @@ def mcp_setup(
     remote: bool = typer.Option(False, "--remote", "-r", help="Configure for remote cloud access (requires login)"),
 ) -> None:
     from jiro.mcp_setup import run_auto_setup, run_setup, list_supported_clients
+    from jiro.cli_ui import error
     if auto:
         raise typer.Exit(run_auto_setup())
     valid = [c["id"] for c in list_supported_clients()]
     if client not in valid:
-        console.print(f"[red]Unknown client: {client}[/]")
+        console.print(error(f"Unknown client: {client}"))
         console.print(f"Supported: {', '.join(valid)}")
         raise typer.Exit(1)
     raise typer.Exit(run_setup(client, force=force, remote=remote))
@@ -1255,6 +1277,7 @@ def keys_create(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, success, error, warning, Panel, box
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         headers = {"X-API-Key": admin_key or _admin_key_required()}
@@ -1262,11 +1285,19 @@ def keys_create(
                                               "rate_limit_rpm": rate_limit},
                            headers=headers)
         if resp.status_code != 200:
-            console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
+            _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
         data = resp.json()
-        console.print(f"[bold green]+[/] key created: [bold]{data['api_key']}[/]")
-        console.print("[yellow]Store it now — it will not be shown again.[/]")
+        key_panel = Panel(
+            f"[bold white]{data['api_key']}[/]",
+            title="[bold #f97316]New API Key[/]",
+            border_style="#f97316",
+            box=box.DOUBLE_EDGE,
+            padding=(0, 1),
+        )
+        _c.print(success("Key created"))
+        _c.print(key_panel)
+        _c.print(warning("Store it now - it will not be shown again."))
 
 
 @keys_app.command("list", help="List API keys (requires an admin key).")
@@ -1276,12 +1307,14 @@ def keys_list(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, ORANGE
+    from rich.table import Table
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         headers = {"X-API-Key": admin_key or _admin_key_required()}
         resp = client.get("/api-keys", headers=headers)
         if resp.status_code != 200:
-            console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
+            _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
         table = Table(title="API keys")
         table.add_column("ID")
@@ -1292,7 +1325,7 @@ def keys_list(
         for k in resp.json():
             table.add_row(k["id"][:12], k["name"], k["key_prefix"], k["role"],
                           k["created_at"][:10])
-        console.print(table)
+        _c.print(table)
 
 
 @keys_app.command("revoke", help="Revoke an API key (requires an admin key).")
@@ -1303,14 +1336,15 @@ def keys_revoke(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, success, error
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         headers = {"X-API-Key": admin_key or _admin_key_required()}
         resp = client.delete(f"/api-keys/{key_id}", headers=headers)
         if resp.status_code != 200:
-            console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
+            _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
-        console.print(f"[bold green]+[/] key {key_id} revoked")
+        _c.print(success(f"Key {key_id} revoked"))
 
 
 # --------------------------------------------------------------------------
@@ -1324,22 +1358,24 @@ def usage(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, ORANGE
+    from rich.table import Table
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         headers = {"X-API-Key": admin_key or _admin_key_required()}
         resp = client.get("/usage", params={"days": days}, headers=headers)
         if resp.status_code != 200:
-            console.print(f"[red]{resp.json().get('error', resp.text)}[/]")
+            _c.print(error(resp.json().get('error', resp.text)))
             raise typer.Exit(1)
         data = resp.json()
-        console.print(f"requests: [bold]{data['requests']}[/]  "
+        _c.print(f"requests: [bold]{data['requests']}[/]  "
                       f"cached: {data['cached']}  tokens: {data['tokens_in'] + data['tokens_out']}")
         table = Table(title=f"By endpoint (last {days} days)")
         table.add_column("Endpoint")
         table.add_column("Requests")
         for row in data["by_endpoint"]:
             table.add_row(row["endpoint"], str(row["n"]))
-        console.print(table)
+        _c.print(table)
 
 
 # --------------------------------------------------------------------------
@@ -1351,21 +1387,39 @@ def config_init(
     force: bool = typer.Option(False, "--force"),
 ) -> None:
     from pathlib import Path
+    from jiro.cli_ui import console as _c, success, warning
     target = Path(path).expanduser() if path else Path("~/.jiro/config.yaml").expanduser()
     settings = Settings.load(path)
     if target.exists() and not force:
-        console.print(f"[yellow]{target} already exists (use --force to overwrite).[/]")
+        _c.print(warning(f"{target} already exists (use --force to overwrite)."))
         raise typer.Exit(1)
     target.parent.mkdir(parents=True, exist_ok=True)
     import yaml
     target.write_text(yaml.safe_dump(settings.dump(), sort_keys=False))
-    console.print(f"[bold green]+[/] wrote {target}")
+    _c.print(success(f"Wrote {target}"))
 
 
 @config_app.command("show", help="Show the effective configuration.")
 def config_show(config: str = typer.Option(None, "--config", "-c")) -> None:
+    import copy
+
+    SECRET_KEYS = {"api_key", "secret", "token", "password", "private_key", "auth_token", "sessionid", "c_user"}
+
+    def _mask_secrets(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k.lower() in SECRET_KEYS and isinstance(v, str) and len(v) > 4:
+                    obj[k] = v[:4] + "***" + v[-4:]
+                elif isinstance(v, (dict, list)):
+                    _mask_secrets(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                _mask_secrets(item)
+
     settings = Settings.load(config)
-    console.print(json.dumps(settings.dump(), indent=2, default=str))
+    data = copy.deepcopy(settings.dump())
+    _mask_secrets(data)
+    console.print(json.dumps(data, indent=2, default=str))
 
 
 # --------------------------------------------------------------------------
@@ -1408,11 +1462,18 @@ async def _run_update(
 ) -> None:
     """Execute the update process."""
     from pathlib import Path
+    from jiro.cli_ui import (
+        console as _c, success, error, warning, dim, rule, accent, Panel, box,
+        Text, ORANGE,
+    )
 
-    console.print(Panel.fit(
-        f"[bold]Jiro Update[/] v{__version__}"
-        + (" [yellow](dev mode - GitHub)[/]" if dev else ""),
-        subtitle="Checking for updates..."
+    _c.print(Panel(
+        accent(f"Jiro Update v{__version__}")
+        + (warning(" (dev mode - GitHub)") if dev else "")
+        + Text("\n  Checking for updates...", style="dim"),
+        border_style=ORANGE,
+        box=box.ROUNDED,
+        padding=(0, 1),
     ))
 
     # Step 1: Check current version
@@ -1439,7 +1500,8 @@ async def _run_update(
 
             if dev and not force and not check_only:
                 progress.stop()
-                console.print(f"\n[bold yellow]Dev version will be installed from GitHub main.[/]")
+                _c.print()
+                _c.print(warning("Dev version will be installed from GitHub main."))
                 if not typer.confirm("Continue?"):
                     raise typer.Exit(0)
                 progress.start()
@@ -1465,7 +1527,7 @@ async def _run_update(
                     except Exception:
                         latest_version = current_version
             except Exception as e:
-                console.print(f"[yellow]Could not check PyPI: {e}[/]")
+                _c.print(warning(f"Could not check PyPI: {e}"))
                 latest_version = current_version
 
             progress.update(task, description=f"Latest version: [bold]{latest_version}[/]")
@@ -1473,24 +1535,28 @@ async def _run_update(
         # Check if update needed
         if current_version == latest_version and not force and not dev:
             progress.stop()
-            console.print(f"\n[bold green]+ Already up to date! (v{current_version})[/]")
+            _c.print()
+            _c.print(success(f"Already up to date! (v{current_version})"))
             if check_only:
                 return
-            console.print("[dim]Use --force to reinstall the current version.[/]")
+            _c.print(dim("Use --force to reinstall the current version."))
             return
 
         if check_only:
             progress.stop()
-            console.print(f"\n[bold yellow]Update available: {current_version} -> {latest_version}[/]")
+            _c.print()
+            _c.print(warning(f"Update available: {current_version} -> {latest_version}"))
             return
 
         # For --force or --dev, skip the version comparison check above
         if use_github:
             progress.stop()
             if dev:
-                console.print(f"\n[bold yellow]Installing dev version from GitHub...[/]")
+                _c.print()
+                _c.print(warning("Installing dev version from GitHub..."))
             else:
-                console.print(f"\n[bold yellow]Force updating from GitHub...[/]")
+                _c.print()
+                _c.print(warning("Force updating from GitHub..."))
 
         # Step 3: Backup database
         if not skip_backup:
@@ -1506,23 +1572,19 @@ async def _run_update(
                 else:
                     progress.update(task, description="No database to backup")
             except Exception as e:
-                progress.update(task, description=f"[yellow]Backup skipped: {e}[/]")
+                progress.update(task, description=f"Backup skipped: {e}")
 
         # Step 4: Install latest version
-        # On Windows, we must exit jiro first then run pip from a separate process
-        # because jiro.exe holds a lock on itself
         if sys.platform == "win32":
             import tempfile
             import time
 
-            # Build pip command
             if use_github:
                 pip_args = [sys.executable, "-m", "pip", "install", "--upgrade",
                             "git+https://github.com/DevAnimecx/jiro.git@main"]
             else:
                 pip_args = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
 
-            # Write updater batch script
             bat_path = Path(tempfile.gettempdir()) / "jiro_updater.bat"
             pip_cmd = " ".join(f'"{a}"' for a in pip_args)
             bat_content = f"""@echo off
@@ -1542,10 +1604,10 @@ if %errorlevel%==0 (
             bat_path.write_text(bat_content, encoding="utf-8")
 
             progress.stop()
-            console.print(f"\n[bold yellow]Launching updater after jiro exits...[/]")
-            console.print(f"[dim]Updater script: {bat_path}[/]")
+            _c.print()
+            _c.print(warning("Launching updater after jiro exits..."))
+            _c.print(dim(f"Updater script: {bat_path}"))
 
-            # Start the batch file detached - it will run after jiro.exe releases
             si = subprocess.STARTUPINFO()
             si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             si.wShowWindow = subprocess.SW_HIDE
@@ -1554,11 +1616,10 @@ if %errorlevel%==0 (
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 startupinfo=si,
             )
-            console.print("[green]Updater launched. Jiro will exit now.[/]")
+            _c.print(success("Updater launched. Jiro will exit now."))
             raise typer.Exit(0)
 
         else:
-            # Linux/Mac: detached subprocess works fine
             progress.update(task, description="Installing latest version...")
             try:
                 if use_github:
@@ -1569,12 +1630,13 @@ if %errorlevel%==0 (
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode != 0:
                     progress.stop()
-                    console.print(f"[red]Installation failed:[/]\n{result.stderr}")
+                    _c.print(error("Installation failed:"))
+                    _c.print(result.stderr)
                     raise typer.Exit(1)
-                progress.update(task, description="[bold green]Installed successfully[/]")
+                progress.update(task, description="Installed successfully")
             except subprocess.TimeoutExpired:
                 progress.stop()
-                console.print("[red]Installation timed out[/]")
+                _c.print(error("Installation timed out"))
                 raise typer.Exit(1)
 
         # Step 5: Clear cache
@@ -1593,13 +1655,12 @@ if %errorlevel%==0 (
                 else:
                     progress.update(task, description="Cache type is not SQLite, skipping")
             except Exception as e:
-                progress.update(task, description=f"[yellow]Cache clear skipped: {e}[/]")
+                progress.update(task, description=f"Cache clear skipped: {e}")
 
         # Step 6: Verify components
         progress.update(task, description="Verifying components...")
         verification_results = []
 
-        # Check imports
         try:
             from jiro import __version__ as new_version
             from jiro.mcp import JiroMCPServer
@@ -1610,7 +1671,6 @@ if %errorlevel%==0 (
         except Exception as e:
             verification_results.append(("Core imports", False, str(e)))
 
-        # Check MCP tools count
         try:
             from jiro.ai.tools import mcp_tools
             tools = mcp_tools()
@@ -1618,7 +1678,6 @@ if %errorlevel%==0 (
         except Exception as e:
             verification_results.append(("MCP tools", False, str(e)))
 
-        # Check social platforms
         try:
             from jiro.scraping.social import SocialRouter
             router = SocialRouter()
@@ -1627,7 +1686,6 @@ if %errorlevel%==0 (
         except Exception as e:
             verification_results.append(("Social platforms", False, str(e)))
 
-        # Check search engines
         try:
             from jiro.ai.tools import ENGINE_ENUM
             verification_results.append(("Search engines", True, f"{len(ENGINE_ENUM)} engines"))
@@ -1636,20 +1694,21 @@ if %errorlevel%==0 (
 
         # Print verification results
         progress.stop()
-        console.print("\n[bold]Verification Results:[/]")
-        for name, success, detail in verification_results:
-            status = "[bold green]OK[/]" if success else "[bold red]FAIL[/]"
-            console.print(f"  [{status}] {name}: {detail}")
+        _c.print()
+        _c.print(rule("Verification Results"))
+        _c.print()
+        for name, ok, detail in verification_results:
+            status = success("OK") if ok else error("FAIL")
+            _c.print(f"  {status}  {name}: {detail}")
 
         # Step 7: Run tests
         if run_tests:
-            console.print("\n[bold]Running tests...[/]")
+            _c.print()
+            _c.print(rule("Running tests"))
             try:
-                # Try to find tests in source repo first, then installed package
                 source_dir = Path(__file__).parent.parent
                 test_dir = source_dir / "tests"
                 if not test_dir.exists():
-                    # Fallback: look for jiro-search in common locations
                     for candidate in [
                         Path.cwd() / "jiro-search" / "tests",
                         Path.cwd() / "tests",
@@ -1669,24 +1728,27 @@ if %errorlevel%==0 (
                         cwd=str(test_dir.parent),
                     )
                     if result.returncode == 0:
-                        console.print("[bold green]+ MCP tests passed[/]")
+                        _c.print(success("MCP tests passed"))
                     else:
-                        console.print(f"[yellow]! Some tests failed:[/]\n{result.stdout[-500:]}")
+                        _c.print(warning(f"Some tests failed:\n{result.stdout[-500:]}"))
                 else:
-                    console.print("[yellow]Tests directory not found, skipping tests[/]")
+                    _c.print(warning("Tests directory not found, skipping tests"))
             except Exception as e:
-                console.print(f"[yellow]Tests skipped: {e}[/]")
+                _c.print(warning(f"Tests skipped: {e}"))
 
         # Final summary
-        console.print("\n" + "=" * 50)
-        console.print(Panel.fit(
-            f"[bold green]Update Complete![/]\n\n"
+        _c.print()
+        _c.print(rule("Summary"))
+        _c.print()
+        _c.print(Panel.fit(
+            success("Update Complete!") + "\n\n"
             f"Version: [bold]{current_version}[/] -> [bold]{latest_version}[/]\n"
             f"MCP Tools: 16\n"
             f"Social Platforms: 12\n"
             f"Search Engines: 9\n\n"
-            f"[dim]Run 'jiro serve' to start the server[/]",
-            title="Summary"
+            + dim("Run 'jiro serve' to start the server"),
+            title="[bold #f97316]Summary[/]",
+            border_style="#f97316",
         ))
 
 
@@ -1939,7 +2001,7 @@ async def _run_doctor() -> None:
             console.print()
             console.print(Text("  Suggested fixes:", style="bold white"))
             for fix in fixes:
-                console.print(Text(f"  → {fix}", style="cyan"))
+                console.print(Text(f"  -> {fix}", style="cyan"))
         console.print()
         raise typer.Exit(1)
     else:
@@ -1959,10 +2021,11 @@ def social_scrape(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
     try:
         require_feature("social_advanced")
     except Exception as e:
-        console.print(f"[red]{e}[/]")
+        console.print(error(str(e)))
         raise typer.Exit(1)
     asyncio.run(_cli_social_scrape(url, format, config))
 
@@ -1971,25 +2034,26 @@ async def _cli_social_scrape(url, format, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
     from jiro.scraping.social import router as social_router
+    from jiro.cli_ui import console as _c, error, dim
 
     platform = social_router.detect_platform(url)
     if not platform:
-        console.print(f"[red]Could not detect platform for URL: {url}[/]")
+        _c.print(error(f"Could not detect platform for URL: {url}"))
         raise typer.Exit(1)
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social", json={"url": url, "format": format})
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
             raise typer.Exit(1)
         if format == "json":
-            console.print(json.dumps(data, indent=2, default=str))
+            _c.print(json.dumps(data, indent=2, default=str))
         else:
             content = data.get("data", {}).get("content", "")
             title = data.get("data", {}).get("title", "")
-            console.print(f"[bold]{title}[/]  [dim]({url})[/]")
-            console.print(content[:4000] if content else "[yellow]No content extracted[/]")
+            _c.print(f"[bold]{title}[/]  {dim(f'({url})')}")
+            _c.print(content[:4000] if content else warning("No content extracted"))
 
 
 @social_app.command("search", help="Search on a social platform.")
@@ -2001,10 +2065,11 @@ def social_search(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
     try:
         require_feature("social_search")
     except Exception as e:
-        console.print(f"[red]{e}[/]")
+        console.print(error(str(e)))
         raise typer.Exit(1)
     asyncio.run(_cli_social_search(query, platform, limit, json_output, config))
 
@@ -2012,6 +2077,8 @@ def social_search(
 async def _cli_social_search(query, platform, limit, json_output, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, dim
+    from rich.table import Table
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social/search", json={
@@ -2021,15 +2088,15 @@ async def _cli_social_search(query, platform, limit, json_output, config):
         })
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
+            _c.print(json.dumps(data, indent=2, default=str))
             return
 
         results = data.get("results", [])
-        console.print(f"[bold]{platform}[/] · [dim]{len(results)} results for '{query}'[/]")
+        _c.print(f"[bold]{platform}[/] - " + dim(f"{len(results)} results for '{query}'"))
         table = Table(title=f"Social search: {query}")
         table.add_column("#", justify="right")
         table.add_column("Title")
@@ -2040,7 +2107,7 @@ async def _cli_social_search(query, platform, limit, json_output, config):
             author = r.get("author", {}).get("name", "") if isinstance(r.get("author"), dict) else r.get("author", "")
             url = r.get("url", "")
             table.add_row(str(i), title, author, url)
-        console.print(table)
+        _c.print(table)
 
 
 @social_app.command("batch", help="Batch scrape multiple social URLs.")
@@ -2051,10 +2118,11 @@ def social_batch(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
     try:
         require_feature("social_batch")
     except Exception as e:
-        console.print(f"[red]{e}[/]")
+        console.print(error(str(e)))
         raise typer.Exit(1)
     asyncio.run(_cli_social_batch(urls, parallel, json_output, config))
 
@@ -2062,6 +2130,7 @@ def social_batch(
 async def _cli_social_batch(urls, parallel, json_output, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, success, dim
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social/batch", json={
@@ -2070,26 +2139,26 @@ async def _cli_social_batch(urls, parallel, json_output, config):
         })
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', resp.text)}[/]")
+            _c.print(error(data.get('error', resp.text)))
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
+            _c.print(json.dumps(data, indent=2, default=str))
             return
 
         results = data.get("results", [])
         succeeded = sum(1 for r in results if r.get("status") == "success")
         failed = sum(1 for r in results if r.get("status") != "success")
-        console.print(f"[bold]Batch scrape complete:[/] {succeeded} succeeded, {failed} failed")
+        _c.print(f"[bold]Batch scrape complete:[/] {succeeded} succeeded, {failed} failed")
         for r in results:
-            status = "[green]+[/]" if r.get("status") == "success" else "[red]-[/]"
+            status = success("+") if r.get("status") == "success" else error("-")
             url = r.get("url", "")
             if r.get("status") == "success":
                 platform = r.get("result", {}).get("platform", "?")
-                console.print(f"  {status} {platform}: {url}")
+                _c.print(f"  {status} {platform}: {url}")
             else:
-                error = r.get("error", "unknown")
-                console.print(f"  {status} {url} — {error}")
+                err = r.get("error", "unknown")
+                _c.print(f"  {status} {url} - {err}")
 
 
 @social_app.command("profile", help="Scrape a social media profile.")
@@ -2100,10 +2169,11 @@ def social_profile(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
     try:
         require_feature("social_search")
     except Exception as e:
-        console.print(f"[red]{e}[/]")
+        console.print(error(str(e)))
         raise typer.Exit(1)
     asyncio.run(_cli_social_profile(username, platform, json_output, config))
 
@@ -2111,6 +2181,7 @@ def social_profile(
 async def _cli_social_profile(username, platform, json_output, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, warning, dim
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social/search", json={
@@ -2120,28 +2191,28 @@ async def _cli_social_profile(username, platform, json_output, config):
         })
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
+            _c.print(json.dumps(data, indent=2, default=str))
             return
 
         results = data.get("results", [])
         if not results:
-            console.print(f"[yellow]No profile found for '{username}' on {platform}[/]")
+            _c.print(warning(f"No profile found for '{username}' on {platform}"))
             return
         r = results[0]
         author = r.get("author", {})
-        console.print(f"[bold]{author.get('display_name', author.get('name', username))}[/]  "
-                      f"[dim]@{author.get('username', username)}[/]")
-        console.print(f"Platform: [cyan]{platform}[/]")
+        _c.print(f"[bold]{author.get('display_name', author.get('name', username))}[/]  "
+                      + dim(f"@{author.get('username', username)}"))
+        _c.print(f"Platform: [cyan]{platform}[/]")
         bio = r.get("text", r.get("content", ""))
         if bio:
-            console.print(f"\n{bio[:500]}")
+            _c.print(f"\n{bio[:500]}")
         url = r.get("url", "")
         if url:
-            console.print(f"\n[dim]{url}[/]")
+            _c.print(f"\n{dim(url)}")
 
 
 @social_app.command("timeline", help="Scrape a social media user timeline.")
@@ -2153,10 +2224,11 @@ def social_timeline(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
     try:
         require_feature("social_timeline")
     except Exception as e:
-        console.print(f"[red]{e}[/]")
+        console.print(error(str(e)))
         raise typer.Exit(1)
     asyncio.run(_cli_social_timeline(username, platform, limit, json_output, config))
 
@@ -2164,6 +2236,7 @@ def social_timeline(
 async def _cli_social_timeline(username, platform, limit, json_output, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, warning, dim
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social/search", json={
@@ -2173,29 +2246,29 @@ async def _cli_social_timeline(username, platform, limit, json_output, config):
         })
         data = resp.json()
         if resp.status_code != 200:
-            console.print(f"[red]{data.get('error', data.get('detail', resp.text))}[/]")
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
             raise typer.Exit(1)
 
         if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
+            _c.print(json.dumps(data, indent=2, default=str))
             return
 
         results = data.get("results", [])
         if not results:
-            console.print(f"[yellow]No timeline posts found for '{username}' on {platform}[/]")
+            _c.print(warning(f"No timeline posts found for '{username}' on {platform}"))
             return
-        console.print(f"[bold]{platform}[/] timeline for [cyan]{username}[/]: "
-                      f"[dim]{len(results)} posts[/]\n")
+        _c.print(f"[bold]{platform}[/] timeline for [cyan]{username}[/]: "
+                      f"{dim(f'{len(results)} posts')}\n")
         for i, r in enumerate(results, 1):
             title = r.get("title", r.get("content", "")[:100])
             ts = r.get("timestamp", "")
             url = r.get("url", "")
-            console.print(f"[bold]{i}.[/] {title[:120]}")
+            _c.print(f"[bold]{i}.[/] {title[:120]}")
             if ts:
-                console.print(f"   [dim]{ts}[/]")
+                _c.print(f"   {dim(ts)}")
             if url:
-                console.print(f"   [blue]{url}[/]")
-            console.print("")
+                _c.print(f"   [blue]{url}[/]")
+            _c.print("")
 
 
 @app.command(help="Clear the Jiro cache.")
@@ -2204,6 +2277,7 @@ def cache_clear(
 ) -> None:
     """Clear all cached search results."""
     from pathlib import Path
+    from jiro.cli_ui import console as _c, success, warning, dim
 
     settings = Settings.load(config)
     cleared = []
@@ -2222,11 +2296,11 @@ def cache_clear(
         cleared.append(str(learning_path))
 
     if cleared:
-        console.print(f"[bold green]+[/] Cleared {len(cleared)} cache files:")
+        _c.print(success(f"Cleared {len(cleared)} cache files:"))
         for p in cleared:
-            console.print(f"  [dim]{p}[/]")
+            _c.print(dim(f"  {p}"))
     else:
-        console.print("[yellow]No cache files to clear.[/]")
+        _c.print(warning("No cache files to clear."))
 
 
 @app.command(help="View Jiro logs.")
@@ -2235,25 +2309,28 @@ def logs(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """View recent Jiro log entries."""
+    from jiro.cli_ui import console as _c, warning, error, rule
     settings = Settings.load(config)
     log_file = settings.logging.get("file", "")
     if not log_file:
-        console.print("[yellow]Log file not configured. Set logging.file in config.[/]")
+        _c.print(warning("Log file not configured. Set logging.file in config."))
         raise typer.Exit(1)
 
     log_path = Path(log_file).expanduser()
     if not log_path.exists():
-        console.print(f"[yellow]Log file not found: {log_path}[/]")
+        _c.print(warning(f"Log file not found: {log_path}"))
         raise typer.Exit(1)
 
     try:
+        _c.print(rule(f"Logs (last {lines} lines)"))
+        _c.print()
         with open(log_path, "r", encoding="utf-8", errors="replace") as f:
             all_lines = f.readlines()
         recent = all_lines[-lines:]
         for line in recent:
-            console.print(line.rstrip())
+            _c.print(line.rstrip())
     except Exception as e:
-        console.print(f"[red]Failed to read log file: {e}[/]")
+        _c.print(error(f"Failed to read log file: {e}"))
         raise typer.Exit(1)
 
 
@@ -2273,26 +2350,29 @@ def bench(
 
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, accent, rule, ORANGE
+    from rich.table import Table
 
-    console.print(f"[bold]Benchmarking Jiro[/] ({iterations} iterations)")
-    console.print(f"Query: {query} | Engines: {engines}\n")
+    _c.print(accent(f"Benchmarking Jiro") + f" ({iterations} iterations)")
+    _c.print(f"Query: {query} | Engines: {engines}\n")
 
     search_times = []
     scrape_times = []
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         # Benchmark search
-        console.print("[cyan]Running search benchmarks...[/]")
+        _c.print(rule("Search benchmarks"))
         for i in range(iterations):
             start = time.perf_counter()
             resp = client.post("/search", json={"query": query, "num_results": 5})
             elapsed = time.perf_counter() - start
             search_times.append(elapsed)
             status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
-            console.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}]")
+            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}]")
 
         # Benchmark scrape
-        console.print("\n[cyan]Running scrape benchmarks...[/]")
+        _c.print()
+        _c.print(rule("Scrape benchmarks"))
         test_urls = [
             "https://example.com",
             "https://httpbin.org/html",
@@ -2305,10 +2385,11 @@ def bench(
             elapsed = time.perf_counter() - start
             scrape_times.append(elapsed)
             status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
-            console.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
+            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
 
     # Report
-    console.print("\n[bold]Results:[/]")
+    _c.print()
+    _c.print(rule("Results"))
     table = Table(title="Performance Summary")
     table.add_column("Metric")
     table.add_column("Search")
@@ -2317,7 +2398,7 @@ def bench(
     def fmt_stats(times):
         if len(times) < 2:
             return f"{times[0]:.3f}s", "N/A"
-        return f"{mean(times):.3f}s", f"±{stdev(times):.3f}s"
+        return f"{mean(times):.3f}s", f"+-{stdev(times):.3f}s"
 
     search_mean, search_std = fmt_stats(search_times)
     scrape_mean, scrape_std = fmt_stats(scrape_times)
@@ -2329,7 +2410,7 @@ def bench(
     table.add_row("Max", f"{max(search_times):.3f}s", f"{max(scrape_times):.3f}s")
     table.add_row("Total", f"{sum(search_times):.3f}s", f"{sum(scrape_times):.3f}s")
 
-    console.print(table)
+    _c.print(table)
 
 
 if __name__ == "__main__":
