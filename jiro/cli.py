@@ -119,7 +119,10 @@ def _permissive_dev_ip():
 
 def version_callback(value: bool) -> None:
     if value:
-        console.print(f"jiro {__version__}")
+        from jiro.cli_ui import console as ui_console, accent
+        ui_console.print()
+        ui_console.print(accent(f"jiro v{__version__}"))
+        ui_console.print()
         raise typer.Exit()
 
 
@@ -153,8 +156,16 @@ def serve(
     if insecure:
         # Propagate to the app via env so create_app() sees server.insecure.
         os.environ["JIRO_SERVER__INSECURE"] = "true"
-    console.print(f"[bold green]jiro[/] v{__version__} serving on "
-                  f"http://{_host}:{_port}  (docs: /docs)")
+    from jiro.cli_ui import console as ui_console, success, rule, accent, dim, make_mini_logo
+    from rich.align import Align
+    ui_console.print()
+    ui_console.print(Align.center(make_mini_logo()), style="bold")
+    ui_console.print()
+    ui_console.print(rule(f"Serving v{__version__}"))
+    ui_console.print()
+    ui_console.print(success(f"Listening on [bold white]http://{_host}:{_port}[/]"))
+    ui_console.print(dim(f"  Docs: http://{_host}:{_port}/docs"))
+    ui_console.print()
     uvicorn.run(
         "jiro.server:create_app",
         factory=True,
@@ -175,79 +186,96 @@ def auth_login(
     server: str = typer.Option(None, "--server", help="Jiro web server URL"),
     dev: bool = typer.Option(False, "--dev", help="Use development server"),
 ) -> None:
-    """Sign in using OAuth 2.0 Device Authorization Grant (RFC 8628).
-
-    Flow:
-      1. CLI requests a device code from the server
-      2. Opens browser to verification URL
-      3. User enters code and signs in with Google
-      4. CLI polls until authorized
-      5. Credentials saved encrypted to ~/.jiro/credentials.enc
-    """
+    """Sign in using OAuth 2.0 Device Authorization Grant (RFC 8628)."""
     import webbrowser
-    import time
     from jiro.cloud_auth import (
         save_cloud_credentials, load_cloud_credentials,
         CloudCredentials, JIRO_WEB_BASE,
     )
     from jiro.device_auth import DeviceAuthManager, DeviceAuthError
+    from jiro.cli_ui import (
+        console, success, error, step, rule, device_auth_panel,
+        account_card, accent, dim, make_mini_logo, box, Panel, Group, Text, Table, Align,
+    )
 
     web_base = "http://localhost:3000" if dev else (server or JIRO_WEB_BASE)
 
     # Check if already logged in
     existing = load_cloud_credentials()
     if existing:
-        console.print(f"[green]Already signed in as[/] [bold]{existing.email}[/]")
-        if not typer.confirm("Sign in with a different account?"):
+        console.print()
+        console.print(success(f"Already signed in as [bold white]{existing.email}[/]"))
+        if not typer.confirm("\n  Sign in with a different account?"):
             return
 
-    console.print(Panel.fit(
-        "[bold]Jiro Cloud Login[/]",
-        subtitle="RFC 8628 Device Authorization"
-    ))
+    # ── Header ─────────────────────────────────────────────────────
+    console.print()
+    console.print(Align.center(make_mini_logo()), style="bold")
+    console.print()
+    console.print(rule("Cloud Login"))
+    console.print()
 
-    # Step 1: Request device code
-    console.print("[cyan]Step 1:[/] Requesting device code...")
+    # ── Step 1: Request device code ────────────────────────────────
+    console.print(step(1, 3, "Requesting device code"))
+    console.print()
     auth = DeviceAuthManager(web_base)
 
-    try:
-        code_data = auth.request_code()
-    except DeviceAuthError as e:
-        console.print(f"[red]Failed to request device code: {e}[/]")
-        raise typer.Exit(1)
+    with console.status("[bold orange1]  Connecting to server...", spinner="dots"):
+        try:
+            code_data = auth.request_code()
+        except DeviceAuthError as e:
+            console.print()
+            console.print(error(f"Failed to request device code: [white]{e}[/]"))
+            raise typer.Exit(1)
 
     user_code = code_data["user_code"]
     verify_url = code_data["verification_uri_complete"]
+    expires_in = code_data.get("expires_in", 900)
 
-    # Step 2: Display code and open browser
-    console.print("\n[bold]To sign in:[/]")
-    console.print(f"  1. Go to: [link={verify_url}][cyan]{code_data['verification_uri']}[/][/link]")
-    console.print(f"  2. Enter code: [bold yellow]{user_code}[/]")
-    console.print(f"\n[dim]Code expires in {code_data['expires_in'] // 60} minutes[/]")
+    console.print()
+    console.print(success("Device code received"))
+    console.print()
 
-    # Try to open browser
+    # ── Step 2: Display code + open browser ────────────────────────
+    console.print(step(2, 3, "Authorize in browser"))
+    console.print()
+
+    code_panel = device_auth_panel(user_code, verify_url, expires_in)
+    console.print(code_panel)
+
     try:
         webbrowser.open(verify_url)
-        console.print("[dim]Browser opened automatically.[/]")
+        console.print()
+        console.print(dim("  Browser opened automatically"))
     except Exception:
-        console.print(f"[dim]Open this URL in your browser:[/] {verify_url}")
+        console.print()
+        console.print(dim(f"  Open this URL: {verify_url}"))
 
-    # Step 3: Poll for authorization
-    console.print("\n[cyan]Step 2:[/] Waiting for authorization...")
+    # ── Step 3: Poll for authorization ─────────────────────────────
+    console.print()
+    console.print(step(3, 3, "Waiting for authorization"))
+    console.print()
 
+    poll_count = 0
     def on_poll(remaining: int):
+        nonlocal poll_count
+        poll_count += 1
         mins, secs = divmod(remaining, 60)
-        console.print(f"  [dim]Polling... ({mins}m {secs}s remaining)[/]", end="\r")
+        elapsed = "\u258c" * min(poll_count, 20)
+        waiting = "\u2591" * max(0, 20 - poll_count)
+        console.print(f"  [{elapsed}{waiting}]  {mins}m {secs}s remaining  ", end="\r")
 
     try:
         result = auth.wait_for_authorization(on_poll=on_poll)
     except DeviceAuthError as e:
-        console.print(f"\n[red]{e}[/]")
+        console.print()
+        console.print(error(str(e)))
         raise typer.Exit(1)
 
-    # Step 4: Save credentials
-    console.print("\n\n[bold green]+[/] Authenticated successfully!")
+    console.print()
+    console.print()
 
+    # ── Success! ───────────────────────────────────────────────────
     credits = result.get("credits", {})
     user = result.get("user", {})
 
@@ -263,8 +291,6 @@ def auth_login(
         credits_remaining=credits.get("remaining", 1000),
         rate_limit_rpm=5,
     )
-
-    # Set rate limit based on plan
     if creds.plan == "PRO":
         creds.rate_limit_rpm = 120
     elif creds.plan == "ENTERPRISE":
@@ -272,9 +298,20 @@ def auth_login(
 
     save_cloud_credentials(creds)
 
-    # Display account info
-    _display_account_info(creds)
-    console.print(f"\n[dim]Run 'jiro auth logout' to sign out.[/]")
+    console.print(rule("Authenticated"))
+    console.print()
+    console.print(success(f"Welcome back, [bold white]{creds.name}[/]!"))
+    console.print()
+
+    card = account_card(
+        creds.email, creds.name, creds.plan,
+        creds.credits_used, creds.credits_included,
+        creds.rate_limit_rpm, creds.api_key,
+    )
+    console.print(card)
+    console.print()
+    console.print(dim("  Run 'jiro auth logout' to sign out"))
+    console.print()
 
 
 def _display_account_info(creds) -> None:
@@ -299,16 +336,25 @@ def _display_account_info(creds) -> None:
 def auth_logout() -> None:
     """Remove stored cloud credentials (encrypted)."""
     from jiro.cloud_auth import clear_cloud_credentials, is_cloud_configured
+    from jiro.cli_ui import (
+        console, success, warning, dim, rule,
+    )
 
     if not is_cloud_configured():
-        console.print("[yellow]Not signed in.[/]")
+        console.print()
+        console.print(warning("Not signed in"))
+        console.print()
         return
 
-    if typer.confirm("Sign out of Jiro Cloud?"):
+    console.print()
+    if typer.confirm("  Sign out of Jiro Cloud?"):
         clear_cloud_credentials()
-        console.print("[bold green]+[/] Signed out successfully.")
+        console.print()
+        console.print(success("Signed out successfully"))
+        console.print()
     else:
-        console.print("[dim]Cancelled.[/]")
+        console.print(dim("  Cancelled"))
+        console.print()
 
 
 @auth_app.command("whoami", help="Show current cloud account info.")
@@ -317,37 +363,58 @@ def auth_whoami(
 ) -> None:
     """Display current cloud authentication status and credit balance."""
     from jiro.cloud_auth import load_cloud_credentials, refresh_credits
+    from jiro.cli_ui import (
+        console, account_card, rule, success, warning, dim,
+    )
 
     creds = load_cloud_credentials()
     if not creds:
-        console.print("[yellow]Not signed in.[/]")
-        console.print("[dim]Run 'jiro auth login' to sign in.[/]")
+        console.print()
+        console.print(warning("Not signed in"))
+        console.print(dim("  Run 'jiro auth login' to sign in"))
+        console.print()
         raise typer.Exit(0)
 
     if refresh:
-        console.print("[dim]Refreshing credits from server...[/]")
-        creds = refresh_credits(creds)
+        console.print()
+        with console.status("[bold orange1]  Refreshing credits from server...", spinner="dots"):
+            creds = refresh_credits(creds)
 
-    _display_account_info(creds)
+    console.print()
+    console.print(rule("Account Info"))
+    console.print()
+    card = account_card(
+        creds.email, creds.name, creds.plan,
+        creds.credits_used, creds.credits_included,
+        creds.rate_limit_rpm, creds.api_key,
+    )
+    console.print(card)
+    console.print()
 
 
 @auth_app.command("status", help="Check auth status and test API key.")
 def auth_status() -> None:
     """Verify API key is valid and show credit balance."""
     from jiro.cloud_auth import load_cloud_credentials, fetch_credits_from_server
+    from jiro.cli_ui import (
+        console, account_card, rule, success, error, warning, dim,
+    )
 
     creds = load_cloud_credentials()
     if not creds:
-        console.print("[yellow]Not signed in.[/]")
-        console.print("[dim]Run 'jiro auth login' to sign in.[/]")
+        console.print()
+        console.print(warning("Not signed in"))
+        console.print(dim("  Run 'jiro auth login' to sign in"))
+        console.print()
         raise typer.Exit(0)
 
-    console.print("[dim]Testing API key...[/]")
-    data = fetch_credits_from_server(creds.api_key)
+    console.print()
+    with console.status("[bold orange1]  Testing API key...", spinner="dots"):
+        data = fetch_credits_from_server(creds.api_key)
 
     if data:
-        console.print("[bold green]+[/] API key is valid")
-        # Update local cache
+        console.print()
+        console.print(success("API key is valid"))
         credits = data.get("credits", {})
         rate = data.get("rateLimit", {})
         creds.credits_used = credits.get("used", creds.credits_used)
@@ -356,10 +423,22 @@ def auth_status() -> None:
         creds.rate_limit_rpm = rate.get("rpm", creds.rate_limit_rpm)
         from jiro.cloud_auth import save_cloud_credentials
         save_cloud_credentials(creds)
-        _display_account_info(creds)
+
+        console.print()
+        console.print(rule("Account Status"))
+        console.print()
+        card = account_card(
+            creds.email, creds.name, creds.plan,
+            creds.credits_used, creds.credits_included,
+            creds.rate_limit_rpm, creds.api_key,
+        )
+        console.print(card)
+        console.print()
     else:
-        console.print("[bold red]![/] API key is invalid or server is unreachable")
-        console.print("[dim]Try 'jiro auth login' to re-authenticate.[/]")
+        console.print()
+        console.print(error("API key is invalid or server is unreachable"))
+        console.print(dim("  Try 'jiro auth login' to re-authenticate"))
+        console.print()
         raise typer.Exit(1)
 
 
@@ -542,6 +621,7 @@ def _interactive_search(engine, type, num, location, language, parallel, num_eng
 
 
 async def _cli_search(q, engine, type, num, location, language, parallel, num_engines, json_output, config):
+    from jiro.cli_ui import search_result_card, console, error, dim
     warnings.filterwarnings("ignore")
     from jiro.server import create_app
     from starlette.testclient import TestClient
@@ -557,18 +637,16 @@ async def _cli_search(q, engine, type, num, location, language, parallel, num_en
             console.print(json.dumps(data, indent=2, default=str))
             return
         meta = data.get("search_metadata", {})
-        console.print(f"[bold]{meta.get('engine', '?')}[/] · "
-                      f"[dim]cached={meta.get('cached', False)} "
-                      f"time={meta.get('total_time_taken', 0)}s[/]")
-        table = Table(title=f"Results for “{q}”")
-        table.add_column("#", justify="right")
-        table.add_column("Title")
-        table.add_column("Source")
-        table.add_column("Snippet", overflow="fold")
-        for r in data.get("organic_results", []):
-            table.add_row(str(r.get("position", "")), r.get("title", ""),
-                          r.get("source", ""), (r.get("snippet") or "")[:140])
-        console.print(table)
+        results = data.get("organic_results", [])
+        card = search_result_card(
+            q, results,
+            engine=meta.get("engine", engine),
+            cached=meta.get("cached", False),
+            time_taken=meta.get("total_time_taken", 0),
+        )
+        console.print()
+        console.print(card)
+        console.print()
 
 
 async def _cloud_search(q, engine, type, num, location, language, json_output):
@@ -612,19 +690,18 @@ async def _cloud_search(q, engine, type, num, location, language, json_output):
         console.print(json.dumps(data, indent=2, default=str))
         return
 
+    from jiro.cli_ui import search_result_card
     meta = data.get("search_metadata", {})
-    console.print(f"[bold]{meta.get('engine', '?')}[/] [dim](cloud)[/] · "
-                  f"cached={meta.get('cached', False)} "
-                  f"time={meta.get('total_time_taken', 0)}s")
-    table = Table(title=f"Results for \u201c{q}\u201d")
-    table.add_column("#", justify="right")
-    table.add_column("Title")
-    table.add_column("Source")
-    table.add_column("Snippet", overflow="fold")
-    for r in data.get("organic_results", []):
-        table.add_row(str(r.get("position", "")), r.get("title", ""),
-                      r.get("source", ""), (r.get("snippet") or "")[:140])
-    console.print(table)
+    results = data.get("organic_results", [])
+    card = search_result_card(
+        q, results,
+        engine=f"{meta.get('engine', '?')} (cloud)",
+        cached=meta.get("cached", False),
+        time_taken=meta.get("total_time_taken", 0),
+    )
+    console.print()
+    console.print(card)
+    console.print()
 
 
 def _safe_print(text: str) -> str:
@@ -690,8 +767,15 @@ def scrape(
         if resp.status_code != 200:
             console.print(f"[red]{data.get('error', resp.text)}[/]")
             raise typer.Exit(1)
-        console.print(f"[bold]{_safe_print(data.get('title', ''))}[/]  [dim]({data.get('url')})[/]")
-        console.print(_safe_print(data.get("content", ""))[:4000])
+        from jiro.cli_ui import scrape_result_card
+        card = scrape_result_card(
+            _safe_print(data.get("title", "")),
+            data.get("url", ""),
+            _safe_print(data.get("content", "")),
+        )
+        console.print()
+        console.print(card)
+        console.print()
 
 
 async def _scrape_search_query(query: str, format: str, config: str) -> None:
@@ -731,11 +815,15 @@ async def _scrape_search_query(query: str, format: str, config: str) -> None:
         if resp.status_code != 200:
             console.print(f"[red]{data.get('error', resp.text)}[/]")
             raise typer.Exit(1)
-        title = _safe_print(data.get("title", ""))
-        url = data.get("url", "")
-        console.print(f"[bold]{title}[/]  [dim]({url})[/]")
-        console.print(_safe_print(data.get("content", ""))[:4000])
-        print(content)
+        from jiro.cli_ui import scrape_result_card
+        card = scrape_result_card(
+            _safe_print(data.get("title", "")),
+            data.get("url", ""),
+            _safe_print(data.get("content", "")),
+        )
+        console.print()
+        console.print(card)
+        console.print()
 
 
 async def _cloud_scrape(url, format):
@@ -780,8 +868,15 @@ async def _cloud_scrape(url, format):
         console.print(f"[red]Request failed: {e}[/]")
         raise typer.Exit(1)
 
-    console.print(f"[bold]{_safe_print(data.get('title', ''))}[/]  [dim]({data.get('url')})[/]")
-    console.print(_safe_print(data.get("content", ""))[:4000])
+    console.print()
+    from jiro.cli_ui import scrape_result_card
+    card = scrape_result_card(
+        _safe_print(data.get("title", "")),
+        data.get("url", ""),
+        _safe_print(data.get("content", "")),
+    )
+    console.print(card)
+    console.print()
 
 
 # --------------------------------------------------------------------------
@@ -801,6 +896,7 @@ def ask(
 def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
+    from jiro.cli_ui import console, rule, dim, accent, Text, Panel, box, Group
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/ai/search", json={"query": query,
@@ -812,12 +908,33 @@ def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) ->
         if json_output:
             console.print(json.dumps(data, indent=2, default=str))
             return
-        console.print(_safe_print(data.get("answer", "")))
-        console.print("\n[bold]Sources:[/]")
-        for i, c in enumerate(data.get("citations", []), start=1):
-            title = _safe_print(c.get('title', ''))
-            url = _safe_print(c.get('url', ''))
-            console.print(f"  [{i}] {title} — {url}")
+
+        console.print()
+        console.print(rule("AI Research"))
+        console.print()
+
+        # Answer
+        answer = _safe_print(data.get("answer", ""))
+        console.print(Panel(
+            answer,
+            title=f"[bold orange1]Answer[/]",
+            border_style="orange1",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        ))
+        console.print()
+
+        # Sources
+        citations = data.get("citations", [])
+        if citations:
+            console.print(Text("  Sources:", style="bold white"))
+            console.print()
+            for i, c in enumerate(citations, start=1):
+                title = _safe_print(c.get("title", ""))
+                url = _safe_print(c.get("url", ""))
+                console.print(Text(f"  [{i}] ", style="bold orange1") + Text(title, style="bold white"))
+                console.print(Text(f"      {url}", style="dim cyan"))
+            console.print()
 
 
 # --------------------------------------------------------------------------
@@ -1615,8 +1732,16 @@ def status() -> None:
 async def _run_status() -> None:
     """Check system status."""
     from pathlib import Path
+    from jiro.cli_ui import (
+        console, rule, success, error, warning, dim, make_mini_logo, accent,
+        Table, Panel, box, Align,
+    )
 
-    console.print(Panel.fit(f"[bold]Jiro System Status[/] v{__version__}"))
+    console.print()
+    console.print(Align.center(make_mini_logo()), style="bold")
+    console.print()
+    console.print(rule(f"System Status  v{__version__}"))
+    console.print()
 
     # Check components
     checks = []
@@ -1674,13 +1799,13 @@ async def _run_status() -> None:
         checks.append(("Intent Classifier", False, str(e)))
 
     # Print results
-    table = Table(title="System Status")
-    table.add_column("Component")
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold orange1", padding=(0, 2))
+    table.add_column("Component", style="bold white")
     table.add_column("Status")
-    table.add_column("Details")
+    table.add_column("Details", style="dim")
 
-    for name, success, detail in checks:
-        status = "[bold green]OK[/]" if success else "[bold red]FAIL[/]"
+    for name, is_ok, detail in checks:
+        status = "[bold green]OK[/]" if is_ok else "[bold red]FAIL[/]"
         table.add_row(name, status, detail)
 
     console.print(table)
@@ -1688,7 +1813,12 @@ async def _run_status() -> None:
     # Summary
     passed = sum(1 for _, s, _ in checks if s)
     total = len(checks)
-    console.print(f"\n[bold]{passed}/{total}[/] components healthy")
+    console.print()
+    if passed == total:
+        console.print(success(f"All {total} components healthy"))
+    else:
+        console.print(warning(f"{passed}/{total} components healthy"))
+    console.print()
 
 
 # --------------------------------------------------------------------------
@@ -1702,53 +1832,62 @@ def doctor() -> None:
 
 async def _run_doctor() -> None:
     from pathlib import Path
+    from jiro.cli_ui import (
+        console, rule, success, error, warning, dim, make_mini_logo,
+        Table, Panel, box, Align, Text,
+    )
 
-    console.print(Panel.fit(f"[bold]Jiro Doctor[/] v{__version__}"))
+    console.print()
+    console.print(Align.center(make_mini_logo()), style="bold")
+    console.print()
+    console.print(rule("Diagnostics"))
+    console.print()
+
     issues: List[str] = []
     fixes: List[str] = []
 
     # 1. Config check
     try:
         settings = Settings.load()
-        console.print("[green][OK][/] Config loaded")
+        console.print(success("Config loaded"))
     except Exception as e:
         issues.append(f"Config error: {e}")
         fixes.append("Run: jiro config init")
-        console.print(f"[red][FAIL][/] Config: {e}")
+        console.print(error(f"Config: [white]{e}[/]"))
 
     # 2. License check
     try:
         from jiro.licensing import get_active_license
         lic = get_active_license()
         if lic.valid:
-            console.print(f"[green][OK][/] License: {lic.tier} (expires {lic.expires_at})")
+            console.print(success(f"License: {lic.tier}"))
         elif lic.in_grace_period:
-            console.print(f"[yellow][WARN][/] License expired (grace period)")
+            console.print(warning("License expired (grace period)"))
         else:
-            console.print(f"[yellow][WARN][/] No valid license: {lic.error}")
+            console.print(warning(f"No valid license: {lic.error}"))
     except Exception as e:
         issues.append(f"License error: {e}")
-        console.print(f"[red][FAIL][/] License: {e}")
+        console.print(error(f"License: [white]{e}[/]"))
 
     # 3. Database check
     try:
         db_path = Path("~/.jiro/jiro.db").expanduser()
         if db_path.exists():
             size_mb = db_path.stat().st_size / (1024 * 1024)
-            console.print(f"[green][OK][/] Database: {size_mb:.1f} MB")
+            console.print(success(f"Database: {size_mb:.1f} MB"))
         else:
-            console.print("[yellow][WARN][/] Database not created yet (run jiro serve)")
+            console.print(warning("Database not created yet"))
     except Exception as e:
         issues.append(f"Database error: {e}")
-        console.print(f"[red][FAIL][/] Database: {e}")
+        console.print(error(f"Database: [white]{e}[/]"))
 
     # 4. Python version
     if sys.version_info >= (3, 11):
-        console.print(f"[green][OK][/] Python {sys.version.split()[0]}")
+        console.print(success(f"Python {sys.version.split()[0]}"))
     else:
         issues.append(f"Python {sys.version_info.major}.{sys.version_info.minor} < 3.11")
         fixes.append("Upgrade to Python >= 3.11")
-        console.print(f"[red][FAIL][/] Python {sys.version_info.major}.{sys.version_info.minor} (need >= 3.11)")
+        console.print(error(f"Python {sys.version_info.major}.{sys.version_info.minor} (need >= 3.11)"))
 
     # 5. Dependencies check
     required = ["fastapi", "uvicorn", "httpx", "curl_cffi", "selectolax", "pydantic", "typer", "rich"]
@@ -1761,9 +1900,9 @@ async def _run_doctor() -> None:
     if missing:
         issues.append(f"Missing packages: {', '.join(missing)}")
         fixes.append(f"pip install {' '.join(missing)}")
-        console.print(f"[red][FAIL][/] Missing: {', '.join(missing)}")
+        console.print(error(f"Missing: [white]{', '.join(missing)}[/]"))
     else:
-        console.print("[green][OK][/] All required packages installed")
+        console.print(success("All required packages installed"))
 
     # 6. Network check
     try:
@@ -1772,24 +1911,31 @@ async def _run_doctor() -> None:
         s.settimeout(3)
         s.connect(("8.8.8.8", 80))
         s.close()
-        console.print("[green][OK][/] Network connectivity")
+        console.print(success("Network connectivity"))
     except Exception:
         issues.append("No network connectivity")
         fixes.append("Check your internet connection")
-        console.print("[yellow][WARN][/] No network connectivity")
+        console.print(warning("No network connectivity"))
 
     # Summary
+    console.print()
     if issues:
-        console.print(f"\n[bold red]{len(issues)} issue(s) found:[/]")
+        console.print(rule(f"{len(issues)} issue(s) found"))
+        console.print()
         for i, issue in enumerate(issues, 1):
-            console.print(f"  {i}. {issue}")
+            console.print(Text(f"  {i}. {issue}", style="bold red"))
         if fixes:
-            console.print(f"\n[bold]Suggested fixes:[/]")
+            console.print()
+            console.print(Text("  Suggested fixes:", style="bold white"))
             for fix in fixes:
-                console.print(f"  -> {fix}")
+                console.print(Text(f"  → {fix}", style="cyan"))
+        console.print()
         raise typer.Exit(1)
     else:
-        console.print(f"\n[bold green]All checks passed![/] Jiro is ready.")
+        console.print(rule("All checks passed"))
+        console.print()
+        console.print(success("Jiro is ready to go!"))
+        console.print()
 
 
 # --------------------------------------------------------------------------
