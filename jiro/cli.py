@@ -37,20 +37,6 @@ def _quiet_settings(settings: Settings) -> Settings:
     settings.raw["auth"]["enabled"] = False
     return settings
 
-app = typer.Typer(
-    name="jiro",
-    help="Jiro Search API — local-first, AI-native web search & scraping.\n\n"
-         "Examples:\n"
-         "  jiro search \"best SaaS tools\"          Search the web\n"
-         "  jiro scrape https://example.com        Scrape a URL\n"
-         "  jiro scrape \"free SaaS directories\"    Search + scrape top result\n"
-         "  jiro ai ask \"compare React vs Vue\"     AI research with citations\n"
-         "  jiro ai setup --provider openai -k sk-...  Configure AI provider\n"
-         "  jiro login                              Sign in for cloud access\n"
-         "  jiro doctor                             Diagnose issues",
-    add_completion=False,
-    no_args_is_help=True,
-)
 auth_app = typer.Typer(help="Cloud authentication.", no_args_is_help=True)
 search_app = typer.Typer(help="Search the web from the CLI.", no_args_is_help=True)
 
@@ -62,15 +48,6 @@ social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_
 mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
 ai_app = typer.Typer(help="AI features: ask questions, setup providers, check status.", no_args_is_help=True)
 license_app = typer.Typer(help="License management for self-hosted.", no_args_is_help=True)
-app.add_typer(search_app, name="search")
-app.add_typer(keys_app, name="keys")
-app.add_typer(config_app, name="config")
-app.add_typer(plugin_app, name="plugins")
-app.add_typer(mcp_app, name="mcp")
-app.add_typer(social_app, name="social")
-app.add_typer(ai_app, name="ai")
-app.add_typer(auth_app, name="auth")
-app.add_typer(license_app, name="license")
 
 console = Console()
 
@@ -120,16 +97,50 @@ def _permissive_dev_ip():
 def version_callback(value: bool) -> None:
     if value:
         from jiro.cli_ui import console as ui_console, accent
-        ui_console.print()
         ui_console.print(accent(f"jiro v{__version__}"))
-        ui_console.print()
         raise typer.Exit()
 
 
-@app.callback()
-def main(version: bool = typer.Option(False, "--version", callback=version_callback,
-                                      is_eager=True, help="Show version.")) -> None:
-    pass
+HELP_EPILOG = (
+    "Examples:\n"
+    '  jiro search "best SaaS tools"          Search the web\n'
+    "  jiro scrape https://example.com        Scrape a URL\n"
+    '  jiro scrape "free SaaS directories"    Search + scrape top result\n'
+    '  jiro ai ask "compare React vs Vue"     AI research with citations\n'
+    "  jiro ai setup --provider openai -k sk-...  Configure AI provider\n"
+    "  jiro login                              Sign in for cloud access\n"
+    "  jiro doctor                             Diagnose issues"
+)
+
+
+app = typer.Typer(
+    name="jiro",
+    help="Jiro Search API - local-first, AI-native web search & scraping.\n\n" + HELP_EPILOG,
+    no_args_is_help=False,
+    add_completion=False,
+)
+
+app.add_typer(search_app, name="search")
+app.add_typer(keys_app, name="keys")
+app.add_typer(config_app, name="config")
+app.add_typer(plugin_app, name="plugins")
+app.add_typer(mcp_app, name="mcp")
+app.add_typer(social_app, name="social")
+app.add_typer(ai_app, name="ai")
+app.add_typer(auth_app, name="auth")
+app.add_typer(license_app, name="license")
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "--version", callback=version_callback,
+                                  is_eager=True, help="Show version."),
+) -> None:
+    if ctx.invoked_subcommand is None and not version:
+        from jiro.cli_ui import console as ui_console, make_logo
+        ui_console.print(make_logo())
+        ui_console.print()
 
 
 # --------------------------------------------------------------------------

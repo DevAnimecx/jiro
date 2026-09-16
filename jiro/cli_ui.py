@@ -1,4 +1,4 @@
-"""Jiro CLI — Premium UI components (Rich-powered)."""
+"""Jiro CLI - Premium UI components (Rich-powered)."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from rich import box
 
 console = Console()
 
-# ── Brand Palette ──────────────────────────────────────────────────────
+# Brand Palette
 ORANGE    = "#f97316"
 PURPLE    = "#a78bfa"
 ORANGE2   = "#ea580c"
 GREEN     = "#62c073"
-RED       = "#e53e5e"
+RED       = "#e53e3e"
 YELLOW    = "#eab308"
 CYAN      = "#22d3ee"
 DIM       = "#6b7280"
@@ -29,33 +29,15 @@ SURFACE   = "#1a1b23"
 DARK      = "#060608"
 
 
-# ── Logo ───────────────────────────────────────────────────────────────
-
-def _gradient_text(text: str, colors: list[str]) -> Text:
-    """Apply per-character gradient coloring to text."""
-    t = Text()
-    n = len(text)
-    for i, ch in enumerate(text):
-        # Interpolate between colors
-        idx = (i / max(n - 1, 1)) * (len(colors) - 1)
-        c1 = colors[int(idx)]
-        t.append(ch, style=f"bold {c1}")
-    return t
-
+# Logo
 
 def make_logo() -> Panel:
-    """Premium Jiro CLI logo — orange-to-purple gradient, geometric block."""
-    # The "j" glyph rendered as styled block art
+    """Premium Jiro CLI logo."""
     glyph_lines = [
-        "  ╔══════════════════════════════════╗",
-        "  ║  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ║",
-        "  ║  ░░  ▄▄▄▄▄  ▄▄▄▄▄▄▄  ▄▄▄▄▄  ░░ ║",
-        "  ║  ░░  ██▀▀█  ██▀▀██  ██▀▀█  ░░ ║",
-        "  ║  ░░  ██  █  ██  ██  ██  █  ░░ ║",
-        "  ║  ░░  ██▄▄█  ██  ██  ██▄▄█  ░░ ║",
-        "  ║  ░░  ▀▀▀▀▀  ▀▀  ▀▀  ▀▀▀▀▀  ░░ ║",
-        "  ║  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ║",
-        "  ╚══════════════════════════════════╝",
+        "    ____ __ ____",
+        "   / __(_) // / /___ _      __",
+        "  / /_/ / _  / / _ `/ | |/|/ /",
+        "  \\__,_/_//_/\\_,_/  |__,\\__/",
     ]
 
     logo = Text()
@@ -74,14 +56,10 @@ def make_logo() -> Panel:
 def make_logo_compact() -> Panel:
     """Compact logo for non-fullscreen contexts."""
     logo = Text()
-    logo.append("    ╭─────────────────────╮\n", style=f"dim {ORANGE}")
-    logo.append("    │  ", style=f"dim {ORANGE}")
-    logo.append("JIRO", style=f"bold {ORANGE}")
-    logo.append("       │\n", style=f"dim {ORANGE}")
-    logo.append("    │  ", style=f"dim {ORANGE}")
-    logo.append("0.3.0", style=f"dim {DIM}")
-    logo.append("     │\n", style=f"dim {ORANGE}")
-    logo.append("    ╰─────────────────────╯", style=f"dim {ORANGE}")
+    logo.append("    /---/  /---/\n", style=f"dim {ORANGE}")
+    logo.append("   / j /  / i /\n", style=f"bold {ORANGE}")
+    logo.append("  / r /  / o /\n", style=f"dim {ORANGE}")
+    logo.append("  ---/   ---/\n", style=f"dim {ORANGE}")
 
     subtitle = Text()
     subtitle.append("\n  AI-native web search & scraping", style=f"dim {DIM}")
@@ -107,32 +85,32 @@ def make_brand_bar() -> Rule:
     return Rule(style=ORANGE, align="center")
 
 
-# ── Status Indicators ─────────────────────────────────────────────────
+# Status Indicators
 
 def success(msg: str) -> Text:
     t = Text()
-    t.append("  ✓ ", style=f"bold {GREEN}")
+    t.append("  [OK] ", style=f"bold {GREEN}")
     t.append(msg, style="bold white")
     return t
 
 
 def error(msg: str) -> Text:
     t = Text()
-    t.append("  ✗ ", style=f"bold {RED}")
+    t.append("  [!!] ", style=f"bold {RED}")
     t.append(msg, style=f"bold {RED}")
     return t
 
 
 def warning(msg: str) -> Text:
     t = Text()
-    t.append("  ⚠ ", style=f"bold {YELLOW}")
+    t.append("  [~] ", style=f"bold {YELLOW}")
     t.append(msg, style=f"bold {YELLOW}")
     return t
 
 
 def info(msg: str) -> Text:
     t = Text()
-    t.append("  ℹ ", style=f"bold {CYAN}")
+    t.append("  [i] ", style=f"bold {CYAN}")
     t.append(msg, style="white")
     return t
 
@@ -158,7 +136,7 @@ def step(num: int, total: int, label: str) -> Text:
     return t
 
 
-# ── Tables & Panels ───────────────────────────────────────────────────
+# Tables & Panels
 
 def kv_table(pairs: list[tuple[str, str]], title: str = "") -> Table:
     t = Table(
@@ -182,7 +160,7 @@ def badge(text: str, color: str = ORANGE) -> Text:
     return t
 
 
-# ── Credit Display ────────────────────────────────────────────────────
+# Credit Display
 
 def credits_display(used: int, included: int) -> Panel:
     remaining = max(0, included - used)
@@ -190,21 +168,21 @@ def credits_display(used: int, included: int) -> Panel:
 
     bar_width = 30
     filled = int(bar_width * pct / 100)
-    bar = "█" * filled + "░" * (bar_width - filled)
+    bar = "#" * filled + "-" * (bar_width - filled)
 
     color = GREEN if pct < 60 else YELLOW if pct < 85 else RED
 
     lines = Text()
-    lines.append("  ⚡ ", style=f"bold {ORANGE}")
+    lines.append("  > ", style=f"bold {ORANGE}")
     lines.append(f"{remaining:,}", style=f"bold {color}")
     lines.append(f" / {included:,} credits remaining", style=f"dim {DIM}")
     lines.append("\n\n  ")
 
     bar_text = Text()
-    bar_text.append("╭", style=f"dim {DIM}")
-    bar_text.append("─" * filled, style=f"bold {color}")
-    bar_text.append("─" * (bar_width - filled), style=f"dim {DIM}")
-    bar_text.append("╮", style=f"dim {DIM}")
+    bar_text.append("[", style=f"dim {DIM}")
+    bar_text.append("#" * filled, style=f"bold {color}")
+    bar_text.append("-" * (bar_width - filled), style=f"dim {DIM}")
+    bar_text.append("]", style=f"dim {DIM}")
     bar_text.append(f"  {pct}% used", style=f"dim {DIM}")
     lines.append_text(bar_text)
 
@@ -217,7 +195,7 @@ def credits_display(used: int, included: int) -> Panel:
     )
 
 
-# ── Account Card ──────────────────────────────────────────────────────
+# Account Card
 
 def account_card(
     email: str,
@@ -250,7 +228,7 @@ def account_card(
     )
 
 
-# ── Search Results ────────────────────────────────────────────────────
+# Search Results
 
 def search_result_card(
     query: str,
@@ -260,13 +238,13 @@ def search_result_card(
     time_taken: float = 0.0,
 ) -> Panel:
     header = Text()
-    header.append("  🔍 ", style=f"bold {ORANGE}")
+    header.append("  >> ", style=f"bold {ORANGE}")
     header.append(f'"{query}"', style="bold white")
-    header.append(f"  ·  ", style=f"dim {DIM}")
+    header.append(f"  .  ", style=f"dim {DIM}")
     header.append(engine, style=f"bold {CYAN}")
     if cached:
         header.append("  (cached)", style=f"italic {GREEN}")
-    header.append(f"  ·  {time_taken:.2f}s", style=f"dim {DIM}")
+    header.append(f"  .  {time_taken:.2f}s", style=f"dim {DIM}")
 
     table = Table(
         box=box.SIMPLE_HEAVY,
@@ -300,7 +278,7 @@ def search_result_card(
     )
 
 
-# ── Scrape Result ─────────────────────────────────────────────────────
+# Scrape Result
 
 def scrape_result_card(
     title: str,
@@ -309,7 +287,7 @@ def scrape_result_card(
     max_chars: int = 3000,
 ) -> Panel:
     header = Text()
-    header.append("  📄 ", style=f"bold {ORANGE}")
+    header.append("  > ", style=f"bold {ORANGE}")
     header.append(title[:60], style="bold white")
     header.append(f"\n  ", style="white")
     header.append(url[:70], style=f"{CYAN}")
@@ -326,7 +304,7 @@ def scrape_result_card(
     )
 
 
-# ── Device Auth Panel ─────────────────────────────────────────────────
+# Device Auth Panel
 
 def device_auth_panel(
     user_code: str,
@@ -337,7 +315,6 @@ def device_auth_panel(
 
     code_text = Text()
     code_text.append("\n    ", style="white")
-    # Render each char of the code with gradient colors
     for i, ch in enumerate(user_code):
         color = ORANGE if i < len(user_code) // 2 else PURPLE
         code_text.append(ch, style=f"bold {color}")
@@ -359,7 +336,7 @@ def device_auth_panel(
     )
 
 
-# ── Helpers ───────────────────────────────────────────────────────────
+# Helpers
 
 def spinner_text(msg: str) -> Text:
     return Text(f"  {msg}...", style=f"dim {DIM}")
