@@ -634,7 +634,7 @@ def search_web(
     location: str = typer.Option("us", "--location", "-l"),
     language: str = typer.Option("en", "--language"),
     parallel: bool = typer.Option(False, "--parallel", "-p", help="Search multiple engines in parallel (v0.2.13)"),
-    num_engines: int = typer.Option(3, "--engines", help="Number of engines for parallel search (max 5)"),
+    num_engines: int = typer.Option(3, "--num-engines", help="Number of engines for parallel search (max 5)"),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive search mode"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
     cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
@@ -942,8 +942,8 @@ async def _cloud_scrape(url, format):
         _safe_print(data.get("content", "")),
         max_chars=999999 if full else 3000,
     )
-    console.print(card)
-    console.print()
+    _c.print(card)
+    _c.print()
 
 
 # --------------------------------------------------------------------------
@@ -965,44 +965,47 @@ def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) ->
     from jiro.server import create_app
     from starlette.testclient import TestClient
     from jiro.cli_ui import console, rule, dim, accent, Text, Panel, box, Group, error
+    from rich.status import Status
 
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/ai/search", json={"query": query,
-                                               "max_sources": max_sources})
-        data = resp.json()
-        if resp.status_code != 200:
-            console.print(error(data.get('error', data.get('detail', resp.text))))
-            raise typer.Exit(1)
-        if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
-            return
+    with Status("Researching...", console=console, spinner="dots"):
+        with TestClient(create_app(_quiet_settings(Settings.load(config))), timeout=120) as client:
+            resp = client.post("/ai/search", json={"query": query,
+                                                   "max_sources": max_sources})
+            data = resp.json()
 
+    if resp.status_code != 200:
+        console.print(error(data.get('error', data.get('detail', resp.text))))
+        raise typer.Exit(1)
+    if json_output:
+        console.print(json.dumps(data, indent=2, default=str))
+        return
+
+    console.print()
+    console.print(rule("AI Research"))
+    console.print()
+
+    # Answer
+    answer = _safe_print(data.get("answer", ""))
+    console.print(Panel(
+        answer,
+        title=f"[bold orange1]Answer[/]",
+        border_style="orange1",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    ))
+    console.print()
+
+    # Sources
+    citations = data.get("citations", [])
+    if citations:
+        console.print(Text("  Sources:", style="bold white"))
         console.print()
-        console.print(rule("AI Research"))
+        for i, c in enumerate(citations, start=1):
+            title = _safe_print(c.get("title", ""))
+            url = _safe_print(c.get("url", ""))
+            console.print(Text(f"  [{i}] ", style="bold orange1") + Text(title, style="bold white"))
+            console.print(Text(f"      {url}", style="dim cyan"))
         console.print()
-
-        # Answer
-        answer = _safe_print(data.get("answer", ""))
-        console.print(Panel(
-            answer,
-            title=f"[bold orange1]Answer[/]",
-            border_style="orange1",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        ))
-        console.print()
-
-        # Sources
-        citations = data.get("citations", [])
-        if citations:
-            console.print(Text("  Sources:", style="bold white"))
-            console.print()
-            for i, c in enumerate(citations, start=1):
-                title = _safe_print(c.get("title", ""))
-                url = _safe_print(c.get("url", ""))
-                console.print(Text(f"  [{i}] ", style="bold orange1") + Text(title, style="bold white"))
-                console.print(Text(f"      {url}", style="dim cyan"))
-            console.print()
 
 
 # --------------------------------------------------------------------------
@@ -2463,7 +2466,7 @@ def logs(
 def bench(
     query: str = typer.Argument("test", help="Search query for benchmark"),
     iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
-    engines: int = typer.Option(2, "--engines", "-e", help="Number of search engines"),
+    engines: int = typer.Option(2, "--num-engines", help="Number of search engines"),
     config: str = typer.Option(None, "--config", "-c"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
