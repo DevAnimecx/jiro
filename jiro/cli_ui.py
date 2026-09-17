@@ -51,7 +51,7 @@ def make_logo() -> Panel:
     subtitle = Text()
     subtitle.append("  AI-native web search & scraping", style=f"dim {DIM}")
     subtitle.append("\n  v", style=f"dim {DIM}")
-    subtitle.append("0.3.0", style=f"bold {ORANGE}")
+    subtitle.append("0.3.1", style=f"bold {ORANGE}")
 
     group = Group(logo, subtitle)
     return Panel(group, border_style=ORANGE, box=box.DOUBLE_EDGE, padding=(0, 1))

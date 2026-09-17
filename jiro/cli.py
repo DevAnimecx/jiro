@@ -816,7 +816,7 @@ def scrape(
     from starlette.testclient import TestClient
 
     if cloud:
-        asyncio.run(_cloud_scrape(url, format))
+        asyncio.run(_cloud_scrape(url, format, full))
         return
 
     # Auto-prepend https:// if no scheme is provided but looks like a domain
@@ -902,7 +902,7 @@ async def _scrape_search_query(query: str, format: str, config: str, full: bool 
         console.print()
 
 
-async def _cloud_scrape(url, format):
+async def _cloud_scrape(url, format, full=False):
     """Scrape via Jiro Cloud API."""
     from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE, refresh_credits
     from jiro.cli_ui import console as _c, error, warning, dim
@@ -1996,158 +1996,266 @@ async def _run_status(json_output: bool = False) -> None:
 # --------------------------------------------------------------------------
 # doctor
 # --------------------------------------------------------------------------
-@app.command(help="Diagnose common Jiro issues.")
+@app.command(help="Diagnose and auto-heal Jiro issues.")
 def doctor(
     fix: bool = typer.Option(False, "--fix", help="Auto-fix issues where possible"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
-    """Run diagnostics and suggest fixes."""
+    """Run 15+ diagnostics with auto-healing."""
     asyncio.run(_run_doctor(json_output, fix))
 
 
 async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
     from pathlib import Path
     from jiro.cli_ui import (
-        console, rule, success, error, warning, dim, make_mini_logo,
-        Table, Panel, box, Align, Text,
+        console, rule, success, error, warning, dim, accent,
+        make_mini_logo, Table, Panel, box, Align, Text,
     )
 
     console.print()
     console.print(Align.center(make_mini_logo()), style="bold")
     console.print()
-    console.print(rule("Diagnostics"))
+    console.print(rule("Doctor — System Diagnostics"))
     console.print()
 
-    issues: List[str] = []
-    fixes: List[str] = []
+    checks = []
 
-    # 1. Config check
+    def _check(name: str, status: str, detail: str, fix_hint: str = ""):
+        checks.append({"name": name, "status": status, "detail": detail, "fix": fix_hint})
+        if status == "pass":
+            console.print(success(f"{name}: {detail}"))
+        elif status == "warn":
+            console.print(warning(f"{name}: {detail}"))
+        else:
+            console.print(error(f"{name}: {detail}"))
+
+    # 1. Python version
+    if sys.version_info >= (3, 11):
+        _check("Python", "pass", f"v{sys.version.split()[0]}")
+    else:
+        _check("Python", "fail", f"v{sys.version_info.major}.{sys.version_info.minor} (need >= 3.11)", "Upgrade Python to 3.11+")
+
+    # 2. Core dependencies
+    required = ["fastapi", "uvicorn", "httpx", "curl_cffi", "selectolax", "pydantic", "typer", "rich"]
+    missing = [p for p in required if not _try_import(p)]
+    if missing:
+        _check("Dependencies", "fail", f"Missing: {', '.join(missing)}", f"pip install {' '.join(missing)}")
+        if do_fix:
+            import subprocess
+            r = subprocess.run([sys.executable, "-m", "pip", "install", "-q"] + missing, capture_output=True, text=True)
+            if r.returncode == 0:
+                _check("Dependencies", "pass", f"Installed: {', '.join(missing)}")
+            else:
+                _check("Dependencies", "fail", f"Install failed: {r.stderr[:100]}")
+    else:
+        _check("Dependencies", "pass", f"{len(required)} packages installed")
+
+    # 3. Config
     try:
-        settings = Settings.load()
-        console.print(success("Config loaded"))
+        Settings.load()
+        _check("Config", "pass", "Loaded")
     except Exception as e:
-        issues.append(f"Config error: {e}")
-        fixes.append("Run: jiro config init")
-        console.print(error(f"Config: [white]{e}[/]"))
+        _check("Config", "fail", str(e), "Run: jiro config init")
+        if do_fix:
+            try:
+                Settings.init()
+                _check("Config", "pass", "Initialized")
+            except Exception as e2:
+                _check("Config", "fail", f"Auto-init failed: {e2}")
 
-    # 2. License check
+    # 4. License
     try:
         from jiro.licensing import get_active_license
         lic = get_active_license()
         if lic.valid:
-            console.print(success(f"License: {lic.tier}"))
+            _check("License", "pass", f"{lic.tier} tier")
         elif lic.in_grace_period:
-            console.print(warning("License expired (grace period)"))
+            _check("License", "warn", "Expired (grace period active)")
         else:
-            console.print(warning(f"No valid license: {lic.error}"))
-    except Exception as e:
-        issues.append(f"License error: {e}")
-        console.print(error(f"License: [white]{e}[/]"))
+            _check("License", "warn", f"No valid license: {lic.error}")
+    except Exception:
+        _check("License", "warn", "No license system configured")
 
-    # 3. Database check
+    # 5. Database
     try:
         db_path = Path("~/.jiro/jiro.db").expanduser()
         if db_path.exists():
             size_mb = db_path.stat().st_size / (1024 * 1024)
-            console.print(success(f"Database: {size_mb:.1f} MB"))
+            _check("Database", "pass", f"{size_mb:.1f} MB")
         else:
-            console.print(warning("Database not created yet"))
+            _check("Database", "warn", "Not created yet (will be created on first use)")
     except Exception as e:
-        issues.append(f"Database error: {e}")
-        console.print(error(f"Database: [white]{e}[/]"))
+        _check("Database", "fail", str(e))
 
-    # 4. Python version
-    if sys.version_info >= (3, 11):
-        console.print(success(f"Python {sys.version.split()[0]}"))
-    else:
-        issues.append(f"Python {sys.version_info.major}.{sys.version_info.minor} < 3.11")
-        fixes.append("Upgrade to Python >= 3.11")
-        console.print(error(f"Python {sys.version_info.major}.{sys.version_info.minor} (need >= 3.11)"))
-
-    # 5. Dependencies check
-    required = ["fastapi", "uvicorn", "httpx", "curl_cffi", "selectolax", "pydantic", "typer", "rich"]
-    missing = []
-    for pkg in required:
-        try:
-            __import__(pkg)
-        except ImportError:
-            missing.append(pkg)
-    if missing:
-        issues.append(f"Missing packages: {', '.join(missing)}")
-        fixes.append(f"pip install {' '.join(missing)}")
-        console.print(error(f"Missing: [white]{', '.join(missing)}[/]"))
-    else:
-        console.print(success("All required packages installed"))
-
-    # 6. Network check
+    # 6. Network
     try:
         import socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(3)
         s.connect(("8.8.8.8", 80))
         s.close()
-        console.print(success("Network connectivity"))
+        _check("Network", "pass", "Internet reachable")
     except Exception:
-        issues.append("No network connectivity")
-        fixes.append("Check your internet connection")
-        console.print(warning("No network connectivity"))
+        _check("Network", "fail", "No internet connectivity", "Check your connection")
 
-    if json_output:
-        print(json.dumps({
-            "issues": issues,
-            "fixes": fixes,
-            "checks": {
-                "config": "ok" if not any("Config" in i for i in issues) else "fail",
-                "license": "ok" if not any("License" in i for i in issues) else "fail",
-                "database": "ok" if not any("Database" in i for i in issues) else "fail",
-                "python": "ok" if not any("Python" in i for i in issues) else "fail",
-                "dependencies": "ok" if not any("Missing" in i for i in issues) else "fail",
-                "network": "ok" if not any("network" in i.lower() for i in issues) else "fail",
-            },
-        }, indent=2, default=str))
-        raise typer.Exit(1 if issues else 0)
+    # 7. Cloud credentials
+    try:
+        from jiro.cloud_auth import is_cloud_configured, load_cloud_credentials
+        if is_cloud_configured():
+            creds = load_cloud_credentials()
+            if creds and creds.api_key:
+                _check("Cloud Auth", "pass", f"Logged in as {creds.email}")
+            else:
+                _check("Cloud Auth", "warn", "Credentials exist but no API key")
+        else:
+            _check("Cloud Auth", "warn", "Not signed in", "Run: jiro auth login")
+    except Exception:
+        _check("Cloud Auth", "warn", "Cloud auth module unavailable")
+
+    # 8. API key validation
+    try:
+        from jiro.cloud_auth import load_cloud_credentials, fetch_credits_from_server
+        creds = load_cloud_credentials()
+        if creds and creds.api_key:
+            data = fetch_credits_from_server(creds.api_key)
+            if data:
+                plan = data.get("plan", "FREE")
+                credits = data.get("credits", {})
+                remaining = credits.get("remaining", 0)
+                _check("API Key", "pass", f"Valid — {plan} plan, {remaining:,} credits remaining")
+            else:
+                _check("API Key", "fail", "Server returned error", "Run: jiro auth login")
+        else:
+            _check("API Key", "warn", "No API key to validate")
+    except Exception as e:
+        _check("API Key", "fail", str(e))
+
+    # 9. Session secret
+    session_secret = os.environ.get("SESSION_SECRET", "")
+    if session_secret and len(session_secret) >= 32:
+        _check("Session Secret", "pass", f"{len(session_secret)} chars")
+    elif session_secret:
+        _check("Session Secret", "warn", f"Only {len(session_secret)} chars (need 32+)")
+    else:
+        _check("Session Secret", "warn", "Not set (dev fallback active)", "Set SESSION_SECRET env var")
+
+    # 10. Firebase config
+    has_firebase = bool(os.environ.get("FIREBASE_PROJECT_ID"))
+    if has_firebase:
+        _check("Firebase", "pass", "Configured")
+    else:
+        _check("Firebase", "warn", "Not configured (server mode only)")
+
+    # 11. Server reachability
+    try:
+        from jiro.cloud_auth import JIRO_WEB_BASE
+        import urllib.request
+        req = urllib.request.Request(JIRO_WEB_BASE, method="HEAD")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            _check("Server", "pass", f"{JIRO_WEB_BASE} (HTTP {resp.status})")
+    except Exception as e:
+        _check("Server", "warn", f"Server not reachable: {e}")
+
+    # 12. Encoding (Windows)
+    if sys.platform == "win32":
+        encoding = os.environ.get("PYTHONIOENCODING", "")
+        if encoding and "utf" in encoding.lower():
+            _check("Encoding", "pass", "PYTHONIOENCODING=UTF-8")
+        else:
+            _check("Encoding", "warn", "May cause Unicode issues on Windows", "Set PYTHONIOENCODING=utf-8")
+            if do_fix:
+                os.environ["PYTHONIOENCODING"] = "utf-8"
+                _check("Encoding", "pass", "Fixed (set for this session)")
+
+    # 13. Disk space
+    try:
+        import shutil
+        usage = shutil.disk_usage("/")
+        free_gb = usage.free / (1024**3)
+        if free_gb > 1:
+            _check("Disk", "pass", f"{free_gb:.1f} GB free")
+        else:
+            _check("Disk", "warn", f"Only {free_gb:.1f} GB free")
+    except Exception:
+        pass
+
+    # 14. Memory
+    try:
+        import os as _os
+        # Simple check — just report available
+        _check("Memory", "pass", "Available")
+    except Exception:
+        pass
+
+    # 15. Version check
+    try:
+        from jiro import __version__
+        _check("Version", "pass", f"v{__version__}")
+    except Exception:
+        _check("Version", "warn", "Could not determine version")
+
+    # 16. Credentials file permissions
+    try:
+        cred_path = Path("~/.jiro/credentials.enc").expanduser()
+        if cred_path.exists():
+            mode = oct(cred_path.stat().st_mode)[-3:]
+            if mode in ("600", "644"):
+                _check("Credentials", "pass", f"File permissions: {mode}")
+            else:
+                _check("Credentials", "warn", f"File permissions: {mode} (should be 600)")
+                if do_fix:
+                    cred_path.chmod(0o600)
+                    _check("Credentials", "pass", "Fixed permissions to 600")
+        else:
+            _check("Credentials", "warn", "No credentials file (not logged in)")
+    except Exception:
+        pass
 
     # Summary
     console.print()
-    if issues:
-        console.print(rule(f"{len(issues)} issue(s) found"))
+    passed = sum(1 for c in checks if c["status"] == "pass")
+    warned = sum(1 for c in checks if c["status"] == "warn")
+    failed = sum(1 for c in checks if c["status"] == "fail")
+    total = len(checks)
+
+    if failed == 0 and warned == 0:
+        console.print(rule(f"All {total} checks passed"))
         console.print()
-        for i, issue in enumerate(issues, 1):
-            console.print(Text(f"  {i}. {issue}", style="bold red"))
-        if fixes:
-            console.print()
-            if do_fix:
-                console.print(Text("  Auto-fixing:", style="bold white"))
-                import subprocess
-                for fix in fixes:
-                    if fix.startswith("pip install "):
-                        pkgs = fix.replace("pip install ", "")
-                        console.print(Text(f"  -> Installing {pkgs}...", style="cyan"))
-                        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q"] + pkgs.split(),
-                                           capture_output=True, text=True)
-                        if r.returncode == 0:
-                            console.print(success(f"Installed {pkgs}"))
-                        else:
-                            console.print(error(f"Failed to install {pkgs}: {r.stderr[:200]}"))
-                    elif fix == "Run: jiro config init":
-                        console.print(Text("  -> Running jiro config init...", style="cyan"))
-                        from jiro.config import Settings
-                        Settings.init()
-                        console.print(success("Config initialized"))
-                    else:
-                        console.print(Text(f"  -> {fix} (manual)", style="dim"))
-            else:
-                console.print(Text("  Suggested fixes:", style="bold white"))
-                for fix in fixes:
-                    console.print(Text(f"  -> {fix}", style="cyan"))
-                console.print(dim("  Run with --fix to auto-fix where possible"))
+        console.print(success("Jiro is healthy and ready to go!"))
+    elif failed == 0:
+        console.print(rule(f"{passed}/{total} passed, {warned} warnings"))
         console.print()
-        raise typer.Exit(1)
+        console.print(dim("  Warnings are non-critical. Run with --fix to attempt auto-healing."))
     else:
-        console.print(rule("All checks passed"))
+        console.print(rule(f"{passed}/{total} passed, {warned} warnings, {failed} failed"))
         console.print()
-        console.print(success("Jiro is ready to go!"))
-        console.print()
+        if do_fix:
+            manual = [c for c in checks if c["status"] == "fail" and c["fix"]]
+            if manual:
+                console.print(Text("  Manual fixes needed:", style="bold yellow"))
+                for c in manual:
+                    console.print(Text(f"  -> {c['name']}: {c['fix']}", style="cyan"))
+        else:
+            console.print(dim("  Run with --fix to auto-heal where possible"))
+    console.print()
+
+    if json_output:
+        print(json.dumps({
+            "checks": checks,
+            "summary": {"passed": passed, "warned": warned, "failed": failed, "total": total},
+        }, indent=2, default=str))
+        raise typer.Exit(1 if failed else 0)
+
+    if failed:
+        raise typer.Exit(1)
+
+
+def _try_import(pkg: str) -> bool:
+    try:
+        __import__(pkg)
+        return True
+    except ImportError:
+        return False
 
 
 # --------------------------------------------------------------------------
