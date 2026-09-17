@@ -138,6 +138,13 @@ def main(
     version: bool = typer.Option(False, "--version", callback=version_callback,
                                   is_eager=True, help="Show version."),
 ) -> None:
+    # Auto-refresh account info in background (non-blocking, every 5 min)
+    try:
+        from jiro.cloud_auth import auto_refresh_account
+        auto_refresh_account(silent=True)
+    except Exception:
+        pass
+
     if ctx.invoked_subcommand is None and not version:
         from jiro.cli_ui import console as ui_console, make_logo
         ui_console.print(make_logo())
@@ -374,10 +381,10 @@ def auth_logout() -> None:
 
 @auth_app.command("whoami", help="Show current cloud account info.")
 def auth_whoami(
-    refresh: bool = typer.Option(False, "--refresh", "-r", help="Refresh credits from server"),
+    refresh: bool = typer.Option(False, "--refresh", "-r", help="Force refresh credits from server"),
 ) -> None:
     """Display current cloud authentication status and credit balance."""
-    from jiro.cloud_auth import load_cloud_credentials, refresh_credits
+    from jiro.cloud_auth import load_cloud_credentials, refresh_credits, auto_refresh_account
     from jiro.cli_ui import (
         console, account_card, rule, success, warning, dim,
     )
@@ -392,8 +399,12 @@ def auth_whoami(
 
     if refresh:
         console.print()
-        with console.status("[bold orange1]  Refreshing credits from server...", spinner="dots"):
+        with console.status("[bold orange1]  Refreshing from server...", spinner="dots"):
             creds = refresh_credits(creds)
+    else:
+        # Block on auto-refresh if stale
+        auto_refresh_account(silent=False)
+        creds = load_cloud_credentials() or creds
 
     console.print()
     console.print(rule("Account Info"))
