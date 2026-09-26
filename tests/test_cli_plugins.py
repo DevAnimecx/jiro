@@ -1,11 +1,11 @@
-"""Tests for the engine plugin CLI (ecosystem surface)."""
+﻿"""Tests for the engine plugin CLI (ecosystem surface)."""
 
 from __future__ import annotations
 
 import json
 
-import click
 import pytest
+import typer
 
 from jiro.cli_plugins import list_plugins, plugin_info, validate_plugin, create_plugin
 from jiro.config import Settings
@@ -42,7 +42,7 @@ class TestPluginInfo:
         assert data["name"] == "google"
 
     def test_info_unknown_engine_exits(self, capsys):
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):
             plugin_info("does-not-exist", json_output=True)
 
 
@@ -54,7 +54,7 @@ class TestPluginValidate:
         assert "valid" in out.lower()
 
     def test_validate_unknown_engine_exits(self, capsys):
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):
             validate_plugin("nope", config=None)
 
 
@@ -68,5 +68,5 @@ class TestPluginCreate:
         assert "myengine" in out
 
     def test_create_rejects_bad_name(self, tmp_path):
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):
             create_plugin("Bad Name", output_dir=str(tmp_path), author="Tester")

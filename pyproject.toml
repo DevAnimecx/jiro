@@ -50,11 +50,12 @@ dependencies = [
     "rich>=13.0",
     "PyJWT>=2.8",
     "aiosqlite>=0.20",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "fakeredis>=2.23",
-       "hypothesis>=6.100"]
+       "hypothesis>=6.100", "cryptography>=42", "lxml>=5.0"]
 browser = ["playwright>=1.44"]
 redis = ["redis>=5.0"]
 recipes = ["lxml>=5.0"]
