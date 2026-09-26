@@ -9,12 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Official package alignment across the CLI, JavaScript SDK, Python SDK, and Cloud API at `0.3.1`.
-- RFC 8628 device-code authentication with browser authorization and CLI token polling.
+- **Auto-heal update system** (`heal_pip_install()`, `_kill_jiro_exe()`, `_is_winerror_32()`) in `self_healing.py` for automatic WinError 32 recovery during pip upgrades.
 - Built-in engine plugin auto-registration for arXiv, GitHub, Google Scholar, Hacker News, Reddit, and Wikipedia.
 - Cloud pricing endpoint and synchronized credit actions for search, scrape, AI, agent, MCP, and AEO feed operations.
 - CI workflow: pytest (non-network tests) + pip-audit + gitleaks on every push.
 - Release guard tests for social normalizers and the curl response adapter (15 tests).
-- **Auto-heal update system** (`heal_pip_install()`, `_kill_jiro_exe()`, `_is_winerror_32()`) in `self_healing.py` for automatic WinError 32 recovery during pip upgrades.
 
 ### Changed
 - Hardened internal authentication, API-key ownership checks, WAF query normalization, and circuit-breaker failure handling.
@@ -24,12 +23,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows update path**: `.bat` updater now force-kills `jiro.exe` via `taskkill /F /IM jiro.exe` before pip install, with retry loop and exponential backoff (up to 5 attempts).
 
 ### Fixed
-- **WinError 32 on pip upgrade**: `jiro.exe` no longer blocks `pip install --upgrade jirosearch`. The updater kills the running process and retries automatically.
+- **WinError 32 on pip upgrade**: `jiro.exe` no longer blocks `pip install --upgrade jirosearch`. The updater kills the running process and retries automatically with exponential backoff.
 - Device authorization now resolves the Firestore user document before issuing API keys.
 - Local Firestore emulator flows no longer report an unconfigured server.
 - Cloud credit revocation, malformed request handling, and metrics shutdown paths are safe and consistent.
 - `normalize_profile` no longer raises `AttributeError` on `SocialProfile` objects (type defaults to `profile`); dict results from scrapers pass through unchanged.
 - `_CurlResponseAdapter` provides `raise_for_status()` and `json()` for httpx-compatible scraping paths.
+
+## [0.3.0] - 2026-09-15
+
+### Added
+- **RFC 8628 Device Code Flow**: CLI authenticates via browser. Works everywhere — SSH, Docker, headless servers.
+- **Encrypted Credential Storage**: AES-256-GCM with machine-derived PBKDF2 key. No plaintext on disk.
+- **Self-Hosted 3-Tier Pricing**:
+  - **Free**: 100 RPM, 10K RPD
+  - **Pro**: 500 RPM, 100K RPD, AI search
+  - **Enterprise**: 1,000 RPM, 1M RPD, white-label
+- **HMAC-SHA256 License Validation**: Offline-first, hardware-bound, no server needed after activation.
+- **CLI License Commands**: `jiro license activate`, `info`, `deactivate`, `validate`
+- **Device Code Polling Rate-Limited** per RFC 8628.
+- License keys hardware-bound, max 3 devices, with 24-hour grace period for renewal.
+
+### Bug Fixes
+- Fixed `jose importJwk` breaking middleware auth.
+- Fixed admin pages snake_case vs camelCase.
+- Fixed device auth API key creation in Firestore.
+- Fixed pricing data YAML inconsistencies.
+
+### Security
+- Device code polling rate-limited per RFC 8628.
+- License keys hardware-bound, max 3 devices.
+- 24-hour grace period for license renewal.
 
 ## [0.2.15] - 2026-09-10
 
