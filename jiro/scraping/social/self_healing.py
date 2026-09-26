@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
+import subprocess
+import sys
 import time
 from typing import Any, Callable, Dict
 
@@ -664,3 +667,51 @@ def reset_stats() -> None:
 def unblock_all() -> None:
     """Unblock all platforms (admin operation)."""
     _stats.blocked_until.clear()
+
+
+def _is_winerror_32(exc: Exception) -> bool:
+    """Check if an exception is a WinError 32 (file locked by another process)."""
+    text = str(exc).lower()
+    return "winerror 32" in text or "winerror 10022" in text or "being used by another process" in text or "file in use" in text
+
+
+def _kill_jiro_exe() -> bool:
+    """Force-kill any running jiro.exe process on Windows. Returns True if killed or not found."""
+    if sys.platform != "win32":
+        return False
+    try:
+        result = subprocess.run(
+            ["taskkill", "/F", "/IM", "jiro.exe"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode == 0 or "not found" in result.stderr.lower()
+    except Exception:
+        return False
+
+
+def heal_pip_install(pip_args: list[str], max_retries: int = 5) -> subprocess.CompletedProcess:
+    """Run pip install with automatic file-lock healing and retry.
+
+    If the install fails due to a file lock (WinError 32), the running
+    jiro.exe process is killed and the install is retried with
+    exponential backoff.
+    """
+    result = None
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(pip_args, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                return result
+            if _is_winerror_32(OSError(result.stderr)) or _is_winerror_32(OSError(result.stdout)):
+                log.warning("pip install failed with file lock on attempt %d/%d", attempt + 1, max_retries)
+                _kill_jiro_exe()
+                time.sleep(min(2.0 * (attempt + 1), 15.0))
+                continue
+            return result
+        except subprocess.TimeoutExpired:
+            if attempt < max_retries - 1:
+                _kill_jiro_exe()
+                time.sleep(min(2.0 * (attempt + 1), 15.0))
+                continue
+            raise
+    return result or subprocess.run(pip_args, capture_output=True, text=True, timeout=180)

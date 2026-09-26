@@ -1674,19 +1674,39 @@ async def _run_update(
             pip_cmd = " ".join(f'"{a}"' for a in pip_args)
             bat_content = f"""@echo off
 echo Waiting for jiro.exe to release...
-timeout /t 2 /nobreak >nul
+taskkill /F /IM jiro.exe >nul 2>&1
+timeout /t 1 /nobreak >nul
 echo Installing update...
+setlocal enabledelayedexpansion
+set RETRY=0
+set MAX_RETRIES=5
+:retry_loop
 {pip_cmd}
 if %errorlevel%==0 (
     echo Update complete!
     echo.
     jiro --version
-) else (
-    echo Update FAILED. Try: python -m pip install --upgrade jirosearch
-    pause
+    exit /b 0
 )
+set /a RETRY+=1
+if !RETRY! gtr !MAX_RETRIES! (
+    echo Update FAILED after !RETRY! attempts.
+    echo Try: python -m pip install --upgrade jirosearch
+    pause
+    exit /b 1
+)
+echo Install failed (file locked), retrying in !RETRY! seconds...
+timeout /t !RETRY! /nobreak >nul
+goto retry_loop
 """
             bat_path.write_text(bat_content, encoding="utf-8")
+
+            # Kill any lingering jiro.exe before launching updater
+            try:
+                from jiro.scraping.social.self_healing import _kill_jiro_exe
+                _kill_jiro_exe()
+            except Exception:
+                pass
 
             progress.stop()
             _c.print()
@@ -1707,12 +1727,13 @@ if %errorlevel%==0 (
         else:
             progress.update(task, description="Installing latest version...")
             try:
+                from jiro.scraping.social.self_healing import heal_pip_install, _kill_jiro_exe
                 if use_github:
-                    cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
-                           "git+https://github.com/DevAnimecx/jiro.git@main"]
+                    pip_args = [sys.executable, "-m", "pip", "install", "--upgrade",
+                               "git+https://github.com/DevAnimecx/jiro.git@main"]
                 else:
-                    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                    pip_args = [sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"]
+                result = heal_pip_install(pip_args, max_retries=5)
                 if result.returncode != 0:
                     progress.stop()
                     _c.print(error("Installation failed:"))

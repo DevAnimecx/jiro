@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,9 +21,11 @@ from jiro.scraping.social.self_healing import (
     _is_selector_error,
     _is_ssl_error,
     _is_stale_hash_error,
+    _is_winerror_32,
     _validate_result,
     heal,
     heal_async,
+    heal_pip_install,
     get_stats,
     reset_stats,
     unblock_all,
@@ -174,6 +178,59 @@ def test_error_classifiers():
     assert _is_ssl_error(OSError("ssl certificate verify failed"))
     assert _is_http_5xx(RuntimeError("500 internal server error"))
     assert not _is_http_5xx(RuntimeError("400 bad request"))
+
+
+def test_is_winerror_32():
+    assert _is_winerror_32(OSError("[WinError 32] The process cannot access the file because it is being used by another process: 'jiro.exe'"))
+    assert _is_winerror_32(OSError("WinError 32 file in use"))
+    assert _is_winerror_32(OSError("winerror 32 permission denied"))
+    assert not _is_winerror_32(RuntimeError("some other error"))
+    assert not _is_winerror_32(OSError("[Errno 2] No such file"))
+
+
+@pytest.mark.asyncio
+async def test_heal_pip_install_success(monkeypatch):
+    import subprocess
+    from jiro.scraping.social.self_healing import heal_pip_install
+
+    def mock_run(*args, **kwargs):
+        class Result:
+            returncode = 0
+            stdout = "success"
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    result = heal_pip_install([sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"])
+    assert result.returncode == 0
+
+
+@pytest.mark.asyncio
+async def test_heal_pip_install_retry_on_lock(monkeypatch):
+    import subprocess
+    from unittest.mock import MagicMock
+    from jiro.scraping.social.self_healing import heal_pip_install
+
+    call_count = [0]
+
+    def mock_run(*args, **kwargs):
+        call_count[0] += 1
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "ERROR: Could not install packages due to an OSError: [WinError 32] The process cannot access the file because it is being used by another process: 'jiro.exe'"
+        return result
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    monkeypatch.setattr("jiro.scraping.social.self_healing._kill_jiro_exe", MagicMock(return_value=True))
+    monkeypatch.setattr("time.sleep", lambda x: None)
+
+    result = heal_pip_install([sys.executable, "-m", "pip", "install", "--upgrade", "jirosearch"], max_retries=3)
+    assert call_count[0] == 3
+
+
+def test_is_file_lock_error_winerror_32():
+    assert _is_file_lock_error(OSError("[WinError 32] The process cannot access the file because it is being used by another process"))
 
 
 @pytest.mark.asyncio

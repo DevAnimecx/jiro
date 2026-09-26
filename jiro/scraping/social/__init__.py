@@ -70,6 +70,8 @@ from jiro.scraping.social.normalizer import (
 from jiro.scraping.social.self_healing import (
     heal,
     heal_async,
+    heal_pip_install,
+    _kill_jiro_exe,
     HealingStats,
     get_stats,
     reset_stats,
@@ -122,6 +124,8 @@ __all__ = [
     # Self-healing
     "heal",
     "heal_async",
+    "heal_pip_install",
+    "_kill_jiro_exe",
     "HealingStats",
     "get_stats",
     "reset_stats",
