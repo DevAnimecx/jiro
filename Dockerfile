@@ -7,13 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+# Copy project metadata first (better layer caching), then install from pyproject
+COPY pyproject.toml README.md ./
 COPY jiro/ ./jiro/
 COPY scripts/ ./scripts/
+RUN pip install --no-cache-dir -e .
 
 # Create data directory
 RUN mkdir -p /data
@@ -27,6 +25,6 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/v1/monitor/health')" || exit 1
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/health')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "jiro.server:create_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "jiro.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

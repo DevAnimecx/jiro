@@ -26,6 +26,9 @@ def settings(tmp_path) -> Any:
     s.raw["db"]["path"] = str(tmp_path / "jiro.db")
     s.raw["cache"]["path"] = str(tmp_path / "cache.db")
     s.raw["cache"]["type"] = "sqlite"
+    # Hermetic: never depend on ~/.jiro/config.yaml; default auth would
+    # require a JWT secret that CI does not have.
+    s.raw["auth"]["enabled"] = False
     return s
 
 

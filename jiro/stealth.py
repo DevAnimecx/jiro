@@ -28,7 +28,7 @@ BROWSER_PROFILES: List[str] = [
     "chrome123",
     "chrome124",
     "chrome131",
-    "chrome133",
+    "chrome133a",
     "chrome136",
     "chrome142",
     "chrome145",
