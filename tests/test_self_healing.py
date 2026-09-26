@@ -8,7 +8,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from jiro.scraping.social.self_healing import (
-    EmptyResultError,
     EngineBlockedError,
     HealingStats,
     SelectorError,

@@ -6,10 +6,8 @@ Lazy-loads cross-encoder model (ms-marco-MiniLM-L-6-v2, ~80MB, CPU).
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 
 from jiro.config import Settings
 from jiro.log import get_logger

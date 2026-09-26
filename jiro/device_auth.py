@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 

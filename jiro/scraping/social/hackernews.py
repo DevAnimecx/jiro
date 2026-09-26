@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Dict, List, Optional
 
 from jiro.scraping.social.base import BaseSocialScraper, SocialPost, SocialProfile, registry
-from jiro.scraping.social.normalizer import build_post, build_profile, normalize_timestamp, normalize_number
+from jiro.scraping.social.normalizer import build_post, build_profile
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.hackernews")

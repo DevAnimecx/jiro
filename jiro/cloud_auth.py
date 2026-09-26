@@ -10,7 +10,7 @@ import json
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError

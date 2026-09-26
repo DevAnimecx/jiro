@@ -6,16 +6,15 @@ from typing import Any, Dict
 
 from fastapi import Depends, Request
 
-from jiro.auth import AuthContext, build_auth_context
+from jiro.auth import AuthContext, AuthManager, build_auth_context
 from jiro.errors import AuthError, JiroPermissionError
 from jiro.audit import ComplianceLogger
 from jiro.cache import CacheManager
 from jiro.config import Settings
 from jiro.db import Database
 from jiro.errors import ForbiddenError, LicenseError
-from jiro.feature_flags import get_feature_gate
 from jiro.licensing import FEATURE_DEFINITIONS
-from jiro.pro import PLAN_LIMITS, PlanLimits, PlanTier
+from jiro.pro import PLAN_LIMITS, PlanTier
 from jiro.scraping.client import ScrapingClient
 from jiro.scraping.engines import SearchOrchestrator
 

@@ -10,9 +10,8 @@ import hashlib
 import importlib
 import logging
 import os
-import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 log = logging.getLogger("jiro.integrity")
 

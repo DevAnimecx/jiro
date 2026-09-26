@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -223,7 +221,6 @@ def _save_config(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix == ".toml":
         try:
-            import tomllib
             import tomli_w
             path.write_text(tomli_w.dumps(data), encoding="utf-8")
             return

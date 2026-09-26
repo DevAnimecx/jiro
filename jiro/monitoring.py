@@ -226,7 +226,7 @@ def trace_operation(tracer: RequestTracer, operation: str,
     correlation_id = tracer.start_trace(operation, metadata)
     try:
         yield correlation_id
-    except Exception as e:
+    except Exception:
         tracer.end_trace(correlation_id, status="error")
         raise
     finally:

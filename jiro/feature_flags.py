@@ -6,16 +6,13 @@ Integrates with jiro.licensing for token validation and jiro.pro for plan limits
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 from jiro.config import Settings
-from jiro.errors import LicenseError
 from jiro.licensing import (
     FEATURE_DEFINITIONS,
-    LicenseInfo,
     get_active_license,
     get_feature_gate,
-    is_feature_enabled,
 )
 
 
@@ -77,7 +74,7 @@ class FeatureFlags:
 
 
 # Tier-to-feature mapping — derived from pro.py PLAN_LIMITS (single source of truth)
-from jiro.pro import PLAN_LIMITS, PlanTier, get_features_for_tier as _get_features_for_tier
+from jiro.pro import PlanTier, get_features_for_tier as _get_features_for_tier
 
 _TIER_FEATURES: Dict[str, List[str]] = {
     tier.value: _get_features_for_tier(tier)

@@ -14,9 +14,9 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 
 class CacheBackend(str, Enum):

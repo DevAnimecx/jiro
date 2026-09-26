@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -14,7 +13,6 @@ from jiro.config import Settings
 from jiro.scraping.client import ScrapingClient
 from jiro.scraping.social.self_healing import heal_async as _heal_async
 from jiro.scraping.social.self_learning import record_scrape as _record_scrape
-from jiro.scraping.social.self_learning import get_best_engine as _get_best_engine
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.base")

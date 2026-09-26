@@ -47,7 +47,7 @@ docker-compose up -d
 
 ```bash
 helm repo add jiro https://charts.searchjiro.vercel.app
-helm install jiro jiro/jiro --version 0.2.1
+helm install jiro jiro/jiro --version 0.3.1
 ```
 
 ## API Usage

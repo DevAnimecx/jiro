@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-import numpy as np
 
 from jiro.config import Settings
 from jiro.log import get_logger

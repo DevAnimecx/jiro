@@ -19,7 +19,6 @@ from jiro.errors import EngineError
 from jiro.log import get_logger
 from jiro.models import SearchRequest, SearchResponse, MultiQuerySearchRequest
 from jiro.server.deps import (
-    get_auth_context,
     get_audit_logger_dep,
     get_cache,
     get_orchestrator,
@@ -254,7 +253,7 @@ async def search_batch(
             data = result.model_dump()
             data["query"] = q
             return data
-        except Exception as exc:
+        except Exception:
             # SECURITY: Log full exception server-side only, return generic message to client
             log.exception("Batch search failed", extra={"query": q, "engine": engine})
             return {"query": q, "error": "Search failed"}

@@ -9,13 +9,11 @@ Provides:
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any, Dict, List, Optional
 
 from jiro.config import Settings
 from jiro.db import Database
-from jiro.errors import AuthError
 from jiro.log import get_logger
 
 log = get_logger("jiro.session")
@@ -103,7 +101,6 @@ class SessionManager:
     async def _redis_set(self, jti: str, key_id: str, expires_at: float) -> None:
         """Store session in Redis."""
         try:
-            import redis.asyncio as aioredis
             client = await self._get_redis()
             if client:
                 ttl = max(1, int(expires_at - time.time()))
@@ -118,7 +115,6 @@ class SessionManager:
     async def _redis_delete(self, jti: str) -> None:
         """Remove session from Redis."""
         try:
-            import redis.asyncio as aioredis
             client = await self._get_redis()
             if client:
                 await client.delete(f"jiro:session:{jti}")
@@ -128,7 +124,6 @@ class SessionManager:
     async def _redis_is_valid(self, jti: str) -> Optional[bool]:
         """Check session validity in Redis. Returns None if not in Redis."""
         try:
-            import redis.asyncio as aioredis
             client = await self._get_redis()
             if client:
                 value = await client.get(f"jiro:session:{jti}")

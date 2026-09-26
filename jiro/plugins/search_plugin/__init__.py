@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from jiro.plugins import BaseSearchPlugin, search_plugin_registry
-from jiro.config import Settings
 
 
 class RerankerPlugin(BaseSearchPlugin):
@@ -266,7 +265,6 @@ class SnippetEnricherPlugin(BaseSearchPlugin):
 
 
 # Register all search plugins
-from jiro.plugins import search_plugin_registry
 search_plugin_registry.register(RerankerPlugin)
 search_plugin_registry.register(DeduplicatorPlugin)
 search_plugin_registry.register(DomainFilterPlugin)

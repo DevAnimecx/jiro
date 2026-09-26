@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import time
-from typing import Any, Callable, Optional
+from typing import Any
 
 from rich.align import Align
-from rich.columns import Columns
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
@@ -80,7 +78,7 @@ def make_mini_logo() -> Text:
     """Small inline logo for headers."""
     t = Text()
     t.append("j", style=f"bold {ORANGE}")
-    t.append("iro", style=f"bold white")
+    t.append("iro", style="bold white")
     return t
 
 
@@ -172,7 +170,7 @@ def credits_display(used: int, included: int) -> Panel:
 
     bar_width = 30
     filled = int(bar_width * pct / 100)
-    bar = "#" * filled + "-" * (bar_width - filled)
+    "#" * filled + "-" * (bar_width - filled)
 
     color = GREEN if pct < 60 else YELLOW if pct < 85 else RED
 
@@ -244,7 +242,7 @@ def search_result_card(
     header = Text()
     header.append("  >> ", style=f"bold {ORANGE}")
     header.append(f'"{query}"', style="bold white")
-    header.append(f"  .  ", style=f"dim {DIM}")
+    header.append("  .  ", style=f"dim {DIM}")
     header.append(engine, style=f"bold {CYAN}")
     if cached:
         header.append("  (cached)", style=f"italic {GREEN}")
@@ -261,7 +259,7 @@ def search_result_card(
     table.add_column("#", justify="right", style=f"dim {DIM}", width=3)
     table.add_column("Title", style="bold white", ratio=3)
     table.add_column("Source", style=f"{CYAN}", ratio=2, overflow="fold")
-    table.add_column("Snippet", style=f"dim white", ratio=3, overflow="fold")
+    table.add_column("Snippet", style="dim white", ratio=3, overflow="fold")
 
     for r in results[:10]:
         pos = str(r.get("position", ""))
@@ -293,7 +291,7 @@ def scrape_result_card(
     header = Text()
     header.append("  > ", style=f"bold {ORANGE}")
     header.append(title[:60], style="bold white")
-    header.append(f"\n  ", style="white")
+    header.append("\n  ", style="white")
     header.append(url[:70], style=f"{CYAN}")
 
     display_content = content[:max_chars]

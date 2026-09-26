@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import logging
 import os
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 from jiro.config import Settings
 from jiro.log import get_logger
@@ -360,6 +359,12 @@ social_plugin_registry = PluginRegistry(PluginType.SOCIAL)
 # Legacy engine registry alias (for backward compatibility)
 from jiro.scraping.engines import registry as legacy_engine_registry
 legacy_engine_registry = legacy_engine_registry
+
+for _engine_module in ("arxiv", "github", "google_scholar", "hackernews", "reddit", "wikipedia"):
+    try:
+        importlib.import_module(f"jiro.plugins.engine.{_engine_module}")
+    except Exception as exc:
+        log.warning("Failed to load engine plugin %s: %s", _engine_module, exc)
 
 
 # ── Unified Plugin Manager ───────────────────────────────────────────────────

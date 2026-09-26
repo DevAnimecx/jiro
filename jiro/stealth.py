@@ -324,7 +324,7 @@ def build_stealth_headers(engine: str = "google",
     headers.update(geo)
 
     # Browser fingerprint canvas
-    fp = _stealth.browser_fingerprint()
+    _stealth.browser_fingerprint()
 
     # Core browser headers
     profile = _stealth.next_profile()
@@ -351,7 +351,7 @@ def build_stealth_headers(engine: str = "google",
 
     # Referer chain
     if referer_chain:
-        chain_str = " <- ".join(referer_chain)
+        " <- ".join(referer_chain)
         headers["Referer"] = referer_chain[-1] if referer_chain else ""
         # Simulate referrer policy
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

@@ -15,10 +15,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Type
 
 from jiro.config import Settings
+from jiro.log import get_logger
 from jiro.errors import EngineBlockedError, EngineError
 from jiro.models import SearchRequest, SearchResponse
 from jiro.scraping.client import ScrapingClient
 from jiro.robots import RobotsManager
+
+log = get_logger("jiro.engines")
 
 # Optional type support table: engine -> list of supported search types.
 ENGINE_TYPES: Dict[str, List[str]] = {

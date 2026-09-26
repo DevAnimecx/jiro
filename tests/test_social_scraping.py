@@ -6,7 +6,6 @@ import pytest
 
 from jiro.scraping.social import (
     registry,
-    router as social_router,
     parse_social_url,
     auto_detect,
     detect_action,
@@ -15,10 +14,6 @@ from jiro.scraping.social import (
     build_search,
 )
 from jiro.scraping.social.base import (
-    BaseSocialScraper,
-    SocialPost,
-    SocialProfile,
-    SocialScrapeError,
     RateLimitError,
     AuthRequiredError,
     NotFoundError,

@@ -7,12 +7,10 @@ browsing, and user post/comment history.
 from __future__ import annotations
 
 import re
-import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
 
 from jiro.scraping.social.base import BaseSocialScraper, SocialPost, SocialProfile, registry
-from jiro.scraping.social.normalizer import build_post, build_profile, normalize_timestamp, normalize_number
+from jiro.scraping.social.normalizer import build_post, build_profile, normalize_number
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.reddit")
@@ -199,7 +197,7 @@ class RedditScraper(BaseSocialScraper):
         posts = data.get("data", {}).get("children", [])
         
         results = []
-        after = data.get("data", {}).get("after")
+        data.get("data", {}).get("after")
         
         for post in posts:
             post_data = post.get("data", {})
@@ -486,7 +484,7 @@ class RedditScraper(BaseSocialScraper):
         author = {
             "username": data.get("author", "[deleted]"),
             "display_name": data.get("author", "[deleted]"),
-            "avatar": f"https://www.reddit.com/static/avatars/default.png",
+            "avatar": "https://www.reddit.com/static/avatars/default.png",
             "subreddit": data.get("subreddit", ""),
         }
         
@@ -532,9 +530,8 @@ class RedditScraper(BaseSocialScraper):
         flair = data.get("link_flair_text", "")
         
         # Cross-post
-        crosspost = None
         if data.get("crosspost_parent"):
-            crosspost = data.get("crosspost_parent_list", [{}])[0].get("permalink", "")
+            data.get("crosspost_parent_list", [{}])[0].get("permalink", "")
         
         return build_post(
             platform="reddit",

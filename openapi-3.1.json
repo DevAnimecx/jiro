@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Jiro Search API",
-    "version": "0.2.0",
+    "version": "0.3.1",
     "description": "Local-first web search, scraping, and social media intelligence platform. Supports 9+ search engines, 12 social platforms, hybrid search, structured extraction, and smart intent routing.",
     "contact": {
       "name": "Jiro Team",

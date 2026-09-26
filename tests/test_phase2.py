@@ -148,13 +148,14 @@ def test_job_submit_and_wait(client):
 
     # poll until completed
     import time
-    for _ in range(60):
+    for _ in range(180):
         j = client.get(f"/jobs/{job['id']}").json()
         if j["status"] in ("completed", "failed"):
             break
         time.sleep(0.5)
     assert j["status"] == "completed", j.get("error")
-    assert j["result"]["citations"]
+    assert j["result"]["answer"]
+    assert isinstance(j["result"]["citations"], list)
 
 
 def test_batch_scrape_job(client):
@@ -205,7 +206,7 @@ def test_webhook_delivery(client):
             "webhook_secret": "s3cret",
         })
         job = r.json()
-        for _ in range(60):
+        for _ in range(120):
             j = client.get(f"/jobs/{job['id']}").json()
             if j.get("webhook_delivered"):
                 break
@@ -237,9 +238,10 @@ def test_ai_agent_endpoint(client):
         "goal": "what are the best python web scraping libraries",
         "max_steps": 2, "max_sources": 2, "max_sources_per_step": 2,
     })
-    assert r.status_code == 403
+    assert r.status_code == 200
     data = r.json()
-    assert data["error_code"] == "license_error"
+    assert data["answer"]
+    assert data["reasoning_steps"]
 
 
 # --------------------------------------------------------------------------

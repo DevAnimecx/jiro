@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, AsyncIterator, Dict, Set
+from typing import Any, AsyncIterator, Dict
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 from jiro.ai.agent import Agent
 from jiro.auth import AuthContext
 from jiro.models import AgentRequest, AISearchRequest
-from jiro.server.deps import get_agent, get_auth_context, get_orchestrator, record_usage
+from jiro.server.deps import get_agent, get_auth_context, record_usage
 from jiro.scraping.client import ScrapingClient
 
 router = APIRouter(tags=["ai"])
@@ -177,7 +177,6 @@ async def ws_search(
             "query": query, "engine": engine, "num": num,
         })
 
-        from jiro.scraping.engines import SearchOrchestrator
         orchestrator = request_or_orchestrator(websocket)
         if orchestrator is None:
             async for result in _stream_search_results(
@@ -219,7 +218,6 @@ async def ws_monitor(
         last_content = None
         while True:
             # Fetch current content
-            from jiro.scraping.client import ScrapingClient
             # Use a lightweight fetch
             content = await _fetch_url_content(url)
             if content != last_content:
@@ -332,7 +330,6 @@ def _scrape_ws() -> Any:
     """Get a scrape function for AI agent in WebSocket context."""
     async def _scrape(url: str) -> dict:
         from jiro.extract import scrape_url
-        from jiro.scraping.client import ScrapingClient
         from jiro.config import Settings
         client = ScrapingClient(Settings.load())
         await client.init()

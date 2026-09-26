@@ -1,4 +1,4 @@
-"""OpenAPI 3.1 Specification Generator for Jiro v0.2.
+"""OpenAPI 3.1 Specification Generator for Jiro v0.3.
 
 Generates a complete OpenAPI 3.1 spec from the existing routers and models.
 Also generates SDK generation scripts for Python and TypeScript.
@@ -12,13 +12,13 @@ from typing import Any, Dict, List, Optional
 
 
 def generate_openapi_spec() -> Dict[str, Any]:
-    """Generate OpenAPI 3.1 specification for Jiro v0.2."""
+    """Generate OpenAPI 3.1 specification for Jiro v0.3."""
     
     spec = {
         "openapi": "3.1.0",
         "info": {
             "title": "Jiro Search API",
-            "version": "0.2.0",
+            "version": "0.3.1",
             "description": "Local-first web search, scraping, and social media intelligence platform. "
                           "Supports 9+ search engines, 12 social platforms, hybrid search, structured extraction, "
                           "and smart intent routing.",
@@ -576,7 +576,7 @@ openapi-generator-cli generate \\
     -g python \\
     -o sdk/python \\
     --package-name jiro_client \\
-    --additional-properties=packageVersion=0.2.0
+    --additional-properties=packageVersion=0.3.1
 
 echo "Python SDK generated at sdk/python/"
 """
@@ -591,7 +591,7 @@ openapi-generator-cli generate \\
     -i openapi-3.1.json \\
     -g typescript-fetch \\
     -o sdk/typescript \\
-    --additional-properties=npmName=@jiro/client,npmVersion=0.2.0
+    --additional-properties=npmName=@jiro/client,npmVersion=0.3.1
 
 echo "TypeScript SDK generated at sdk/typescript/"
 """

@@ -215,7 +215,7 @@ class SocialNormalizer:
     ) -> Dict[str, Any]:
         """Build normalized profile dictionary."""
         author = profile_data.get("author", profile_data)
-        engagement = profile_data.get("engagement", {})
+        profile_data.get("engagement", {})
         
         return {
             "platform": platform,

@@ -11,21 +11,18 @@ Provides:
 from __future__ import annotations
 
 import json
-import logging
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from jiro.server.deps import get_db, get_settings, require_admin_dep as require_admin
 from jiro.auth import AuthContext
-from jiro.audit_chain import AuditChain, get_audit_chain
+from jiro.audit_chain import get_audit_chain
 from jiro.db import Database
 from jiro.encryption import get_encryption
 from jiro.errors import JiroPermissionError
-from jiro.server.deps import get_db, get_settings
 
 router = APIRouter(tags=["compliance"])
 
@@ -191,7 +188,6 @@ async def export_audit_logs(
     audit = get_audit_chain(settings)
     
     if format == "signed":
-        import tempfile
         output_path = f"{settings.get('audit.chain_log_path', '~/.jiro/audit_chain.jsonl')}.export"
         file_hash = audit.export_signed(output_path, sign_key=settings.jwt_secret)
         return Response(

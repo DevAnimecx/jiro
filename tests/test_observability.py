@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from jiro.telemetry import Counter, Histogram, Gauge, MetricsCollector, get_metrics, reset_metrics
-from jiro.tracing import Tracer, Span, get_tracer, reset_tracer, generate_trace_id, generate_span_id
+from jiro.tracing import Tracer, get_tracer, reset_tracer, generate_trace_id, generate_span_id
 
 
 # ===========================================================================

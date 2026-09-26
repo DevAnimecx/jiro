@@ -16,13 +16,12 @@ from __future__ import annotations
 
 import inspect
 import re
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from jiro.browser import BrowserFetcher, BrowserPage, get_browser, get_browser_page, playwright_available
 from jiro.scraping.client import ScrapingClient
-from jiro.scraping.engines import SearchOrchestrator
 from jiro.scraping.social import (
     build_post,
     build_profile,
@@ -31,7 +30,7 @@ from jiro.scraping.social import (
     registry,
     router as social_router,
 )
-from jiro.scraping.social.base import BaseSocialScraper, SocialPost, SocialProfile, SocialScrapeError, RateLimitError, AuthRequiredError, NotFoundError
+from jiro.scraping.social.base import SocialScrapeError, RateLimitError, AuthRequiredError, NotFoundError
 from jiro.scraping.social.facebook import FacebookScraper
 from jiro.scraping.social.instagram import InstagramScraper
 from jiro.scraping.social.linkedin import LinkedInScraper
@@ -45,11 +44,8 @@ from jiro.scraping.social.youtube import YouTubeScraper
 from jiro.scraping.social.bluesky import BlueskyScraper
 from jiro.scraping.social.hackernews import HackerNewsScraper
 from jiro.plugins import engine_registry
-from jiro.plugins.engine.hackernews import HackerNewsEnginePlugin
 from jiro.plugins.engine.github import GitHubPlugin
-from jiro.plugins.engine.reddit import RedditEnginePlugin
 from jiro.plugins.engine.arxiv import ArxivPlugin
-from jiro.plugins.engine.google_scholar import GoogleScholarPlugin
 from jiro.plugins.engine.wikipedia import WikipediaPlugin
 
 

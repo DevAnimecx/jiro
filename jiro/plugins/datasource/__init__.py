@@ -1,8 +1,5 @@
 """Datasource plugins - specialized data sources for specific domains."""
 from __future__ import annotations
-import asyncio
-import json
-import re
 from typing import Any, Dict, List, Optional
 from jiro.plugins import BaseDatasourcePlugin, datasource_registry
 from jiro.config import Settings

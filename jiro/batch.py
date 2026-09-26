@@ -9,13 +9,12 @@ Provides:
 
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 
 class BatchStatus(str, Enum):

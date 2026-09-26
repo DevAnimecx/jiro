@@ -14,10 +14,8 @@ from jiro.feature_flags import (
     get_features_for_tier,
     get_tier_for_feature,
     is_enabled,
-    require,
     validate_tier_access,
 )
-from jiro.licensing import FEATURE_DEFINITIONS as LIC_FEATURES
 from jiro.pro import PlanTier
 
 
@@ -30,7 +28,7 @@ class TestFeatureDefinitions:
         assert feat["default"] is True
         assert "free" in feat["tiers"]
 
-    def test_ai_search_requires_enterprise(self):
+    def test_ai_search_requires_pro(self):
         feat = FEATURE_DEFINITIONS["ai_search"]
         assert feat["default"] is False
         assert "enterprise" in feat["tiers"]
@@ -70,7 +68,7 @@ class TestFeatureFlags:
     def test_tier_for_feature(self):
         assert get_tier_for_feature("basic_search") == "free"
         assert get_tier_for_feature("smart_search") == "free"
-        assert get_tier_for_feature("ai_search") == "enterprise"
+        assert get_tier_for_feature("ai_search") == "pro"
         assert get_tier_for_feature("white_label") == "enterprise"
 
     def test_validate_tier_access(self):
@@ -137,33 +135,31 @@ class TestPlanLimits:
         limits = PLAN_LIMITS[PlanTier.FREE]
         assert limits.rpm == 100
         assert limits.max_concurrent == 20
-        assert limits.feature_ai_search is False
-        assert limits.feature_social_batch is True
-        assert limits.feature_self_learning is True
+        assert limits.structured_extraction is True
+        assert limits.social_scraping is True
+        assert limits.commercial_use is False
 
     def test_enterprise_plan_limits(self):
         from jiro.pro import PLAN_LIMITS, PlanTier
         limits = PLAN_LIMITS[PlanTier.ENTERPRISE]
         assert limits.rpm == 1000
-        assert limits.feature_ai_search is True
-        assert limits.feature_white_label is True
-        assert limits.feature_self_learning is True
+        assert limits.custom_models is True
+        assert limits.commercial_use is True
 
-    def test_all_tiers_have_feature_flags(self):
+    def test_all_tiers_have_limits(self):
         from jiro.pro import PLAN_LIMITS
         for tier in PlanTier:
             limits = PLAN_LIMITS[tier]
-            assert hasattr(limits, "feature_basic_search")
-            assert hasattr(limits, "feature_ai_search")
-            assert hasattr(limits, "feature_white_label")
+            assert limits.rpm > 0
+            assert limits.max_concurrent > 0
 
-    def test_only_two_tiers_exist(self):
-        assert list(PlanTier) == [PlanTier.FREE, PlanTier.ENTERPRISE]
+    def test_three_tiers_exist(self):
+        assert list(PlanTier) == [PlanTier.FREE, PlanTier.PRO, PlanTier.ENTERPRISE]
 
 
 class TestPremiumPackage:
     def test_premium_imports(self):
-        from jiro_premium import get_premium_implementations, get_premium_scrapers
+        from jiro_premium import get_premium_implementations
         impls = get_premium_implementations()
         assert "ai_search" in impls
         assert "social_batch" in impls

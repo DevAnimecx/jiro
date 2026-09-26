@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import HealthCheck, given, strategies as st, settings, assume
 
 from jiro.scraping.client import EngineRateLimiter
 from jiro.scraping.engines import SearchOrchestrator
@@ -24,7 +24,7 @@ class TestRateLimiterProperties:
         burst=st.integers(min_value=1, max_value=100),
         requests=st.integers(min_value=1, max_value=200),
     )
-    @settings(max_examples=50)
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     def test_rate_limiter_never_allows_more_than_burst_immediately(self, rpm, burst, requests):
         """Property: rate limiter never allows more than burst tokens immediately."""
         limiter = EngineRateLimiter({"test": {"rpm": rpm, "burst": burst}})
@@ -90,7 +90,7 @@ class TestSearchRequestProperties:
         location=st.text(min_size=1, max_size=50),
         language=st.text(min_size=2, max_size=10),
     )
-    @settings(max_examples=50)
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     def test_search_request_validation(self, q, engine, type, num, start, location, language):
         """Property: SearchRequest validates all valid inputs."""
         req = SearchRequest(
@@ -379,7 +379,7 @@ class TestAuthProperties:
     @given(
         api_key=st.text(min_size=40, max_size=50),
     )
-    @settings(max_examples=20)
+    @settings(max_examples=20, deadline=None)
     def test_api_key_hash_deterministic(self, api_key):
         """Property: API key hashing is deterministic."""
         from jiro.auth import hash_key

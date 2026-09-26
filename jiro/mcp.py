@@ -20,6 +20,7 @@ import json
 import sys
 from typing import Any, Callable, Dict, List, Optional
 
+from jiro import __version__
 from jiro.ai.agent import Agent
 from jiro.ai.llm import LLM
 from jiro.ai.tools import mcp_tools
@@ -32,13 +33,12 @@ from jiro.models import SearchRequest
 from jiro.scraping.client import ScrapingClient
 from jiro.ai.tools import ENGINE_ENUM
 from jiro.scraping.engines import SearchOrchestrator
-from jiro.feature_flags import require as require_feature
 
 log = get_logger("jiro.mcp")
 
 PROTOCOL_VERSION = "2025-03-26"
 SUPPORTED_PROTOCOL_VERSIONS = ["2025-03-26", "2024-11-05"]
-SERVER_VERSION = "0.2.12"
+SERVER_VERSION = __version__
 
 CAPABILITIES = {
     "tools": {"listChanged": True},
@@ -238,7 +238,7 @@ class JiroMCPServer:
                               "data": exc.data}}
         except asyncio.CancelledError:
             raise  # propagate so cancellation works
-        except Exception as exc:
+        except Exception:
             # SECURITY: Log full exception server-side only, return generic message to client
             log.exception("dispatch failed", extra={"method": method})
             return {"jsonrpc": "2.0", "id": msg_id,
@@ -469,7 +469,6 @@ class JiroMCPServer:
             raise MCPError(INVALID_PARAMS, "schema is required")
 
         from jiro.search.structured import StructuredExtractor
-        from jiro.config import Settings as ConfigSettings
 
         if progress.enabled:
             progress.report(0.1, message="extracting structured data")
@@ -553,6 +552,7 @@ class JiroMCPServer:
                                   progress: ProgressReporter) -> Dict[str, Any]:
         """Batch scrape multiple social URLs."""
         from jiro.scraping.social import SocialRouter
+        from jiro.security import async_validate_target_url
 
         urls = args.get("urls", [])
         if not urls:
@@ -567,7 +567,7 @@ class JiroMCPServer:
         for i, url in enumerate(urls):
             try:
                 await async_validate_target_url(url)
-            except Exception as e:
+            except Exception:
                 results.append({"url": url, "error": "URL validation failed", "status": "failed"})
                 continue
             platform = router.detect_platform(url)
@@ -577,7 +577,7 @@ class JiroMCPServer:
                     try:
                         result = await scraper.scrape(url)
                         results.append({"url": url, "result": result, "status": "success"})
-                    except Exception as e:
+                    except Exception:
                         results.append({"url": url, "error": "scraping failed", "status": "failed"})
             else:
                 results.append({"url": url, "error": "unsupported platform", "status": "failed"})
@@ -842,7 +842,7 @@ class JiroMCPServer:
             return {"contents": [{"uri": uri, "mimeType": "application/json",
                                   "text": json.dumps({"platforms": platforms}, indent=2)}]}
         if uri == "jiro://plans":
-            from jiro.pro import PlanTier, PLAN_LIMITS
+            from jiro.pro import PLAN_LIMITS
             plans = []
             for tier, limits in PLAN_LIMITS.items():
                 plans.append({

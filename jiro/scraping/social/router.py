@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any, Dict, Optional, Tuple
 
 from jiro.log import get_logger
 from jiro.scraping.social.base import registry, BaseSocialScraper

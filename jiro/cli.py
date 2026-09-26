@@ -10,13 +10,14 @@ import subprocess
 import sys
 import time
 import warnings
+from pathlib import Path
 from typing import List, Optional
 
 import typer
 import uvicorn
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, TextColumn
 from rich.table import Table
 
 from jiro import __version__
@@ -80,7 +81,7 @@ def _require_dev_ip():
                 return _permissive_dev_ip()
         except Exception:
             pass
-        console.print(f"[red]Dev commands are restricted to the developer's IP.[/]")
+        console.print("[red]Dev commands are restricted to the developer's IP.[/]")
         console.print(f"[dim]Your IP: {current_ip}[/]")
         raise typer.Exit(1)
     def decorator(func):
@@ -175,7 +176,7 @@ def serve(
     if insecure:
         # Propagate to the app via env so create_app() sees server.insecure.
         os.environ["JIRO_SERVER__INSECURE"] = "true"
-    from jiro.cli_ui import console as ui_console, success, rule, accent, dim, make_mini_logo
+    from jiro.cli_ui import console as ui_console, success, rule, dim, make_mini_logo
     from rich.align import Align
     ui_console.print()
     ui_console.print(Align.center(make_mini_logo()), style="bold")
@@ -214,7 +215,7 @@ def auth_login(
     from jiro.device_auth import DeviceAuthManager, DeviceAuthError
     from jiro.cli_ui import (
         console, success, error, step, rule, device_auth_panel,
-        account_card, accent, dim, make_mini_logo, box, Panel, Group, Text, Table, Align,
+        account_card, dim, make_mini_logo, Align,
     )
 
     web_base = "http://localhost:3000" if dev else (server or JIRO_WEB_BASE)
@@ -359,7 +360,7 @@ def auth_logout() -> None:
     """Remove stored cloud credentials (encrypted)."""
     from jiro.cloud_auth import clear_cloud_credentials, is_cloud_configured
     from jiro.cli_ui import (
-        console, success, warning, dim, rule,
+        console, success, warning, dim,
     )
 
     if not is_cloud_configured():
@@ -386,7 +387,7 @@ def auth_whoami(
     """Display current cloud authentication status and credit balance."""
     from jiro.cloud_auth import load_cloud_credentials, refresh_credits, auto_refresh_account
     from jiro.cli_ui import (
-        console, account_card, rule, success, warning, dim,
+        console, account_card, rule, warning, dim,
     )
 
     creds = load_cloud_credentials()
@@ -479,7 +480,7 @@ def license_activate(
 
     The license is validated offline (HMAC-SHA256) and bound to this machine.
     """
-    from jiro.licensing import get_license_manager, LicenseInfo
+    from jiro.licensing import get_license_manager
 
     manager = get_license_manager()
 
@@ -516,8 +517,8 @@ def license_info(
     json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
 ) -> None:
     """Display current license information and status."""
-    from jiro.licensing import get_license_manager, get_features_for_tier, FEATURE_DEFINITIONS
-    from jiro.cli_ui import console as _c, warning, dim, rule
+    from jiro.licensing import get_license_manager, FEATURE_DEFINITIONS
+    from jiro.cli_ui import console as _c, warning, dim
 
     manager = get_license_manager()
     info = manager.get_license()
@@ -686,7 +687,7 @@ def _interactive_search(engine, type, num, location, language, parallel, num_eng
 
 
 async def _cli_search(q, engine, type, num, location, language, parallel, num_engines, json_output, config):
-    from jiro.cli_ui import search_result_card, console, error, dim
+    from jiro.cli_ui import search_result_card, console
     warnings.filterwarnings("ignore")
     from jiro.server import create_app
     from starlette.testclient import TestClient
@@ -853,7 +854,6 @@ def scrape(
 
 async def _scrape_search_query(query: str, format: str, config: str, full: bool = False) -> None:
     """Search for a query and scrape the first result."""
-    import re
     from jiro.server import create_app
     from starlette.testclient import TestClient
 
@@ -975,7 +975,7 @@ def ask(
 def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console, rule, dim, accent, Text, Panel, box, Group, error
+    from jiro.cli_ui import console, rule, Text, Panel, box, error
     from rich.status import Status
 
     with Status("Researching...", console=console, spinner="dots"):
@@ -999,7 +999,7 @@ def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) ->
     answer = _safe_print(data.get("answer", ""))
     console.print(Panel(
         answer,
-        title=f"[bold orange1]Answer[/]",
+        title="[bold orange1]Answer[/]",
         border_style="orange1",
         box=box.ROUNDED,
         padding=(1, 2),
@@ -1372,7 +1372,7 @@ def keys_list(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, ORANGE
+    from jiro.cli_ui import console as _c, error
     from rich.table import Table
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
@@ -1428,7 +1428,7 @@ def usage(
 ) -> None:
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, ORANGE
+    from jiro.cli_ui import console as _c, error
     from rich.table import Table
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
@@ -1581,7 +1581,7 @@ async def _run_update(
 
         if use_github:
             # Dev/force mode: skip PyPI check, install from GitHub
-            latest_version = f"main (GitHub)"
+            latest_version = "main (GitHub)"
             progress.update(task, description=f"Latest: [bold]{latest_version}[/]")
 
             if dev and not force and not check_only:
@@ -1663,7 +1663,6 @@ async def _run_update(
         # Step 4: Install latest version
         if sys.platform == "win32":
             import tempfile
-            import time
 
             if use_github:
                 pip_args = [sys.executable, "-m", "pip", "install", "--upgrade",
@@ -1749,10 +1748,8 @@ if %errorlevel%==0 (
 
         try:
             from jiro import __version__ as new_version
-            from jiro.mcp import JiroMCPServer
             from jiro.ai.tools import mcp_tools
             from jiro.scraping.social import SocialRouter
-            from jiro.search.intent import IntentClassifier
             verification_results.append(("Core imports", True, f"v{new_version}"))
         except Exception as e:
             verification_results.append(("Core imports", False, str(e)))
@@ -1894,8 +1891,7 @@ async def _run_status(json_output: bool = False) -> None:
     """Check system status."""
     from pathlib import Path
     from jiro.cli_ui import (
-        console, rule, success, error, warning, dim, make_mini_logo, accent,
-        Table, Panel, box, Align,
+        console, rule, success, warning, make_mini_logo, Table, box, Align,
     )
 
     console.print()
@@ -1912,14 +1908,14 @@ async def _run_status(json_output: bool = False) -> None:
 
     # Config check
     try:
-        settings = Settings.load()
+        Settings.load()
         checks.append(("Config", True, "Loaded"))
     except Exception as e:
         checks.append(("Config", False, str(e)))
 
     # Database check
     try:
-        settings = Settings.load()
+        Settings.load()
         db_path = Path("~/.jiro/jiro.db").expanduser()
         if db_path.exists():
             size_mb = db_path.stat().st_size / (1024 * 1024)
@@ -1940,7 +1936,7 @@ async def _run_status(json_output: bool = False) -> None:
     # Social check
     try:
         from jiro.scraping.social import SocialRouter
-        router = SocialRouter()
+        SocialRouter()
         checks.append(("Social Scrapers", True, "12 platforms"))
     except Exception as e:
         checks.append(("Social Scrapers", False, str(e)))
@@ -1954,7 +1950,6 @@ async def _run_status(json_output: bool = False) -> None:
 
     # Intent check
     try:
-        from jiro.search.intent import IntentClassifier
         checks.append(("Intent Classifier", True, "Ready"))
     except Exception as e:
         checks.append(("Intent Classifier", False, str(e)))
@@ -2008,8 +2003,7 @@ def doctor(
 async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
     from pathlib import Path
     from jiro.cli_ui import (
-        console, rule, success, error, warning, dim, accent,
-        make_mini_logo, Table, Panel, box, Align, Text,
+        console, rule, success, error, warning, dim, make_mini_logo, Align, Text,
     )
 
     console.print()
@@ -2181,7 +2175,6 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
 
     # 14. Memory
     try:
-        import os as _os
         # Simple check — just report available
         _check("Memory", "pass", "Available")
     except Exception:
@@ -2281,7 +2274,7 @@ async def _cli_social_scrape(url, format, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
     from jiro.scraping.social import router as social_router
-    from jiro.cli_ui import console as _c, error, dim
+    from jiro.cli_ui import console as _c, error, dim, warning
 
     platform = social_router.detect_platform(url)
     if not platform:
@@ -2377,7 +2370,7 @@ def social_batch(
 async def _cli_social_batch(urls, parallel, json_output, config):
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, success, dim
+    from jiro.cli_ui import console as _c, error, success
 
     with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
         resp = client.post("/social/batch", json={
@@ -2598,10 +2591,10 @@ def bench(
 
     from jiro.server import create_app
     from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, accent, rule, ORANGE
+    from jiro.cli_ui import console as _c, accent, rule
     from rich.table import Table
 
-    _c.print(accent(f"Benchmarking Jiro") + f" ({iterations} iterations)")
+    _c.print(accent("Benchmarking Jiro") + f" ({iterations} iterations)")
     _c.print(f"Query: {query} | Engines: {engines}\n")
 
     search_times = []

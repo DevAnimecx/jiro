@@ -14,8 +14,7 @@ import re
 import threading
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 def _sanitize_name(name: str) -> str:
@@ -160,7 +159,7 @@ class MetricsCollector:
 
     def render(self) -> str:
         lines = [
-            f"# jiro_build_info 1",
+            "# jiro_build_info 1",
             f"jiro_build_info{{version=\"{self._info.get('version', 'unknown')}\"}} 1",
             f"jiro_process_uptime_seconds {time.time() - self._start_time:.2f}",
             "",

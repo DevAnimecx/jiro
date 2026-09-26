@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional
 
 import jwt
 
-from fastapi import Depends
 
 from jiro.config import Settings
 from jiro.errors import (
@@ -194,18 +193,22 @@ class AuthManager:
                 raise AuthError("JWT auth is not configured (set auth.jwt_secret)")
         try:
             claims = jwt.decode(token, verify_key, algorithms=[self.jwt_algorithm])
-            jti = claims.get("jti")
-            if jti and not self._session_manager.is_session_valid(jti):
-                raise AuthError("token revoked (session invalid)")
             return claims
         except jwt.ExpiredSignatureError as exc:
             raise AuthError("token expired") from exc
         except jwt.InvalidTokenError as exc:
             raise AuthError("invalid token") from exc
     
+    async def validate_token(self, token: str) -> Dict[str, Any]:
+        claims = self.decode_token(token)
+        jti = claims.get("jti")
+        if jti and not await self._session_manager.is_session_valid(jti):
+            raise AuthError("token revoked (session invalid)")
+        return claims
+
     async def revoke_token(self, token: str) -> None:
         try:
-            claims = self.decode_token(token)
+            claims = await self.validate_token(token)
             jti = claims.get("jti")
             if jti:
                 await self._session_manager.revoke_session(jti)
@@ -359,7 +362,7 @@ async def build_auth_context(request: Any, auth: AuthManager,
         # Try JWT first (has 3 dot-separated parts)
         if token.count(".") == 2:
             try:
-                claims = auth.decode_token(token)
+                claims = await auth.validate_token(token)
                 jwt_record = await auth.db.key_get(claims.get("sub", ""))
                 if jwt_record is None or jwt_record.get("revoked"):
                     raise AuthError("token subject revoked")

@@ -1,6 +1,5 @@
 """arXiv search engine plugin."""
 from __future__ import annotations
-import asyncio
 import re
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional

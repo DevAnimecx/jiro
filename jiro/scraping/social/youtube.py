@@ -6,15 +6,12 @@ Works with client spoofing (WEB, MWEB, IOS, ANDROID clients).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
-import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
 
 from jiro.scraping.social.base import BaseSocialScraper, RateLimitError, SocialPost, SocialProfile, registry
-from jiro.scraping.social.normalizer import build_post, build_profile, normalize_timestamp, normalize_number
+from jiro.scraping.social.normalizer import build_post, build_profile, normalize_number
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.youtube")
@@ -565,7 +562,7 @@ class YouTubeScraper(BaseSocialScraper):
                         "likes": comment_renderer.get("voteCount", {}).get("simpleText", "0"),
                         "timestamp": comment_renderer.get("publishedTimeText", {}).get("runs", [{}])[0].get("text", ""),
                         "author_avatar": comment_renderer.get("authorThumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
-                        "is_hearted": bool(commentRenderer.get("actionButtons", {}).get("commentActionButtonsRenderer", {}).get("creatorHeartRenderer")),
+                        "is_hearted": bool(comment_renderer.get("actionButtons", {}).get("commentActionButtonsRenderer", {}).get("creatorHeartRenderer")),
                     })
                 
                 # Get next continuation
@@ -640,7 +637,7 @@ class YouTubeScraper(BaseSocialScraper):
                 if like_text and like_text != "0":
                     engagement["likes"] = normalize_number(like_text)
             
-            comment_count = info.get("dateText", {}).get("runs", [])
+            info.get("dateText", {}).get("runs", [])
         
         # Description
         desc_runs = video_details.get("shortDescription", "")

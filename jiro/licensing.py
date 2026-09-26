@@ -24,8 +24,6 @@ License token format (JWT):
 from __future__ import annotations
 
 import hashlib
-import hmac
-import json
 import logging
 import os
 import platform
@@ -33,7 +31,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Tuple
 
 import jwt
 
@@ -140,7 +138,6 @@ class LicenseManager:
         """Generate a hardware-based machine identifier."""
         try:
             if platform.system() == "Windows":
-                import ctypes
                 serial = ""
                 try:
                     import subprocess

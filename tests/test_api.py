@@ -77,16 +77,14 @@ def test_ai_search_no_llm(client):
     """Without an LLM key, /ai/search still returns a heuristic answer."""
     r = client.post("/ai/search", json={"query": "best python web scraping library",
                                         "max_sources": 2})
-    assert r.status_code == 403
+    assert r.status_code == 200
     data = r.json()
-    assert data["error_code"] == "license_error"
+    assert data["answer"]
 
 
 def test_ai_search_empty_query(client):
     r = client.post("/ai/search", json={"query": "", "max_sources": 2})
-    assert r.status_code == 403
-    data = r.json()
-    assert data["error_code"] == "license_error"
+    assert r.status_code == 422
 
 
 @network

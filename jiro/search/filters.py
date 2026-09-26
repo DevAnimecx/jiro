@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from jiro.config import Settings

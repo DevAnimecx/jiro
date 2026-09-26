@@ -7,9 +7,9 @@ and routes accordingly.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from jiro.auth import AuthContext
@@ -18,14 +18,12 @@ from jiro.log import get_logger
 from jiro.scraping.client import ScrapingClient
 from jiro.search.intent import IntentType, classify_intent, IntentResult
 from jiro.server.deps import (
-    get_auth_context,
     get_client,
     get_settings,
     get_orchestrator,
     record_usage,
     optional_auth_context,
 )
-from jiro.search import MultiQuerySearcher, MultiQueryRequest
 
 log = get_logger("jiro.server.routers.smart")
 
@@ -112,7 +110,7 @@ async def _execute_scrape(intent: IntentResult, client: ScrapingClient, settings
         # SECURITY: Log full error server-side, return generic message to client
         log.exception("Smart scrape failed", extra={"platform": platform, "action": action, "error": str(e)})
         return {"error": "Scraping failed", "code": "scrape_failed"}
-    except Exception as e:
+    except Exception:
         # SECURITY: Log full exception server-side only, return generic message to client
         log.exception("Smart scrape failed", extra={"platform": platform, "action": action})
         return {"error": "Internal server error"}
@@ -130,7 +128,6 @@ async def _execute_search(
 ) -> Dict[str, Any]:
     """Execute a search based on intent."""
     from jiro.models import SearchRequest
-    from jiro.search import MultiQuerySearcher, MultiQueryRequest
     
     platform = intent.platform
     

@@ -13,7 +13,6 @@ from jiro.auth import AuthContext
 from jiro.models import AIExtractRequest, AgentRequest, AISearchRequest, AISearchResponse
 from jiro.server.deps import (
     get_agent,
-    get_auth_context,
     get_client,
     get_llm,
     record_usage,

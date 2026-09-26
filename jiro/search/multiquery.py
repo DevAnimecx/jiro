@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from jiro.config import Settings
 from jiro.log import get_logger

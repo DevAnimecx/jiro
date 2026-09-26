@@ -10,11 +10,10 @@ Provides:
 
 from __future__ import annotations
 
-import math
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -257,7 +256,7 @@ class AnalyticsEngine:
             "SELECT status, COUNT(*) as n FROM usage WHERE ts >= ? GROUP BY status",
             (since,),
         )
-        by_engine = await self.db.fetchall(
+        await self.db.fetchall(
             "SELECT engine, COUNT(*) as n, SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) as errors "
             "FROM usage WHERE ts >= ? GROUP BY engine",
             (since,),

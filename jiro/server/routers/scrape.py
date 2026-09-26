@@ -14,7 +14,6 @@ from jiro.cache import CacheManager
 from jiro.extract import scrape_url
 from jiro.models import BatchScrapeItem, ScrapeRequest, ScrapeResponse
 from jiro.server.deps import (
-    get_auth_context,
     get_cache,
     get_client,
     get_llm,

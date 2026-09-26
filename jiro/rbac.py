@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from jiro.config import Settings
-from jiro.errors import JiroPermissionError
 
 log = logging.getLogger("jiro.rbac")
 
@@ -119,7 +118,6 @@ class RBACManager:
             Set of permission strings
         """
         # Check cache
-        import time
         cached = self._cache.get(identity)
         if cached is not None:
             return cached

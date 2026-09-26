@@ -9,12 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
 
 from jiro.scraping.social.base import BaseSocialScraper, RateLimitError, SocialPost, SocialProfile, registry
-from jiro.scraping.social.normalizer import build_post, build_profile, normalize_timestamp, normalize_number
+from jiro.scraping.social.normalizer import build_post, build_profile, normalize_number
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.instagram")
@@ -732,7 +730,7 @@ class InstagramScraper(BaseSocialScraper):
     
     async def _search_web(self, query: str, limit: int) -> List[SocialPost]:
         """Search via web endpoint."""
-        url = f"https://www.instagram.com/web/search/topsearch/"
+        url = "https://www.instagram.com/web/search/topsearch/"
         params = {"query": query, "context": "blended"}
         headers = self._get_headers()
         

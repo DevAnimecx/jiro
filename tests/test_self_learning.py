@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import os
 import time
 
 import pytest
-import pytest_asyncio
 
 from jiro.scraping.social.self_learning import (
     AsyncLearningStore,

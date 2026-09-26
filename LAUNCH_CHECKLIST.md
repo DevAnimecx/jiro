@@ -1,4 +1,4 @@
-# Jiro v0.2 Launch Checklist
+# Jiro v0.3.1 Launch Checklist
 
 ## Pre-Launch Tasks
 
@@ -17,7 +17,7 @@
 - [x] Kubernetes Helm chart
 - [x] OpenAPI 3.1 specification
 - [x] SDK generation scripts (Python, TypeScript, Go)
-- [x] Pro tier tests (71 tests passing)
+- [x] Pro tier tests (820+ offline tests passing)
 
 ### Documentation
 - [x] API endpoint documentation
@@ -29,7 +29,7 @@
 - [x] Unit tests for Phase 1 (25 tests)
 - [x] Unit tests for Phase 2 (30 tests)
 - [x] Unit tests for Pro tier (16 tests)
-- [x] All 71 tests passing
+- [x] All 820+ offline tests passing
 
 ---
 
@@ -41,8 +41,8 @@
 pytest tests/ -v
 
 # Verify Docker build
-docker build -t jiro:0.2.0 .
-docker run -p 8000:8000 jiro:0.2.0
+docker build -t jiro:0.3.1 .
+docker run -p 8000:8000 jiro:0.3.1
 
 # Verify Helm chart
 helm install jiro ./helm/jiro
@@ -51,8 +51,8 @@ helm install jiro ./helm/jiro
 ### 2. Deploy Production
 ```bash
 # Push to container registry
-docker tag jiro:0.2.0 registry.jiro.dev/jiro:0.2.0
-docker push registry.jiro.dev/jiro:0.2.0
+docker tag jiro:0.3.1 registry.jiro.dev/jiro:0.3.1
+docker push registry.jiro.dev/jiro:0.3.1
 
 # Deploy to Kubernetes
 helm upgrade --install jiro ./helm/jiro -f helm/jiro/values-prod.yaml
@@ -110,7 +110,7 @@ curl -X POST https://api.jiro.dev/v1/search \
 - [ ] API uptime > 99.9%
 - [ ] P95 latency < 500ms
 - [ ] Error rate < 0.1%
-- [ ] All 71 tests passing
+- [ ] All 820+ offline tests passing
 
 ### Business
 - [ ] 100+ API keys created (Week 1)

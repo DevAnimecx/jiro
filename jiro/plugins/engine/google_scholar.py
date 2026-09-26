@@ -1,7 +1,7 @@
 """Google Scholar search engine plugin."""
 from __future__ import annotations
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from jiro.config import Settings
 from jiro.plugins import BaseEnginePlugin
 from jiro.scraping.client import ScrapingClient

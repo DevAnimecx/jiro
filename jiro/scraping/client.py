@@ -414,7 +414,7 @@ class ScrapingClient:
         through Chrome/Firefox/Safari profiles per request to avoid detection.
         """
         if engine not in self._curl_sessions:
-            from jiro.stealth import get_impersonation_profile, get_stealth
+            from jiro.stealth import get_impersonation_profile
             profile = get_impersonation_profile()
             session: Any = CurlAsyncSession(
                 impersonate=profile,  # type: ignore[arg-type]
@@ -458,7 +458,7 @@ class ScrapingClient:
             await self.browser_fallback.close()
 
     async def _headers(self, engine: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        from jiro.stealth import build_stealth_headers, get_stealth
+        from jiro.stealth import build_stealth_headers
 
         # Use stealth engine for realistic browser headers with fingerprint rotation
         headers = build_stealth_headers(engine)
@@ -499,7 +499,7 @@ class ScrapingClient:
             return
         try:
             await async_validate_target_url(final_url, own_hosts=self._own_hosts)
-        except (ValueError, Exception) as exc:
+        except (ValueError, Exception):
             safe_url = _sanitize_url_for_error(final_url)
             raise SSRFError(
                 f"redirect target blocked: {safe_url}",
@@ -881,6 +881,21 @@ class _CurlResponseAdapter:
     @property
     def content(self) -> bytes:
         return self._resp.content
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            message = f"HTTP {self.status_code} for url (curl path)"
+            if httpx is not None:
+                request = httpx.Request("GET", getattr(self._resp, "url", "") or "http://localhost")
+                raise httpx.HTTPStatusError(
+                    message, request=request, response=httpx.Response(self.status_code, request=request)
+                )
+            raise RuntimeError(message)
+
+    def json(self) -> Any:
+        import json as _json
+
+        return _json.loads(self.text)
 
 
 def parse_html(html: str) -> HTMLParser:

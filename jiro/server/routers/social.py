@@ -6,7 +6,7 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from jiro.auth import AuthContext
@@ -94,15 +94,19 @@ async def get_scraper(platform: str, client: ScrapingClient, settings: Settings)
 
 
 def normalize_post(post: SocialPost) -> Dict[str, Any]:
-    """Convert SocialPost to dict."""
+    """Convert SocialPost (or an already-normalized dict) to dict."""
+    if isinstance(post, dict):
+        return post
     return post.to_dict()
 
 
 def normalize_profile(profile: SocialProfile) -> Dict[str, Any]:
-    """Convert SocialProfile to dict."""
+    """Convert SocialProfile (or an already-normalized dict) to dict."""
+    if isinstance(profile, dict):
+        return profile
     return {
         "platform": profile.platform,
-        "type": profile.type,
+        "type": getattr(profile, "type", "profile"),
         "url": profile.url,
         "data": profile.data,
         "scraped_at": profile.scraped_at,
@@ -140,7 +144,7 @@ async def scrape_social(
     # SECURITY: Validate user-provided URL against SSRF before scraping
     try:
         await async_validate_target_url(body.url)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid URL")
 
     # Get scraper
@@ -148,7 +152,7 @@ async def scrape_social(
         scraper = await get_scraper(platform, client, settings)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
     
     # Determine action
@@ -182,7 +186,7 @@ async def scrape_social(
         # SECURITY: Log full error server-side, return generic message to client
         log.exception("Social scrape failed", extra={"platform": platform, "url": body.url, "error": str(e)})
         raise HTTPException(status_code=502, detail="Scraping failed")
-    except Exception as e:
+    except Exception:
         # SECURITY: Log full exception server-side only, return generic message to client
         log.exception("Social scrape failed", extra={"platform": platform, "url": body.url})
         raise HTTPException(status_code=500, detail="Internal server error")

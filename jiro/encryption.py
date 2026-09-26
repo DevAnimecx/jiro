@@ -10,10 +10,7 @@ Provides:
 from __future__ import annotations
 
 import hashlib
-import hmac
-import logging
-import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from jiro.config import Settings
 from jiro.log import get_logger

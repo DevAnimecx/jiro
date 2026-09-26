@@ -96,6 +96,22 @@ markers = [
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint.per-file-ignores]
+"jiro/audit_chain.py" = ["E741"]
+"jiro/cli.py" = ["E402", "E741"]
+"jiro/feature_flags.py" = ["E402"]
+"jiro/licensing.py" = ["E402", "E741"]
+"jiro/plugins/__init__.py" = ["E402"]
+"jiro/plugins/engine/arxiv.py" = ["E402"]
+"jiro/plugins/engine/github.py" = ["E402", "E741"]
+"jiro/plugins/engine/google_scholar.py" = ["E402"]
+"jiro/plugins/engine/hackernews.py" = ["E402"]
+"jiro/plugins/engine/reddit.py" = ["E402"]
+"jiro/plugins/engine/wikipedia.py" = ["E402", "E741"]
+"jiro/scraping/social/__init__.py" = ["E402"]
+"jiro/secrets.py" = ["E741"]
+"jiro/telemetry.py" = ["E741"]
+
 [tool.mypy]
 python_version = "3.11"
 plugins = ["pydantic.mypy"]

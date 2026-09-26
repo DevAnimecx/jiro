@@ -5,6 +5,29 @@ All notable changes to Jiro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-26
+
+### Added
+- Official package alignment across the CLI, JavaScript SDK, Python SDK, and Cloud API at `0.3.1`.
+- RFC 8628 device-code authentication with browser authorization and CLI token polling.
+- Built-in engine plugin auto-registration for arXiv, GitHub, Google Scholar, Hacker News, Reddit, and Wikipedia.
+- Cloud pricing endpoint and synchronized credit actions for search, scrape, AI, agent, MCP, and AEO feed operations.
+- CI workflow: pytest (non-network tests) + pip-audit + gitleaks on every push.
+- Release guard tests for social normalizers and the curl response adapter (15 tests).
+
+### Changed
+- Hardened internal authentication, API-key ownership checks, WAF query normalization, and circuit-breaker failure handling.
+- Improved async session validation and Firebase realtime token refresh across web authentication flows.
+- Updated CLI auth, dashboard navigation, favicon branding, and public documentation for the completed release.
+- Test suite runs on pytest 9.1.1 / pytest-asyncio 1.4.0 (835 tests).
+
+### Fixed
+- Device authorization now resolves the Firestore user document before issuing API keys.
+- Local Firestore emulator flows no longer report an unconfigured server.
+- Cloud credit revocation, malformed request handling, and metrics shutdown paths are safe and consistent.
+- `normalize_profile` no longer raises `AttributeError` on `SocialProfile` objects (type defaults to `profile`); dict results from scrapers pass through unchanged.
+- `_CurlResponseAdapter` provides `raise_for_status()` and `json()` for httpx-compatible scraping paths.
+
 ## [0.2.15] - 2026-09-10
 
 ### 🚀 THE COMPLETE RELEASE - Everything from v0.2.13, v0.2.14, and v0.2.15 combined

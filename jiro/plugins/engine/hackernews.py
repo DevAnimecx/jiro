@@ -1,6 +1,6 @@
 """Hacker News search engine plugin."""
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from jiro.config import Settings
 from jiro.plugins import BaseEnginePlugin
 from jiro.scraping.client import ScrapingClient
@@ -25,7 +25,6 @@ class HackerNewsEnginePlugin(BaseEnginePlugin):
 
     async def search(self, query: str, **kwargs) -> List[Dict[str, Any]]:
         """Search Hacker News using Algolia API."""
-        import asyncio
         search_type = kwargs.get('type', 'story')
         params = {'query': query, 'hitsPerPage': min(kwargs.get('max_results', 25), 100), 'tags': search_type}
         if kwargs.get('author'):

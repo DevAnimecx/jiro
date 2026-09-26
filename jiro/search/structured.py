@@ -6,10 +6,9 @@ Supports both extractive (zero-LLM-cost) and LLM-powered extraction modes.
 from __future__ import annotations
 
 import json
-import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from jiro.ai.llm import LLM
 from jiro.config import Settings
@@ -177,7 +176,7 @@ class StructuredExtractor:
             context = self._build_context(sources)
             
             # Build schema description for LLM
-            schema_desc = self._describe_schema(schema)
+            self._describe_schema(schema)
             
             system = (
                 "You are a precise data extraction system. Extract structured data "

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import time
 
 import pytest
 
 from jiro.pro import (
-    ProManager, PlanTier, PlanLimits, RateLimiter, QuotaManager,
+    ProManager, PlanTier, RateLimiter, QuotaManager,
     PLAN_LIMITS, APIKey,
 )
 
@@ -26,10 +23,7 @@ class TestPlanLimits:
         assert limits.social_scraping is True
         assert limits.smart_search is True
         assert limits.webhook_alerts is True
-        assert limits.feature_ai_search is False
-        assert limits.feature_white_label is False
-        assert limits.feature_social_batch is True
-        assert limits.feature_self_learning is True
+        assert limits.commercial_use is False
 
     def test_enterprise_tier_limits(self):
         limits = PLAN_LIMITS[PlanTier.ENTERPRISE]
@@ -38,24 +32,23 @@ class TestPlanLimits:
         assert limits.max_results == 200
         assert limits.max_concurrent == 50
         assert limits.priority == 10
-        assert limits.feature_ai_search is True
-        assert limits.feature_white_label is True
-        assert limits.feature_self_learning is True
+        assert limits.custom_models is True
+        assert limits.commercial_use is True
 
     def test_all_tiers_have_limits(self):
         for tier in PlanTier:
             assert tier in PLAN_LIMITS
 
     def test_tiers_are_ordered_by_limits(self):
-        tiers = [PlanTier.FREE, PlanTier.ENTERPRISE]
+        tiers = [PlanTier.FREE, PlanTier.PRO, PlanTier.ENTERPRISE]
         for i in range(len(tiers) - 1):
             current = PLAN_LIMITS[tiers[i]]
             next_tier = PLAN_LIMITS[tiers[i + 1]]
             assert current.rpm < next_tier.rpm
             assert current.rpd < next_tier.rpd
 
-    def test_only_two_tiers_exist(self):
-        assert list(PlanTier) == [PlanTier.FREE, PlanTier.ENTERPRISE]
+    def test_three_tiers_exist(self):
+        assert list(PlanTier) == [PlanTier.FREE, PlanTier.PRO, PlanTier.ENTERPRISE]
 
 
 class TestRateLimiter:
@@ -121,8 +114,9 @@ class TestProManager:
 
     def test_plan_tier_enum(self):
         assert PlanTier.FREE.value == "free"
+        assert PlanTier.PRO.value == "pro"
         assert PlanTier.ENTERPRISE.value == "enterprise"
-        assert len(PlanTier) == 2
+        assert len(PlanTier) == 3
 
 
 class TestPlanInfo:

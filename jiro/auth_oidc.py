@@ -11,9 +11,8 @@ Uses authlib for OIDC token validation and user provisioning.
 
 from __future__ import annotations
 
-import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from jiro.config import Settings

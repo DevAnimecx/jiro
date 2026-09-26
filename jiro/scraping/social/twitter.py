@@ -11,10 +11,9 @@ import json
 import re
 import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode, quote
 
 from jiro.scraping.social.base import BaseSocialScraper, RateLimitError, SocialPost, SocialProfile, registry
-from jiro.scraping.social.normalizer import build_post, build_profile, normalize_timestamp, normalize_number
+from jiro.scraping.social.normalizer import build_post, build_profile, normalize_number
 from jiro.log import get_logger
 
 log = get_logger("jiro.scraping.social.twitter")
@@ -568,8 +567,8 @@ class TwitterScraper(BaseSocialScraper):
             media.append(media_item)
         
         # Hashtags and mentions
-        hashtags = [h.get("text", "") for h in legacy.get("entities", {}).get("hashtags", [])]
-        mentions = [m.get("screen_name", "") for m in legacy.get("entities", {}).get("user_mentions", [])]
+        [h.get("text", "") for h in legacy.get("entities", {}).get("hashtags", [])]
+        [m.get("screen_name", "") for m in legacy.get("entities", {}).get("user_mentions", [])]
         
         text = legacy.get("full_text", "")
         

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import time
 
-import pytest
 
 from jiro.analytics import QueryAnalytics, get_analytics, reset_analytics
 from jiro.tenants import TenantManager, get_tenant_manager, reset_tenant_manager
@@ -291,7 +289,7 @@ class TestWebhooks:
 
     def test_trigger_event(self):
         mgr = WebhookManager()
-        wh = mgr.create_webhook("https://example.com/hook", ["search.completed"])
+        mgr.create_webhook("https://example.com/hook", ["search.completed"])
         deliveries = mgr.trigger_event("search.completed", {"query": "test"})
         assert len(deliveries) == 1
 

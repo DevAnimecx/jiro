@@ -6,7 +6,7 @@ Extracts relevant snippets from search results, optimized for token efficiency.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from jiro.config import Settings
 from jiro.log import get_logger

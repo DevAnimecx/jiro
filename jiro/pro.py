@@ -16,8 +16,10 @@ import json
 import secrets
 import time
 from dataclasses import dataclass, field
+
+import jwt
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from jiro.config import Settings
 from jiro.db import Database

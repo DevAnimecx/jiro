@@ -9,7 +9,7 @@ from jiro.search.relevance import RelevanceScorer, RelevanceBreakdown, Relevance
 from jiro.search.filters import SearchFilter, FilterConfig, get_engines_for_category
 from jiro.search.highlights import HighlightExtractor, extract_highlights_from_content
 from jiro.search.answer import AnswerSynthesizer, AnswerResult
-from jiro.search.multiquery import MultiQuerySearcher, MultiQueryRequest, generate_sub_queries
+from jiro.search.multiquery import MultiQueryRequest, generate_sub_queries
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────

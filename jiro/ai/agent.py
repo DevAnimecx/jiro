@@ -270,9 +270,13 @@ class Agent:
             try:
                 context = self._build_context(sources)
                 system = ("You are Jiro, a precise research assistant. Answer the "
-                          "question using ONLY the web excerpts below. Use numbered "
-                          "citations like [1], [2] referring to the source list. Say "
-                          "when sources are insufficient. Be concise and factual.")
+                          "question using the web excerpts below. Use numbered "
+                          "citations like [1], [2] referring to the source list. "
+                          "If sources contain useful information, cite it directly. "
+                          "If sources are thin or missing details, do your best with "
+                          "what's available and note any gaps. Be concise and factual. "
+                          "Never say you have no sources — instead, summarize what "
+                          "the available sources do say.")
                 user = (f"Question: {query}\n\n"
                         f"Sources:\n{context}\n\n"
                         f"Answer with citations [n].")
@@ -370,12 +374,12 @@ class Agent:
                     steps.append({"step": "scrape", "iteration": step_num,
                                   "url": cand["url"], "status": "failed",
                                   "error": str(exc)})
-                    if cand.get("snippet"):
-                        sources.append({
-                            "title": cand["title"], "url": cand["url"],
-                            "snippet": cand.get("snippet", ""), "content": "",
-                        })
-                        step_sources += 1
+                    # Always add as a snippet-only source so we have data to synthesize
+                    sources.append({
+                        "title": cand["title"], "url": cand["url"],
+                        "snippet": cand.get("snippet", ""), "content": "",
+                    })
+                    step_sources += 1
 
             if not step_sources and not resp.organic_results:
                 steps.append({"step": "stop", "reason": "no new information found"})
@@ -552,23 +556,25 @@ class Agent:
                 yield {"type": "source", "url": src["url"], "title": src["title"]}
             except Exception:
                 yield {"type": "source", "url": src["url"], "status": "failed"}
-                # Still add as a snippet-only source so we have data to synthesize
-                if src.get("snippet"):
-                    sources.append(fallback_source)
+                # Always add as a snippet-only source so we have data to synthesize
+                sources.append(fallback_source)
 
         # --- streaming synthesis: emit tokens as they arrive ---
         if self.llm.available:
             try:
                 context = self._build_context(sources)
                 system = ("You are Jiro, a precise research assistant. Answer the "
-                          "question using ONLY the web excerpts below. Use numbered "
-                          "citations like [1], [2] referring to the source list. Say "
-                          "when sources are insufficient. Be concise and factual.")
+                          "question using the web excerpts below. Use numbered "
+                          "citations like [1], [2] referring to the source list. "
+                          "If sources contain useful information, cite it directly. "
+                          "If sources are thin or missing details, do your best with "
+                          "what's available and note any gaps. Be concise and factual. "
+                          "Never say you have no sources — instead, summarize what "
+                          "the available sources do say.")
                 user = (f"Question: {query}\n\n"
                         f"Sources:\n{context}\n\n"
                         f"Answer with citations [n].")
                 provider_used = self.llm.provider_name
-                model_used = self.llm.model
                 yield {"type": "synthesize", "provider": provider_used,
                        "sources_used": len(sources)}
                 full_answer = ""

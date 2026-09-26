@@ -362,7 +362,7 @@ async def test_resources_read_plans(settings):
     contents = resp["result"]["contents"]
     data = json.loads(contents[0]["text"])
     assert "plans" in data
-    assert len(data["plans"]) == 2
+    assert len(data["plans"]) == 3
 
 
 @pytest.mark.asyncio

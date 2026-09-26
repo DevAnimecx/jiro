@@ -6,9 +6,7 @@ Supports both extractive (zero-LLM-cost) and LLM-powered synthesis.
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -150,9 +148,12 @@ class AnswerSynthesizer:
             
             system = (
                 "You are Jiro, a precise research assistant. Answer the question "
-                "using ONLY the web excerpts below. Use numbered citations like [1], [2] "
-                "referring to the source list. Say when sources are insufficient. "
-                "Be concise and factual."
+                "using the web excerpts below. Use numbered citations like [1], [2] "
+                "referring to the source list. If sources contain useful information, "
+                "cite it directly. If sources are thin or missing details, do your "
+                "best with what's available and note any gaps. Be concise and factual. "
+                "Never say you have no sources — instead, summarize what the available "
+                "sources do say."
             )
             
             user = (

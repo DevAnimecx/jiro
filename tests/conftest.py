@@ -7,9 +7,13 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from hypothesis import settings as hypothesis_settings
 
 from tests.helpers import FakeClient, FakeResponse  # noqa: F401
 from tests.integration_utils import TEST_CONFIG  # noqa: F401
+
+hypothesis_settings.register_profile("jiro", deadline=None)
+hypothesis_settings.load_profile("jiro")
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

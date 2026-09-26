@@ -1,26 +1,19 @@
-## What's New
+## What's New in 0.3.1
 
-### RFC 8628 Device Code Flow
-CLI authenticates via browser. Works everywhere — SSH, Docker, headless.
+### Realtime CLI Authentication
+Browser-based device authorization with Firebase ID-token refresh, resilient loading states, and fresh CLI keys on every authorization.
 
-### Encrypted Credential Storage
-AES-256-GCM with machine-derived PBKDF2 key. No plaintext on disk.
+### Unified 0.3.1 Packages
+CLI, JavaScript SDK, Python SDK, and Cloud API are aligned on `0.3.1`.
 
-### Self-Hosted 3-Tier Pricing
-- **Free**: ₹0 — 100 RPM, 10K RPD
-- **Pro**: ₹4,999 one-time — 500 RPM, 100K RPD, AI search
-- **Enterprise**: ₹14,999 one-time — 1,000 RPM, 1M RPD, white-label
+### Hardened API Surface
+- Synchronized credit pricing across search, scrape, AI, agent, MCP, and AEO actions
+- Stronger WAF query normalization and internal authentication
+- Correct Firestore user resolution for device-authorized keys
+- Explicit circuit-breaker engine-unavailable responses
 
-### HMAC-SHA256 License Validation
-Offline-first, hardware-bound, no server needed after activation.
-
-### CLI License Commands
-```
-jiro license activate <KEY>
-jiro license info
-jiro license deactivate
-jiro license validate <KEY>
-```
+### Local Development
+Firestore emulator support works end-to-end for device code, authorization, token polling, and CLI login.
 
 ## Bug Fixes
 - Fixed jose importJwk breaking middleware auth
@@ -35,5 +28,5 @@ jiro license validate <KEY>
 
 ## Install
 ```bash
-pip install jirosearch==0.3.0
+pip install jirosearch==0.3.1
 ```

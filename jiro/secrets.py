@@ -9,11 +9,12 @@ Provides:
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import logging
 import os
 import platform
-import secrets
 from pathlib import Path
 from typing import Optional
 
@@ -198,7 +199,6 @@ class SecretVault:
     def rotate_key(self) -> None:
         """Rotate the encryption key (re-encrypt all secrets)."""
         old_fernet = self._fernet
-        old_key = self._key
         self._key = self._derive_key()
         self._fernet = Fernet(self._key)
 

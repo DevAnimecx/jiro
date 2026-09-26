@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release script for Jiro v0.2.1.
+"""Release script for Jiro v0.3.
 
 Usage:
     python scripts/release.py --dry-run    # Preview what would happen

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from jiro.auth import AuthContext
-from jiro.server.deps import get_auth_context, get_settings, record_usage
+from jiro.server.deps import get_auth_context, record_usage
 
 router = APIRouter(tags=["analytics"])
 

@@ -7,7 +7,6 @@ CPU-only, ~80MB model (all-MiniLM-L6-v2).
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Dict, List, Optional
 
 import numpy as np

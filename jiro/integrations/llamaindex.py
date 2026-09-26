@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
-from ..ai.tools import JiroTool, ToolSpec as _ToolSpec
+from ..ai.tools import ToolSpec as _ToolSpec
 
 
 def register_llamaindex(search_fn: Callable[..., Any],
@@ -13,4 +13,4 @@ def register_llamaindex(search_fn: Callable[..., Any],
     return _ToolSpec(search_fn=search_fn, scrape_fn=scrape_fn, ai_fn=ai_fn)
 
 
-__all__ = ["register_llamaindex", "ToolSpec"]
+__all__ = ["register_llamaindex"]

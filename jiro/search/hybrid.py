@@ -7,7 +7,6 @@ reciprocal rank fusion, and cross-encoder reranking.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
@@ -215,7 +214,7 @@ class HybridSearcher:
                 return cached
         
         # Compute embeddings
-        texts = [
+        [
             f"{r.get('title', '')} {r.get('snippet', '')}".strip()
             for r in results
         ]
