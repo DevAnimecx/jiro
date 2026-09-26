@@ -14,14 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloud pricing endpoint and synchronized credit actions for search, scrape, AI, agent, MCP, and AEO feed operations.
 - CI workflow: pytest (non-network tests) + pip-audit + gitleaks on every push.
 - Release guard tests for social normalizers and the curl response adapter (15 tests).
+- **Auto-heal update system** (`heal_pip_install()`, `_kill_jiro_exe()`, `_is_winerror_32()`) in `self_healing.py` for automatic WinError 32 recovery during pip upgrades.
 
 ### Changed
 - Hardened internal authentication, API-key ownership checks, WAF query normalization, and circuit-breaker failure handling.
 - Improved async session validation and Firebase realtime token refresh across web authentication flows.
 - Updated CLI auth, dashboard navigation, favicon branding, and public documentation for the completed release.
 - Test suite runs on pytest 9.1.1 / pytest-asyncio 1.4.0 (835 tests).
+- **Windows update path**: `.bat` updater now force-kills `jiro.exe` via `taskkill /F /IM jiro.exe` before pip install, with retry loop and exponential backoff (up to 5 attempts).
 
 ### Fixed
+- **WinError 32 on pip upgrade**: `jiro.exe` no longer blocks `pip install --upgrade jirosearch`. The updater kills the running process and retries automatically.
 - Device authorization now resolves the Firestore user document before issuing API keys.
 - Local Firestore emulator flows no longer report an unconfigured server.
 - Cloud credit revocation, malformed request handling, and metrics shutdown paths are safe and consistent.
