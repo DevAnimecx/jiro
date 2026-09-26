@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.3.1"  # Full release: doctor auto-heal, BlueTick, security hardening
+__version__ = "0.3.2"  # Full release: doctor auto-heal, BlueTick, security hardening
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 
