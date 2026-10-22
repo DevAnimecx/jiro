@@ -25,7 +25,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jiro Dashboard v0.3.1</title>
+    <title>Jiro Dashboard v0.4.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -62,7 +62,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </div>
                 <div>
                     <h1 class="text-xl font-bold">Jiro Dashboard</h1>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">v0.3.1 - Search Intelligence</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">v0.4.0 - Search Intelligence</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -397,7 +397,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <!-- Footer -->
     <footer class="fixed bottom-0 inset-x-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-2">
         <div class="max-w-7xl mx-auto px-4 flex justify-between text-xs text-gray-500">
-            <span>Jiro v0.3.1 - Local-first Search Intelligence</span>
+            <span>Jiro v0.4.0 - Local-first Search Intelligence</span>
             <span x-text="new Date().toLocaleString()"></span>
         </div>
     </footer>
