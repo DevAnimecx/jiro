@@ -265,6 +265,64 @@ class JobOut(BaseModel):
     webhook_delivered: bool = False
 
 
+# ---------------------------------------------------------------- durable tasks
+
+
+class TaskCreate(BaseModel):
+    """Submit a durable task.
+
+    The payload is validated against the schema declared by the handler
+    registered for ``type``; unknown fields are rejected rather than ignored.
+    """
+
+    type: str = Field(..., description="Registered task type, e.g. ai_search")
+    payload: Dict[str, Any] = Field(
+        default_factory=dict, description="Validated against the type's schema")
+    idempotency_key: Optional[str] = Field(
+        None, max_length=200,
+        description="Per-owner dedupe key. Repeating it returns the same task.")
+    max_attempts: Optional[int] = Field(None, ge=1, le=10)
+    attempt_timeout_seconds: Optional[float] = Field(None, gt=0, le=3600)
+    deadline_in_seconds: Optional[float] = Field(None, gt=0)
+
+
+class TaskOut(BaseModel):
+    """Sanitised task status. Never includes stack traces or internal leases."""
+
+    id: str
+    type: str
+    state: str = Field(..., description="queued | running | retry_wait | "
+                                        "succeeded | failed | cancelled")
+    attempts: int
+    max_attempts: int
+    attempt_timeout: float
+    deadline_at: Optional[str] = None
+    cancel_requested: bool = False
+    available_at: Optional[str] = None
+    created_at: str
+    updated_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    has_result: bool = False
+    owner_key_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+
+
+class TaskResultOut(TaskOut):
+    result: Optional[Dict[str, Any]] = None
+    result_ref: Optional[str] = None
+
+
+class TaskEventOut(BaseModel):
+    task_id: str
+    type: str
+    ts: float
+    attempt: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AIExtractRequest(BaseModel):
     url: Optional[str] = None
     text: Optional[str] = None
