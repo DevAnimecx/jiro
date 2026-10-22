@@ -269,3 +269,242 @@ class JobManager:
                 sets.append(f"{column} = ?")
                 params.append(value)
         if fields.get("status") in ("completed", "failed"):
+            sets.append("completed_at = ?")
+            params.append(time.time())
+        if sets:
+            params.append(job_id)
+            await self.db.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id = ?", tuple(params))
+
+    async def _finish_and_notify(self, task_id: str, webhook: Dict[str, Any]) -> None:
+        """Wait for a job to reach a terminal state, then deliver its webhook."""
+        runtime = self.runtime
+        if runtime is None:  # pragma: no cover - only if unbound mid-flight
+            log.warning("job observation skipped: no runtime bound",
+                        extra={"task_id": task_id})
+            return
+        try:
+            record = await runtime.wait_for(task_id, timeout=3600)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("job observation failed", extra={"task_id": task_id})
+            return
+
+        job_id = webhook["job_id"]
+        cached = self._memory.get(job_id)
+        if cached is not None:
+            cached.update(
+                {
+                    "status": _STATE_TO_JOB_STATUS.get(record.state, "failed"),
+                    "result": record.result,
+                    "error": record.error_message,
+                    "progress": record.state.value,
+                    "completed_at": record.completed_at,
+                }
+            )
+        await self._persist(job_id, record)
+
+        if webhook["url"] and record.state is TaskState.SUCCEEDED:
+            await self._deliver_webhook(webhook, record)
+
+    async def _persist(self, job_id: str, record: Any) -> None:
+        if self.db is None:
+            return
+        await self.db.execute(
+            "UPDATE jobs SET status = ?, result = ?, error = ?, progress = ?,"
+            " completed_at = ? WHERE id = ?",
+            (
+                _STATE_TO_JOB_STATUS.get(record.state, "failed"),
+                json.dumps(record.result, default=str) if record.result else None,
+                record.error_message,
+                record.state.value,
+                record.completed_at,
+                job_id,
+            ),
+        )
+
+    # ---------------------------------------------------------------- lookup
+    async def get(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch one job by its ``job_`` id, or ``None``."""
+        cached = self._memory.get(job_id)
+        if cached is not None:
+            return self._to_out(cached)
+        if self.runtime is None:
+            return None
+        try:
+            record = await self.runtime.get(
+                _from_job_id(job_id), owner_key_id=None, enforce_owner=False
+            )
+        except Exception:
+            return None
+        return self._record_to_out(record, job_id)
+
+    async def list_jobs(self, limit: int = 20) -> list:
+        """Recent jobs, newest first.
+
+        Reads the durable store rather than the in-process cache, so jobs
+        submitted before a restart are still listed.
+        """
+        if self.runtime is not None:
+            try:
+                records = await self.runtime.repo.list_by_state(TaskState.QUEUED, limit=limit)
+                for state in (
+                    TaskState.RUNNING,
+                    TaskState.RETRY_WAIT,
+                    TaskState.SUCCEEDED,
+                    TaskState.FAILED,
+                    TaskState.CANCELLED,
+                ):
+                    records.extend(await self.runtime.repo.list_by_state(state, limit=limit))
+                records.sort(key=lambda r: r.created_at, reverse=True)
+                return [self._record_to_out(r, _to_job_id(r.id)) for r in records[:limit]]
+            except Exception:
+                log.exception("failed to list jobs from the runtime")
+        return [
+            self._to_out(r)
+            for r in sorted(self._memory.values(), key=lambda r: r["created_at"], reverse=True)
+        ][:limit]
+
+    def _record_to_out(self, record: Any, job_id: str) -> Dict[str, Any]:
+        cached = self._memory.get(job_id, {})
+        out = self._to_out(
+            {
+                "id": job_id,
+                "type": record.type,
+                "status": _STATE_TO_JOB_STATUS.get(record.state, "failed"),
+                "payload": record.input,
+                "result": record.result,
+                "error": record.error_message,
+                "progress": record.state.value,
+                "webhook_url": cached.get("webhook_url"),
+                "webhook_delivered": bool(cached.get("webhook_delivered")),
+                "created_at": record.created_at,
+                "completed_at": record.completed_at,
+            }
+        )
+        return out
+
+    @staticmethod
+    def _to_out(record: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": record["id"],
+            "type": record["type"],
+            "status": record.get("status", "queued"),
+            "payload": record.get("payload", {}),
+            "result": record.get("result"),
+            "error": record.get("error"),
+            "progress": record.get("progress", ""),
+            "webhook_url": record.get("webhook_url"),
+            "webhook_delivered": bool(record.get("webhook_delivered")),
+            "created_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.get("created_at", 0))
+            ),
+            "completed_at": (
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record["completed_at"]))
+                if record.get("completed_at")
+                else None
+            ),
+        }
+
+    # ---------------------------------------------------------------- webhook
+    async def _deliver_legacy_webhook(self, job_id: str) -> None:
+        """POST a completed job's result, with backoff, in in-process mode."""
+        record = self._memory.get(job_id)
+        if record is None or not record.get("webhook_url"):
+            return
+        await self._post_webhook(
+            {
+                "url": record["webhook_url"],
+                "secret": record.get("webhook_secret") or "",
+                "job_id": job_id,
+            },
+            {
+                "job_id": job_id,
+                "type": record["type"],
+                "status": "completed",
+                "result": record.get("result"),
+                "completed_at": time.time(),
+            },
+        )
+
+    async def _deliver_webhook(self, webhook: Dict[str, Any], record: Any) -> None:
+        """POST a completed job's result for the durable path."""
+        await self._post_webhook(
+            webhook,
+            {
+                "job_id": webhook["job_id"],
+                "type": record.type,
+                "status": "completed",
+                "result": record.result,
+                "completed_at": record.completed_at,
+            },
+        )
+
+    async def _post_webhook(self, webhook: Dict[str, Any], payload: Dict[str, Any]) -> None:
+        """HMAC-signed webhook POST with bounded exponential backoff.
+
+        The retry counter is a local loop variable in both modes. That is a
+        known limitation, not an oversight: a crash mid-delivery loses the
+        attempt count and the delivery flag, and the webhook is not re-sent on
+        restart. See docs/adr/0006.
+        """
+        url = webhook["url"]
+        secret = webhook["secret"]
+        body = json.dumps(payload, default=str)
+        signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "X-Jiro-Webhook-Sig": signature,
+            "X-Jiro-Job-ID": webhook["job_id"],
+        }
+        max_retries = 5
+        import random
+
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(url, content=body, headers=headers)
+                    if resp.status_code < 400:
+                        await self._mark_webhook_delivered(webhook["job_id"])
+                        log.info(
+                            "webhook delivered",
+                            extra={
+                                "job_id": webhook["job_id"],
+                                "status": resp.status_code,
+                                "attempt": attempt + 1,
+                            },
+                        )
+                        return
+                    log.warning(
+                        "webhook delivery rejected",
+                        extra={
+                            "job_id": webhook["job_id"],
+                            "status": resp.status_code,
+                            "attempt": attempt + 1,
+                        },
+                    )
+            except Exception as exc:
+                log.warning(
+                    "webhook delivery error",
+                    extra={
+                        "job_id": webhook["job_id"],
+                        "error": str(exc),
+                        "attempt": attempt + 1,
+                    },
+                )
+            # Exponential backoff with jitter
+            base_delay = 2**attempt
+            jitter = random.uniform(0, base_delay * 0.5)
+            await asyncio.sleep(base_delay + jitter)
+        log.warning(
+            "webhook delivery failed after %d attempts",
+            max_retries,
+            extra={"job_id": webhook["job_id"], "url": url},
+        )
+
+    async def _mark_webhook_delivered(self, job_id: str) -> None:
+        cached = self._memory.get(job_id)
+        if cached is not None:
+            cached["webhook_delivered"] = True
+        if self.db is not None:
+            await self.db.execute("UPDATE jobs SET webhook_delivered = 1 WHERE id = ?", (job_id,))
