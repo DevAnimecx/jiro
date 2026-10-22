@@ -12,6 +12,8 @@ and a built-in legal compliance layer.
 | [MCP Integration](mcp.md) | Connect Jiro to Claude Desktop, Cursor, Continue.dev, Zed, Cline |
 | [Compliance & Responsible Use](compliance.md) | robots.txt, ToS tracking, audit logs, GDPR notes |
 | [Roadmap](ROADMAP.md) | Open-core model, Jiro Cloud & Enterprise plans |
+| [v0.4.0 Master Plan](v0.4.0/MASTER_PLAN.md) | Information layer: query graph, parameter layer, 15+ agent fabric |
+| [v0.4.0 Claims](v0.4.0/CLAIMS.md) | Exact definitions and benchmarks for 2x / 3x claims |
 | [vs SerpAPI](comparisons/serpapi.md) | Feature & pricing comparison |
 | [vs ScraperAPI](comparisons/scraperapi.md) | Feature & pricing comparison |
 | [vs Bright Data](comparisons/bright-data.md) | Feature & pricing comparison |
