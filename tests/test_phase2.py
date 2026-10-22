@@ -123,6 +123,7 @@ def test_jsonpath_recipe():
     assert out["author"] == "Jane"
 
 
+@pytest.mark.network
 def test_recipe_api(client):
     r = client.post("/scrape", json={
         "url": "https://example.com",

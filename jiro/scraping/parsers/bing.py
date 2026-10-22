@@ -11,7 +11,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.lexbor import LexborHTMLParser as HTMLParser, LexborNode as Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse

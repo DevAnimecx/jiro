@@ -20,7 +20,7 @@ import time
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
-from selectolax.parser import HTMLParser
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
 from jiro.browser import BrowserFetcher, playwright_available
 from jiro.proxy import ProxyManager
@@ -691,6 +691,10 @@ class ScrapingClient:
             if attempt < self.retries:
                 min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
                 delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                # Stop retrying once the sequence budget is spent rather than
+                # sleeping past it: the caller gets the real error sooner.
+                if time.monotonic() + delay > retry_deadline:
+                    break
                 await asyncio.sleep(delay)
 
         assert last_error is not None
@@ -812,7 +816,6 @@ class ScrapingClient:
         if chain:
             headers["Referer"] = chain[-1]
 
-        import time as _time
         start = time.monotonic()
         # Pass the timeout per request. Relying on the session-level value alone
         # has proven unreliable here, and an origin that never responds would

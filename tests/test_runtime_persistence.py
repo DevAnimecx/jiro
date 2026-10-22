@@ -25,7 +25,7 @@ from tests.conftest_runtime import repo, runtime_db  # noqa: F401  (fixture re-e
 
 
 def _new_task(
-    task_id="task_1", type_name="test_task", owner="key_a", idempotency_key=None, input_payload=None
+    task_id="task_1", type_name="test_task", owner="acct_a", idempotency_key=None, input_payload=None
 ) -> NewTask:
     return NewTask(
         id=task_id,
@@ -100,23 +100,23 @@ class TestTaskPersistence:
 
     async def test_same_key_different_owner_allowed(self, repo):
         await repo.insert(
-            _new_task(task_id="t1", owner="key_a", idempotency_key="k"), now=time.time()
+            _new_task(task_id="t1", owner="acct_a", idempotency_key="k"), now=time.time()
         )
         await repo.insert(
-            _new_task(task_id="t2", owner="key_b", idempotency_key="k"), now=time.time()
+            _new_task(task_id="t2", owner="acct_b", idempotency_key="k"), now=time.time()
         )
         assert await repo.get("t2") is not None
 
     async def test_null_idempotency_keys_do_not_collide(self, repo):
         for index in range(3):
             await repo.insert(_new_task(task_id=f"t{index}"), now=time.time())
-        assert await repo.count_for_owner("key_a") == 3
+        assert await repo.count_for_owner("acct_a") == 3
 
     async def test_find_by_idempotency_key(self, repo):
         await repo.insert(_new_task(idempotency_key="abc"), now=time.time())
-        found = await repo.find_by_idempotency_key(owner_key_id="key_a", idempotency_key="abc")
+        found = await repo.find_by_idempotency_key(owner_key_id="acct_a", idempotency_key="abc")
         assert found is not None and found.id == "task_1"
-        missing = await repo.find_by_idempotency_key(owner_key_id="key_a", idempotency_key="zzz")
+        missing = await repo.find_by_idempotency_key(owner_key_id="acct_a", idempotency_key="zzz")
         assert missing is None
 
 
@@ -465,17 +465,17 @@ class TestOwnerScoping:
     async def test_list_is_scoped_to_owner(self, repo):
         now = time.time()
         for index in range(3):
-            await repo.insert(_new_task(task_id=f"a{index}", owner="key_a"), now=now)
+            await repo.insert(_new_task(task_id=f"a{index}", owner="acct_a"), now=now)
         for index in range(2):
-            await repo.insert(_new_task(task_id=f"b{index}", owner="key_b"), now=now)
-        mine = await repo.list_for_owner("key_a")
+            await repo.insert(_new_task(task_id=f"b{index}", owner="acct_b"), now=now)
+        mine = await repo.list_for_owner("acct_a")
         assert {r.id for r in mine} == {"a0", "a1", "a2"}
-        assert await repo.count_for_owner("key_a") == 3
-        assert await repo.count_for_owner("key_b") == 2
+        assert await repo.count_for_owner("acct_a") == 3
+        assert await repo.count_for_owner("acct_b") == 2
 
     async def test_null_owner_is_its_own_scope(self, repo):
         await repo.insert(_new_task(task_id="anon", owner=None), now=time.time())
-        await repo.insert(_new_task(task_id="owned", owner="key_a"), now=time.time())
+        await repo.insert(_new_task(task_id="owned", owner="acct_a"), now=time.time())
         anon = await repo.list_for_owner(None)
         assert [r.id for r in anon] == ["anon"]
 
@@ -484,7 +484,7 @@ class TestOwnerScoping:
         await repo.insert(_new_task(task_id="t1"), now=now)
         await repo.insert(_new_task(task_id="t2"), now=now)
         await repo.mark_cancelled(task_id="t2", now=now, from_states=[TaskState.QUEUED])
-        queued = await repo.list_for_owner("key_a", states=[TaskState.QUEUED])
+        queued = await repo.list_for_owner("acct_a", states=[TaskState.QUEUED])
         assert [r.id for r in queued] == ["t1"]
 
     async def test_queue_depth_counts_every_state(self, repo):
@@ -674,8 +674,8 @@ class TestRecoveryQueries:
 
     async def test_list_by_state_spans_owners(self, repo):
         now = time.time()
-        await repo.insert(_new_task(task_id="t1", owner="key_a"), now=now)
-        await repo.insert(_new_task(task_id="t2", owner="key_b"), now=now)
+        await repo.insert(_new_task(task_id="t1", owner="acct_a"), now=now)
+        await repo.insert(_new_task(task_id="t2", owner="acct_b"), now=now)
         assert len(await repo.list_by_state(TaskState.QUEUED)) == 2
 
 

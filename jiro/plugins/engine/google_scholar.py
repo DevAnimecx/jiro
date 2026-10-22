@@ -49,7 +49,7 @@ class GoogleScholarPlugin(BaseEnginePlugin):
 
     def _parse_results(self, html: str, query: str) -> List[Dict[str, Any]]:
         """Parse Scholar search results."""
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         results = []
         for item in tree.css('.gs_r.gs_or.gs_scl'):
@@ -79,7 +79,7 @@ class GoogleScholarPlugin(BaseEnginePlugin):
 
     def _parse_paper_page(self, html: str, url: str) -> Dict[str, Any]:
         """Parse a paper detail page."""
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         title_elem = tree.css_first('#gsc_oci_title, .gsc_oci_title')
         title = title_elem.text(strip=True) if title_elem else ''

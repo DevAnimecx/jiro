@@ -104,7 +104,6 @@ def build_handoff_brief(run: Dict[str, Any], *, query: str, role: str) -> Dict[s
             open_questions.append({"reason": str(gap)})
 
     budget = run.get("budget") or {}
-    max_requests = budget.get("max_requests")
     spec = run.get("budget_spec") or {}
     requests_used = int(budget.get("requests_used") or 0)
     declared = spec.get("max_requests")

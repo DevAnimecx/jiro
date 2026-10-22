@@ -310,7 +310,7 @@ class TestParserSelectorsProperties:
     @settings(max_examples=20)
     def test_first_many_returns_first_match(self, selectors, html_content):
         """Property: _first_many returns first selector that matches."""
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         from jiro.scraping.parsers.google import GoogleEngine
 
         tree = HTMLParser(html_content)
