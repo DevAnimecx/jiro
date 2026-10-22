@@ -298,3 +298,372 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
     },
     "compliance": {
+        "dsar_enabled": True,         # GDPR data subject access requests
+        "retention_days": 365,        # Data retention period
+        "auto_purge_enabled": False,  # Automatic cleanup of old data
+    },
+}
+
+
+def interpolate_env(value: Any) -> Any:
+    """Recursively replace ``${VAR}`` in strings with the environment value."""
+    if isinstance(value, str):
+        def _sub(match: "re.Match[str]") -> str:
+            return os.environ.get(match.group(1), "")
+        return ENV_PATTERN.sub(_sub, value)
+    if isinstance(value, dict):
+        return {k: interpolate_env(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [interpolate_env(v) for v in value]
+    return value
+
+
+def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    out = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _env_override(raw: Dict[str, Any], prefix: str = "JIRO") -> Dict[str, Any]:
+    """Apply JIRO_A__B__C=value overrides into the nested dict."""
+    out = copy.deepcopy(raw)
+    for key, value in os.environ.items():
+        if not key.startswith(prefix + "_"):
+            continue
+        parts = key[len(prefix) + 1:].lower().split("__")
+        node = out
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = _coerce_env(value)
+    return out
+
+
+def _coerce_env(value: str) -> Any:
+    low = value.lower()
+    if low in ("true", "yes", "1"):
+        return True
+    if low in ("false", "no", "0"):
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _plugin_engine_names() -> set:
+    """Engine names provided by plugin modules under jiro/plugins/engine.
+
+    These ship with the package but are not part of the built-in parser
+    registry, so a config naming one of them (arxiv, github, ...) is valid.
+    Failure here is non-fatal: an unreadable plugins directory just means the
+    caller falls back to the built-in registry.
+    """
+    names = set()
+    try:
+        from pathlib import Path
+        plugin_dir = Path(__file__).parent / "plugins" / "engine"
+        if plugin_dir.is_dir():
+            names = {p.stem for p in plugin_dir.glob("*.py") if not p.name.startswith("_")}
+    except Exception:
+        pass
+    return names
+
+
+@dataclass
+class Settings:
+    """Typed access to the merged configuration."""
+
+    raw: Dict[str, Any] = field(default_factory=lambda: copy.deepcopy(DEFAULT_CONFIG))
+
+    # -- server -----------------------------------------------------------
+    @property
+    def host(self) -> str:
+        return self.raw["server"]["host"]
+
+    @property
+    def port(self) -> int:
+        return int(self.raw["server"]["port"])
+
+    @property
+    def workers(self) -> int:
+        return int(self.raw["server"].get("workers", 1))
+
+    @property
+    def server_insecure(self) -> bool:
+        return bool(self.raw["server"].get("insecure", False))
+
+    @property
+    def cors(self) -> Dict[str, Any]:
+        return self.raw["server"].get("cors", {})
+
+    @property
+    def cors_enabled(self) -> bool:
+        return bool(self.cors.get("enabled", False))
+
+    @property
+    def cors_origins(self) -> List[str]:
+        return self.cors.get("origins", ["*"])
+
+    @property
+    def cors_allow_credentials(self) -> bool:
+        return bool(self.cors.get("allow_credentials", False))
+
+    # -- scraping ----------------------------------------------------------
+    @property
+    def default_engine(self) -> str:
+        return self.raw["scraping"].get("default_engine", "google")
+    @property
+    def engines(self) -> List[str]:
+        return self._validated_engines(
+            self.raw["scraping"].get("engines", ["google", "bing", "duckduckgo"])
+        )
+
+    @property
+    def fallback_order(self) -> List[str]:
+        return self._validated_engines(
+            self.raw["scraping"].get("fallback_order", ["google", "bing", "duckduckgo"])
+        )
+
+    @staticmethod
+    def _validated_engines(configured: List[str]) -> List[str]:
+        """Drop engines named in config that no parser can serve.
+
+        Config is user-editable and is not checked against the engine registry,
+        so a stale or invented name (``mock`` is a common one in the wild would
+        be advertised as available and then fail every request with a 422). Warn
+        once and keep only engines that can actually serve.
+
+        Built-in parsers are not the whole story: engines may also come from
+        plugin modules under ``jiro/plugins/engine`` (arxiv, github, ...), which
+        ``_build_registry`` does not load. Those names are legitimate, so accept
+        them too.
+        """
+        try:
+            from jiro.scraping.engines import _build_registry
+            known = set(_build_registry().names())
+            known |= _plugin_engine_names()
+        except Exception:
+            # Registry unavailable (import cycle, partial install): trust config.
+            return list(configured)
+
+        valid, unknown = [], []
+        for name in configured:
+            (valid if name in known else unknown).append(name)
+        if unknown:
+            from jiro.log import get_logger
+            get_logger("jiro.config").warning(
+                "ignoring unregistered engines in config",
+                extra={"unknown": unknown, "available": sorted(known)},
+            )
+        return valid or ["google"]
+
+    @property
+    def timeout(self) -> float:
+        return float(self.raw["scraping"].get("timeout", 10))
+
+    @property
+    def retries(self) -> int:
+        return int(self.raw["scraping"].get("retries", 3))
+
+    @property
+    def user_agent_rotation(self) -> bool:
+        return bool(self.raw["scraping"].get("user_agent_rotation", True))
+
+    @property
+    def max_results(self) -> int:
+        return int(self.raw["scraping"].get("max_results", 20))
+
+    @property
+    def proxy(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("proxy", {})
+
+    @property
+    def captcha(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("captcha", {})
+
+    @property
+    def robots_txt(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("robots_txt", {"enabled": True, "strict_mode": False,
+                                                        "user_agent": "JiroBot/1.0",
+                                                        "cache_ttl_seconds": 3600})
+
+    @property
+    def rate_limits_per_engine(self) -> Dict[str, Dict[str, int]]:
+        return self.raw["scraping"].get("rate_limits_per_engine", {})
+
+    @property
+    def request_validation(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("request_validation", {})
+
+    # -- graph --------------------------------------------------------------
+    @property
+    def graph(self) -> Dict[str, Any]:
+        return self.raw.get("graph", {})
+
+    @property
+    def graph_enabled(self) -> bool:
+        return bool(self.graph.get("enabled", True))
+
+    # -- cache --------------------------------------------------------------
+    @property
+    def cache_type(self) -> str:
+        return self.raw["cache"].get("type", "sqlite")
+
+    @property
+    def cache_path(self) -> str:
+        return str(Path(self.raw["cache"].get("path", "~/.jiro/cache.db")).expanduser())
+
+    @property
+    def cache_ttl(self) -> int:
+        return int(self.raw["cache"].get("ttl_seconds", 3600))
+
+    @property
+    def db_path(self) -> str:
+        return str(Path(self.raw.get("db", {}).get("path", "~/.jiro/jiro.db")).expanduser())
+
+    # -- llm ----------------------------------------------------------------
+    @property
+    def llm(self) -> Dict[str, Any]:
+        return self.raw.get("llm", {})
+
+    # -- auth ----------------------------------------------------------------
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.raw["auth"].get("enabled", False))
+
+    @property
+    def jwt_secret(self) -> str:
+        return self.raw["auth"].get("jwt_secret", "")
+
+    @property
+    def jwt_ttl_minutes(self) -> int:
+        return int(self.raw["auth"].get("jwt_ttl_minutes", 720))
+
+    @property
+    def rate_limit_rpm(self) -> int:
+        return int(self.raw["auth"].get("rate_limit_rpm", 60))
+
+    @property
+    def jwt_algorithm(self) -> str:
+        return str(self.raw["auth"].get("jwt_algorithm", "HS256"))
+
+    @property
+    def jwt_key_id(self) -> str:
+        return str(self.raw["auth"].get("jwt_key_id", "jiro-default"))
+
+    # -- agent ---------------------------------------------------------------
+    @property
+    def agent(self) -> Dict[str, Any]:
+        return self.raw.get("agent", {})
+
+    @property
+    def agent_deadline_seconds(self) -> float:
+        return float(self.agent.get("deadline_seconds", 0) or 0)
+
+    @property
+    def agent_content_budget_chars(self) -> int:
+        return int(self.agent.get("content_budget_chars", 200000) or 200000)
+
+    # -- search hybrid ---------------------------------------------------------
+    @property
+    def search_hybrid(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("hybrid", {})
+
+    @property
+    def search_depths(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("depths", {})
+
+    @property
+    def search_filters(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("filters", {})
+
+    @property
+    def search_answer(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("answer", {})
+
+    @property
+    def search_highlights(self) -> Dict[str, Any]:
+        return self.raw["scraping"].get("highlights", {})
+
+    # -- social ---------------------------------------------------------------
+    @property
+    def social(self) -> Dict[str, Any]:
+        return self.raw.get("social", {})
+
+    # -- dashboard ------------------------------------------------------------
+    @property
+    def dashboard_enabled(self) -> bool:
+        return bool(self.raw.get("dashboard", {}).get("enabled", True))
+
+    # -- db -------------------------------------------------------------------
+    @property
+    def db_type(self) -> str:
+        return self.raw.get("db", {}).get("type", "sqlite")
+
+    @property
+    def db_url(self) -> str:
+        return self.raw.get("db", {}).get("url", "")
+
+    @property
+    def db_pool_size(self) -> int:
+        return int(self.raw.get("db", {}).get("pool_size", 10))
+
+    @property
+    def logging(self) -> Dict[str, Any]:
+        return self.raw.get("logging", {})
+
+    @property
+    def privacy(self) -> Dict[str, Any]:
+        return self.raw.get("privacy", {})
+
+    @property
+    def audit(self) -> Dict[str, Any]:
+        return self.raw.get("audit", {"enabled": True, "log_file": "~/.jiro/audit.log",
+                                       "buffer_size": 100, "flush_interval_seconds": 5})
+
+    def log_queries(self) -> bool:
+        return bool(self.privacy.get("log_queries", False))
+
+    def get(self, dotted: str, default: Any = None) -> Any:
+        node: Any = self.raw
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return default
+            node = node[part]
+        return node
+
+    def dump(self) -> Dict[str, Any]:
+        return copy.deepcopy(self.raw)
+
+    @classmethod
+    def load(cls, path: Optional[str] = None, *, create_default: bool = False) -> "Settings":
+        config_path = None
+        if path:
+            config_path = Path(path).expanduser()
+        elif os.environ.get("JIRO_CONFIG"):
+            config_path = Path(os.environ["JIRO_CONFIG"]).expanduser()
+        else:
+            default = DEFAULT_CONFIG_PATH
+            if default.exists():
+                config_path = default
+
+        raw = copy.deepcopy(DEFAULT_CONFIG)
+        if config_path and config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as fh:
+                user_config = yaml.safe_load(fh) or {}
+            raw = deep_merge(raw, user_config)
+        elif create_default:
+            if config_path is None:
+                config_path = DEFAULT_CONFIG_PATH
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as fh:
+                yaml.safe_dump(DEFAULT_CONFIG, fh, sort_keys=False)
+
+        raw = interpolate_env(raw)
+        raw = _env_override(raw)
+        return cls(raw=raw)
