@@ -1,0 +1,31 @@
+{
+  "id": "research_5q_10src",
+  "description": "Five sub-queries, ten sources, one cited result. The 2x/3x claim workload.",
+  "query": "What are the practical differences between asyncio and threads in Python, and when should each be used?",
+  "subqueries": [
+    "Python asyncio event loop explained",
+    "Python threading GIL limitations",
+    "asyncio vs threads performance Python",
+    "Python concurrent.futures ThreadPoolExecutor asyncio",
+    "when to use asyncio vs threading Python"
+  ],
+  "sources": [
+    "https://docs.python.org/3/library/asyncio.html",
+    "https://docs.python.org/3/library/threading.html",
+    "https://docs.python.org/3/library/concurrent.futures.html",
+    "https://realpython.com/async-io-python/",
+    "https://realpython.com/python-concurrency/",
+    "https://superfastpython.com/threading-vs-asyncio/",
+    "https://en.wikipedia.org/wiki/Asynchronous_I/O",
+    "https://en.wikipedia.org/wiki/Thread_(computing)",
+    "https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio",
+    "https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/"
+  ],
+  "required_citations": 8,
+  "config": {
+    "num": 5,
+    "max_tokens": 1200,
+    "deadline_ms": 15000,
+    "fetch_top": 10
+  }
+}
