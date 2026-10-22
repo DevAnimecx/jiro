@@ -264,3 +264,221 @@ def mcp_tools() -> List[Dict[str, Any]]:
         {"name": "social_batch",
          "description": "Batch scrape multiple social media URLs in parallel (up to 10). "
                         "Returns per-URL results with status, data, or errors. "
+                        "Use for bulk data collection, monitoring, or archiving. "
+                        "Example: urls=['https://twitter.com/user/status/1', 'https://reddit.com/r/tech/comments/2'].",
+         "inputSchema": SOCIAL_BATCH_SCHEMA},
+        {"name": "smart_search",
+         "description": "Intelligent search with automatic intent detection and routing. "
+                        "Classifies the query intent (web, social, structured, images, news, videos) and "
+                        "automatically routes to the best handler. "
+                        "Use when you're unsure which search type to use — the agent decides. "
+                        "Example: query='compare iPhone 15 vs Samsung S24'.",
+         "inputSchema": SMART_SEARCH_SCHEMA},
+        {"name": "smart_classify",
+         "description": "Classify the intent of a search query without executing it. "
+                        "Returns intent category, target handler, confidence score, and suggested schema. "
+                        "Use to understand what type of search a query needs before executing. "
+                        "Example: query='latest AI research papers'.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query to classify"},
+         }, "required": ["query"]}},
+        {"name": "compare_engines",
+         "description": "Compare search results across multiple engines side by side. "
+                        "Returns result counts, first results, and engine-specific metadata. "
+                        "Use to find which engine is best for a particular query type. "
+                        "Example: query='python tutorials', engines=['google', 'bing', 'brave'].",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "engines": {"type": "array", "items": {"type": "string"},
+                         "default": ["google", "bing", "brave"],
+                         "description": "Engines to compare (google, bing, brave, duckduckgo, etc.)"},
+         }, "required": ["query"]}},
+        {"name": "monitor_status",
+         "description": "Get comprehensive server status including engine health, cache stats, social platform status, and MCP tool count. "
+                        "Use to diagnose issues or check system health before a long operation. "
+                        "Example: no arguments needed.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "health_check",
+         "description": "Quick health check for all services and dependencies. "
+                        "Returns overall status and per-service health details. "
+                        "Use as a fast connectivity test. "
+                        "Example: no arguments needed.",
+         "inputSchema": {"type": "object", "properties": {
+             "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 5},
+         }}},
+        {"name": "cache_stats",
+         "description": "Get cache hit/miss statistics, TTL, and configuration. "
+                        "Use to understand caching behavior and debug stale results. "
+                        "Example: no arguments needed.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "task_submit",
+         "description": "Submit a durable background task. The task is persisted "
+                        "before it is accepted, so it survives a restart. Returns "
+                        "the task id immediately; use task_status to check on it. "
+                        "Supported types: ai_search (query), ai_agent (goal), "
+                        "batch_scrape (urls). Example: "
+                        "{'type': 'ai_search', 'payload': {'query': 'x'}}.",
+         "inputSchema": {"type": "object", "properties": {
+             "type": {"type": "string",
+                      "description": "ai_search | ai_agent | batch_scrape"},
+             "payload": {"type": "object",
+                         "description": "Task input, validated against the type's schema"},
+             "idempotency_key": {"type": "string",
+                                 "description": "Repeat key returns the same task"},
+             "max_attempts": {"type": "integer", "description": "1-10",
+                              "minimum": 1, "maximum": 10},
+             "timeout": {"type": "integer", "description": "Attempt timeout seconds",
+                          "minimum": 1}},
+             "required": ["type", "payload"]}},
+        {"name": "task_status",
+         "description": "Check a durable task's state (queued, running, retry_wait, "
+                        "succeeded, failed, cancelled) and its result if finished. "
+                        "Example: {'task_id': 'task_abc123'}.",
+         "inputSchema": {"type": "object", "properties": {
+             "task_id": {"type": "string", "description": "Task id from task_submit"},
+             "include_result": {"type": "boolean", "default": True}},
+             "required": ["task_id"]}},
+        {"name": "task_cancel",
+         "description": "Cancel a durable task. Queued tasks stop immediately. A "
+                        "running task is asked to stop; it reports 'running' with "
+                        "cancel_requested until its work actually finishes. "
+                        "Example: {'task_id': 'task_abc123'}.",
+         "inputSchema": {"type": "object", "properties": {
+             "task_id": {"type": "string", "description": "Task id from task_submit"}},
+             "required": ["task_id"]}},
+        {"name": "list_engines",
+         "description": "List all available search engines with supported types (web, images, news, videos, shopping, places) and capabilities. "
+                        "Use to discover what search types each engine supports. "
+                        "Example: no arguments needed.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "list_social_platforms",
+         "description": "List all supported social media platforms with their capabilities (scrape, search, profile, timeline, etc.) and base URLs. "
+                        "Use to discover what social platforms and actions are available. "
+                        "Example: no arguments needed.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "search_graph",
+         "description": "Run a budgeted query graph: concurrent search, optional page fetch, "
+                        "merge, and a cited evidence packet under a hard deadline. "
+                        "Use this instead of multiple separate search calls for multi-source research. "
+                        "Returns results, a packet with claims/sources, gaps, timings, and budget usage. "
+                        "Example: query='latest AI regulation in the EU', max_tokens=1200, fetch_top=3.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal or question",
+                       "minLength": 1, "maxLength": 500},
+             "engine": {"type": "string", "default": "auto",
+                        "description": "Primary engine or 'auto'"},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
+                     "description": "Results per search node"},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200, "description": "Evidence packet token budget"},
+             "deadline_ms": {"type": "integer", "minimum": 100, "maximum": 60000,
+                             "default": 2500, "description": "Hard wall-clock deadline"},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0,
+                           "description": "Fetch and extract the top N result pages"},
+             "intent": {"type": "string",
+                        "description": "Optional plan override: fact_lookup, news_check, comparison, entity_profile, howto, social_signal, scrape"},
+         }, "required": ["query"]}},
+        {"name": "plan_search",
+         "description": "Dry-run a query graph without network calls. Returns the validated graph, "
+                        "cost estimate, rationale, and a cheaper alternative. Use to inspect or "
+                        "budget a research task before running it.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal or question",
+                       "minLength": 1, "maxLength": 500},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200},
+             "deadline_ms": {"type": "integer", "minimum": 100, "maximum": 60000,
+                             "default": 2500},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0},
+             "intent": {"type": "string"},
+         }, "required": ["query"]}},
+        {"name": "session_handoff",
+         "description": "Produce a structured handoff brief for another agent: the goal, the "
+                        "evidence ids behind it, what is still open, contradictions found, "
+                        "budget left, and the suggested next node. Use this instead of a "
+                        "free-text summary when passing work to a planner, retriever, "
+                        "verifier or writer agent, so the receiver gets ids it can resolve "
+                        "rather than prose it has to re-derive. "
+                        "Example: query='latest AI regulation in the EU', role='verifier'.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal being handed over",
+                       "minLength": 1, "maxLength": 500},
+             "role": {"type": "string",
+                      "enum": ["planner", "retriever", "verifier", "writer", "observer"],
+                      "default": "writer",
+                      "description": "Role of the agent receiving the handoff"},
+             "engine": {"type": "string", "default": "auto"},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200},
+             "deadline_ms": {"type": "integer", "minimum": 0, "maximum": 60000,
+                             "default": 0,
+                             "description": "0 derives the deadline from observed latency"},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0},
+             "intent": {"type": "string"},
+             "graph_id": {"type": "string",
+                          "description": "Hand over an existing run instead of starting one"},
+         }, "required": ["query"]}},
+    ]
+
+
+class JiroTool:
+    """Minimal LangChain-compatible Tool (duck-typed: name, description, func/run)."""
+
+    def __init__(self, name: str, description: str, func: Callable[..., Any]) -> None:
+        self.name = name
+        self.description = description
+        self.func = func
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        return self.func(*args, **kwargs)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.run(*args, **kwargs)
+
+    def to_langchain(self) -> "JiroTool":
+        return self
+
+
+def langchain_tools(search_fn: Callable[..., Any], scrape_fn: Callable[..., Any],
+                    ai_fn: Optional[Callable[..., Any]] = None) -> List[JiroTool]:
+    tools = [
+        JiroTool("jiro_search", "Search the web and return structured SERP results.",
+                 search_fn),
+        JiroTool("jiro_scrape", "Scrape a URL and extract its readable content.", scrape_fn),
+    ]
+    if ai_fn is not None:
+        tools.append(JiroTool("jiro_ai_search",
+                              "Answer a research question with citations.", ai_fn))
+    return tools
+
+
+class ToolSpec:
+    """LlamaIndex-compatible ToolSpec (duck-typed)."""
+
+    spec_functions: List[str] = []
+
+    def __init__(self, search_fn: Callable[..., Any], scrape_fn: Callable[..., Any],
+                 ai_fn: Optional[Callable[..., Any]] = None) -> None:
+        self._search_fn = search_fn
+        self._scrape_fn = scrape_fn
+        self._ai_fn = ai_fn
+        self.spec_functions = ["jiro_search", "jiro_scrape"] + (["jiro_ai_search"] if ai_fn else [])
+
+    def jiro_search(self, q: str, engine: str = "google", num: int = 10) -> Any:
+        return self._search_fn(q=q, engine=engine, num=num)
+
+    def jiro_scrape(self, url: str, format: str = "markdown") -> Any:
+        return self._scrape_fn(url=url, format=format)
+
+    def jiro_ai_search(self, query: str, max_sources: int = 5) -> Any:
+        return self._ai_fn(query=query, max_sources=max_sources)  # type: ignore[misc]
+
+    def to_tool_list(self) -> List[JiroTool]:
+        tools = [JiroTool("jiro_search", "Search the web.", self.jiro_search),
+                 JiroTool("jiro_scrape", "Scrape a URL.", self.jiro_scrape)]
+        if self._ai_fn is not None:
+            tools.append(JiroTool("jiro_ai_search", "Answer with citations.",
+                                  self.jiro_ai_search))
+        return tools
