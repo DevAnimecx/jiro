@@ -780,3 +780,344 @@ class ResearchRepository:
                            limit: int = 200) -> List[SourceRecord]:
         sql = ("SELECT s.* FROM research_sources s"
                " JOIN research_tasks t ON t.id = s.research_id"
+               " WHERE s.research_id = ? AND t.owner_key_id IS ?")
+        if usable_only:
+            sql += " AND s.extraction_status = 'extracted'"
+        sql += " ORDER BY s.rank IS NULL, s.rank ASC, s.created_at ASC LIMIT ?"
+        rows = await self._db.fetchall(sql, (research_id, owner_key_id,
+                                             int(limit)))
+        return [_source(r) for r in rows]
+
+    async def count_sources(self, research_id: str, *,
+                            owner_key_id: Optional[str] = None) -> int:
+        row = await self._db.fetchone(
+            "SELECT COUNT(*) AS n FROM research_sources s"
+            " JOIN research_tasks t ON t.id = s.research_id"
+            " WHERE s.research_id = ? AND t.owner_key_id IS ?",
+            (research_id, owner_key_id))
+        return int(row["n"]) if row else 0
+
+    # ---------------------------------------------------------------- evidence
+
+    async def add_evidence(self, research_id: str, source_id: str,
+                           passage: str, *, passage_hash: str,
+                           owner_key_id: Optional[str] = None,
+                           subquestion_id: Optional[str] = None,
+                           passage_start: int = 0, passage_end: int = 0,
+                           locator: Optional[str] = None,
+                           evidence_type: str = "passage",
+                           relevance: str = "unresolved",
+                           relevance_note: Optional[str] = None,
+                           now: Optional[float] = None) -> Optional[EvidenceRecord]:
+        """Append a passage to the ledger, deduplicated on content hash.
+
+        Returns the existing record when the same passage from the same source
+        was already stored, so re-running an extraction does not inflate the
+        ledger or double-count a source's support for a claim.
+        """
+        now = time.time() if now is None else now
+        evidence_id = stable_id("ev", research_id, source_id, passage_hash)
+        try:
+            await self._db.execute(
+                "INSERT INTO research_evidence (id, research_id, source_id,"
+                " owner_key_id, subquestion_id, passage, passage_hash,"
+                " passage_start, passage_end, locator, evidence_type, relevance,"
+                " relevance_note, extracted_at, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (evidence_id, research_id, source_id, owner_key_id,
+                 subquestion_id, passage, passage_hash, int(passage_start),
+                 int(passage_end), locator, evidence_type, relevance,
+                 relevance_note, now, now),
+            )
+        except aiosqlite.IntegrityError:
+            return None
+        row = await self._db.fetchone(
+            "SELECT * FROM research_evidence WHERE id = ?", (evidence_id,))
+        return _evidence(row) if row else None
+
+    async def set_evidence_relevance(self, evidence_id: str, relevance: str,
+                                     *, note: Optional[str] = None) -> None:
+        await self._db.execute(
+            "UPDATE research_evidence SET relevance = ?, relevance_note = ?"
+            " WHERE id = ?", (relevance, note, evidence_id))
+
+    async def get_evidence(self, evidence_id: str, *,
+                           owner_key_id: Optional[str] = None
+                           ) -> Optional[EvidenceRecord]:
+        row = await self._db.fetchone(
+            "SELECT e.* FROM research_evidence e"
+            " JOIN research_tasks t ON t.id = e.research_id"
+            " WHERE e.id = ? AND t.owner_key_id IS ?",
+            (evidence_id, owner_key_id))
+        return _evidence(row) if row else None
+
+    async def list_evidence(self, research_id: str, *,
+                            owner_key_id: Optional[str] = None,
+                            source_id: Optional[str] = None,
+                            relevance: Optional[str] = None,
+                            limit: int = 500) -> List[EvidenceRecord]:
+        sql = ("SELECT e.* FROM research_evidence e"
+               " JOIN research_tasks t ON t.id = e.research_id"
+               " WHERE e.research_id = ? AND t.owner_key_id IS ?")
+        params: List[Any] = [research_id, owner_key_id]
+        if source_id:
+            sql += " AND e.source_id = ?"
+            params.append(source_id)
+        if relevance:
+            sql += " AND e.relevance = ?"
+            params.append(relevance)
+        sql += " ORDER BY e.created_at ASC LIMIT ?"
+        params.append(int(limit))
+        rows = await self._db.fetchall(sql, tuple(params))
+        return [_evidence(r) for r in rows]
+
+    async def count_evidence(self, research_id: str, *,
+                             owner_key_id: Optional[str] = None) -> int:
+        row = await self._db.fetchone(
+            "SELECT COUNT(*) AS n FROM research_evidence e"
+            " JOIN research_tasks t ON t.id = e.research_id"
+            " WHERE e.research_id = ? AND t.owner_key_id IS ?",
+            (research_id, owner_key_id))
+        return int(row["n"]) if row else 0
+
+    # ------------------------------------------------------------------ claims
+
+    async def add_claim(self, research_id: str, claim_text: str, *,
+                        owner_key_id: Optional[str] = None,
+                        subquestion_id: Optional[str] = None,
+                        kind: str = "source_assertion",
+                        assessment: str = "unsupported",
+                        confidence_label: Optional[str] = None,
+                        limitations: Optional[str] = None,
+                        temporal_scope: Optional[str] = None,
+                        supporting_evidence: Sequence[str] = (),
+                        contradicting_evidence: Sequence[str] = (),
+                        independent_domains: Sequence[str] = (),
+                        now: Optional[float] = None) -> ClaimRecord:
+        now = time.time() if now is None else now
+        claim_id = stable_id("clm", research_id, claim_text.strip().lower())
+        try:
+            await self._db.execute(
+                "INSERT INTO research_claims (id, research_id, owner_key_id,"
+                " claim_text, subquestion_id, kind, assessment,"
+                " confidence_label, limitations, temporal_scope,"
+                " supporting_evidence, contradicting_evidence,"
+                " independent_domains, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (claim_id, research_id, owner_key_id, claim_text.strip(),
+                 subquestion_id, kind, assessment, confidence_label,
+                 limitations, temporal_scope, _dumps(list(supporting_evidence)),
+                 _dumps(list(contradicting_evidence)),
+                 _dumps(list(independent_domains)), now, now),
+            )
+        except aiosqlite.IntegrityError:
+            pass
+        row = await self._db.fetchone(
+            "SELECT * FROM research_claims WHERE id = ?", (claim_id,))
+        if row is None:  # pragma: no cover
+            raise RuntimeError("claim vanished after insert")
+        return _claim(row)
+
+    async def update_claim(self, claim_id: str, *, assessment: str,
+                           supporting_evidence: Sequence[str] = (),
+                           contradicting_evidence: Sequence[str] = (),
+                           independent_domains: Sequence[str] = (),
+                           confidence_label: Optional[str] = None,
+                           limitations: Optional[str] = None,
+                           now: Optional[float] = None) -> None:
+        now = time.time() if now is None else now
+        await self._db.execute(
+            "UPDATE research_claims SET assessment = ?,"
+            " supporting_evidence = ?, contradicting_evidence = ?,"
+            " independent_domains = ?, confidence_label = ?,"
+            " limitations = ?, updated_at = ? WHERE id = ?",
+            (assessment, _dumps(list(supporting_evidence)),
+             _dumps(list(contradicting_evidence)),
+             _dumps(list(independent_domains)), confidence_label,
+             limitations, now, claim_id))
+
+    async def get_claim(self, claim_id: str, *,
+                        owner_key_id: Optional[str] = None
+                        ) -> Optional[ClaimRecord]:
+        row = await self._db.fetchone(
+            "SELECT c.* FROM research_claims c"
+            " JOIN research_tasks t ON t.id = c.research_id"
+            " WHERE c.id = ? AND t.owner_key_id IS ?",
+            (claim_id, owner_key_id))
+        return _claim(row) if row else None
+
+    async def list_claims(self, research_id: str, *,
+                          owner_key_id: Optional[str] = None,
+                          limit: int = 500) -> List[ClaimRecord]:
+        rows = await self._db.fetchall(
+            "SELECT c.* FROM research_claims c"
+            " JOIN research_tasks t ON t.id = c.research_id"
+            " WHERE c.research_id = ? AND t.owner_key_id IS ?"
+            " ORDER BY c.created_at ASC LIMIT ?",
+            (research_id, owner_key_id, int(limit)))
+        return [_claim(r) for r in rows]
+
+    # ----------------------------------------------------------------- queries
+
+    async def record_query(self, research_id: str, query_id: str, text: str,
+                           *, normalized_query: str,
+                           owner_key_id: Optional[str] = None,
+                           subquestion_id: Optional[str] = None,
+                           iteration: int = 0, engine_requested: str = "",
+                           engines_used: Sequence[str] = (),
+                           result_count: int = 0, status: str = "ok",
+                           error: Optional[str] = None,
+                           now: Optional[float] = None) -> bool:
+        """Record an issued query. Returns False if it was already recorded.
+
+        The unique index on ``(research_id, normalized_query)`` is what stops
+        the loop from re-running a query that already produced nothing.
+        """
+        now = time.time() if now is None else now
+        try:
+            await self._db.execute(
+                "INSERT INTO research_queries (id, research_id, query,"
+                " normalized_query, subquestion_id, iteration, engine_requested,"
+                " engines_used, result_count, status, error, issued_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (query_id, research_id, text, normalized_query,
+                 subquestion_id, int(iteration), engine_requested,
+                 _dumps(list(engines_used)), int(result_count), status,
+                 (error or "")[:500] or None, now),
+            )
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+    async def issued_queries(self, research_id: str, *,
+                             owner_key_id: Optional[str] = None
+                             ) -> List[Dict[str, Any]]:
+        rows = await self._db.fetchall(
+            "SELECT q.* FROM research_queries q"
+            " JOIN research_tasks t ON t.id = q.research_id"
+            " WHERE q.research_id = ? AND t.owner_key_id IS ?"
+            " ORDER BY q.issued_at ASC",
+            (research_id, owner_key_id))
+        return [{"id": r["id"], "query": r["query"],
+                 "normalized_query": r["normalized_query"],
+                 "status": r["status"], "result_count": int(r["result_count"]),
+                 "engines_used": _loads(r["engines_used"], []) or [],
+                 "iteration": int(r["iteration"]), "error": r.get("error")}
+                for r in rows]
+
+    async def was_query_issued(self, research_id: str, normalized_query: str,
+                               *, owner_key_id: Optional[str] = None) -> bool:
+        row = await self._db.fetchone(
+            "SELECT 1 AS hit FROM research_queries q"
+            " JOIN research_tasks t ON t.id = q.research_id"
+            " WHERE q.research_id = ? AND t.owner_key_id IS ?"
+            " AND q.normalized_query = ?",
+            (research_id, owner_key_id, normalized_query))
+        return row is not None
+
+    # -------------------------------------------------------------- iterations
+
+    async def record_iteration(
+        self, research_id: str, iteration: int, *,
+        queries: Sequence[str] = (), new_sources: int = 0,
+        new_evidence: int = 0, follow_up_reason: Optional[str] = None,
+        decided_continue: Optional[bool] = None,
+        owner_key_id: Optional[str] = None,
+        now: Optional[float] = None) -> None:
+        now = time.time() if now is None else now
+        await self._db.execute(
+            "INSERT OR REPLACE INTO research_iterations (research_id,"
+            " iteration, queries, new_sources, new_evidence, follow_up_reason,"
+            " decided_continue, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (research_id, int(iteration), _dumps(list(queries)), int(new_sources),
+             int(new_evidence), follow_up_reason,
+             None if decided_continue is None else int(decided_continue), now))
+
+    async def list_iterations(self, research_id: str, *,
+                              owner_key_id: Optional[str] = None
+                              ) -> List[Dict[str, Any]]:
+        rows = await self._db.fetchall(
+            "SELECT i.* FROM research_iterations i"
+            " JOIN research_tasks t ON t.id = i.research_id"
+            " WHERE i.research_id = ? AND t.owner_key_id IS ?"
+            " ORDER BY i.iteration ASC",
+            (research_id, owner_key_id))
+        return [{"iteration": int(r["iteration"]),
+                 "queries": _loads(r["queries"], []) or [],
+                 "new_sources": int(r["new_sources"]),
+                 "new_evidence": int(r["new_evidence"]),
+                 "follow_up_reason": r.get("follow_up_reason"),
+                 "decided_continue": (
+                     None if r["decided_continue"] is None
+                     else bool(r["decided_continue"]))}
+                for r in rows]
+
+    # ----------------------------------------------------------------- reports
+
+    async def save_report(self, research_id: str, body: str, *,
+                          owner_key_id: Optional[str] = None,
+                          output_format: str = "markdown",
+                          body_hash: str = "", citation_count: int = 0,
+                          claim_count: int = 0, unsupported_claims: int = 0,
+                          complete: bool = True,
+                          now: Optional[float] = None) -> str:
+        """Persist the report body, idempotently.
+
+        Writing is ``INSERT OR REPLACE`` keyed on ``research_id``: a resumed run
+        that reaches synthesis twice converges on one report rather than
+        accumulating duplicates.
+        """
+        now = time.time() if now is None else now
+        report_id = stable_id("rep", research_id)
+        await self._db.execute(
+            "INSERT OR REPLACE INTO research_reports (id, research_id,"
+            " owner_key_id, format, body, body_hash, byte_size,"
+            " citation_count, claim_count, unsupported_claims, complete,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (report_id, research_id, owner_key_id, output_format, body,
+             body_hash or "", len(body.encode("utf-8")), int(citation_count),
+             int(claim_count), int(unsupported_claims), int(complete), now))
+        return report_id
+
+    async def get_report(self, research_id: str, *,
+                         owner_key_id: Optional[str] = None
+                         ) -> Optional[Dict[str, Any]]:
+        row = await self._db.fetchone(
+            "SELECT r.* FROM research_reports r"
+            " JOIN research_tasks t ON t.id = r.research_id"
+            " WHERE r.research_id = ? AND t.owner_key_id IS ?",
+            (research_id, owner_key_id))
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "research_id": row["research_id"],
+            "format": row["format"],
+            "body": row["body"],
+            "body_hash": row["body_hash"],
+            "byte_size": int(row["byte_size"]),
+            "citation_count": int(row["citation_count"]),
+            "claim_count": int(row["claim_count"]),
+            "unsupported_claims": int(row["unsupported_claims"]),
+            "complete": bool(row["complete"]),
+            "created_at": float(row["created_at"]),
+        }
+
+    async def has_report(self, research_id: str, *,
+                         owner_key_id: Optional[str] = None) -> bool:
+        row = await self._db.fetchone(
+            "SELECT 1 AS hit FROM research_reports r"
+            " JOIN research_tasks t ON t.id = r.research_id"
+            " WHERE r.research_id = ? AND t.owner_key_id IS ?",
+            (research_id, owner_key_id))
+        return row is not None
+
+
+__all__ = [
+    "CHECKPOINT_VERSION",
+    "ClaimRecord",
+    "EvidenceRecord",
+    "ResearchRecord",
+    "ResearchRepository",
+    "SourceRecord",
+]
