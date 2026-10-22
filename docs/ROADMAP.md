@@ -24,6 +24,12 @@ and support are offered as services.
 
 - [ ] **v0.1.x** — stabilize OSS, grow engine plugin marketplace (community).
 - [ ] **v0.2** — PostgreSQL backend, distributed rate limiter, web UI dashboard.
+- [ ] **v0.4.0** — three-phase engine track: parallel query graph, evidence packets,
+      production surface. See [MASTER_PLAN.md](v0.4.0/MASTER_PLAN.md),
+      [CLAIMS.md](v0.4.0/CLAIMS.md), and
+      [ADR 0011](adr/0011-parametric-context-boundary.md). Track A (durable runtime,
+      memory, research repository, orchestration, verification) is recorded in the
+      phase handoffs; the release ships when both tracks pass their gates.
 - [ ] **Jiro Cloud (beta)** — managed proxy fleet, Free/Developer/Team/Scale tiers.
 - [ ] **Jiro Enterprise** — BSL-1.0 air-gapped license, SOC 2 Type II, Helm hardened.
 - [ ] **Plugin marketplace** — curated premium plugins (SEC, patents, clinical
