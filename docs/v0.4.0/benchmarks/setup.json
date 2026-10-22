@@ -1,0 +1,142 @@
+{
+  "claim_id": "setup-15",
+  "created_at": "2026-10-22T14:30:17+00:00",
+  "commit": "a331066",
+  "version": "0.3.3",
+  "hardware": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.3"
+  },
+  "method": "Each tier-A client was configured in a temporary HOME via mcp_setup.setup_client(..., force=True) and its written config was read back to confirm Jiro was added.",
+  "reproduction": "python benchmarks/setup_artifact.py",
+  "raw": [
+    {
+      "id": "claude",
+      "name": "Claude Desktop",
+      "ok": true,
+      "guided": false,
+      "config_path": "claude_desktop_config.json",
+      "verified": true
+    },
+    {
+      "id": "cline",
+      "name": "Cline (VS Code)",
+      "ok": true,
+      "guided": false,
+      "config_path": "cline_mcp_settings.json",
+      "verified": true
+    },
+    {
+      "id": "codex",
+      "name": "OpenAI Codex CLI",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.toml",
+      "verified": true
+    },
+    {
+      "id": "continue",
+      "name": "Continue.dev",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.json",
+      "verified": true
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor IDE",
+      "ok": true,
+      "guided": false,
+      "config_path": "mcp.json",
+      "verified": true
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "ok": true,
+      "guided": false,
+      "config_path": "settings.json",
+      "verified": true
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.yaml",
+      "verified": true
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.json",
+      "verified": true
+    },
+    {
+      "id": "kilo",
+      "name": "Kilo Code (VS Code)",
+      "ok": true,
+      "guided": false,
+      "config_path": "mcp_settings.json",
+      "verified": true
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.json",
+      "verified": true
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "ok": true,
+      "guided": false,
+      "config_path": "config.json",
+      "verified": true
+    },
+    {
+      "id": "roo",
+      "name": "Roo Code (VS Code)",
+      "ok": true,
+      "guided": false,
+      "config_path": "mcp_settings.json",
+      "verified": true
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code Copilot",
+      "ok": true,
+      "guided": false,
+      "config_path": "mcp.json",
+      "verified": true
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "ok": true,
+      "guided": false,
+      "config_path": "mcp_config.json",
+      "verified": true
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "ok": true,
+      "guided": false,
+      "config_path": "settings.json",
+      "verified": true
+    }
+  ],
+  "metrics": {
+    "registry_total": 16,
+    "tier_a_clients": 15,
+    "passing": 15,
+    "failing": [],
+    "target": 15,
+    "met": true
+  }
+}
