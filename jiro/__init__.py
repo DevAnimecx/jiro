@@ -5,7 +5,7 @@ DuckDuckGo directly, cache results locally, and expose them to AI agents
 via REST, function-calling schemas and MCP.
 """
 
-__version__ = "0.3.3"  # Aligned release: auth fail-fast, liveness probes, MCP expansion
+__version__ = "0.4.0"  # Query graph, evidence packets, memory, durable runtime
 try:  # reflect the actually installed distribution version when available
     from importlib.metadata import version as _pkg_version
 
