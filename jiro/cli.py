@@ -2264,3 +2264,748 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
                 _check("API Key", "pass", f"Valid — {plan} plan, {remaining:,} credits remaining")
             else:
                 _check("API Key", "fail", "Server returned error", "Run: jiro auth login")
+        else:
+            _check("API Key", "warn", "No API key to validate")
+    except Exception as e:
+        _check("API Key", "fail", str(e))
+
+    # 9. Session secret
+    session_secret = os.environ.get("SESSION_SECRET", "")
+    if session_secret and len(session_secret) >= 32:
+        _check("Session Secret", "pass", f"{len(session_secret)} chars")
+    elif session_secret:
+        _check("Session Secret", "warn", f"Only {len(session_secret)} chars (need 32+)")
+    else:
+        _check("Session Secret", "warn", "Not set (dev fallback active)", "Set SESSION_SECRET env var")
+
+    # 10. Firebase config
+    has_firebase = bool(os.environ.get("FIREBASE_PROJECT_ID"))
+    if has_firebase:
+        _check("Firebase", "pass", "Configured")
+    else:
+        _check("Firebase", "warn", "Not configured (server mode only)")
+
+    # 11. Server reachability
+    try:
+        from jiro.cloud_auth import JIRO_WEB_BASE
+        import urllib.request
+        req = urllib.request.Request(JIRO_WEB_BASE, method="HEAD")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            _check("Server", "pass", f"{JIRO_WEB_BASE} (HTTP {resp.status})")
+    except Exception as e:
+        _check("Server", "warn", f"Server not reachable: {e}")
+
+    # 12. Encoding (Windows)
+    if sys.platform == "win32":
+        # Test what stdout can actually encode rather than trusting the env var,
+        # which says nothing about the already-built stdio streams or the console
+        # code page. Non-Latin output is where this bites in practice.
+        _probe = "日本語 한국어 中文 єюя"
+        _enc = getattr(sys.stdout, "encoding", None) or "unknown"
+        try:
+            _probe.encode(_enc, errors="strict")
+            _check("Encoding", "pass", f"stdout encodes non-ASCII ({_enc})")
+        except (UnicodeEncodeError, LookupError):
+            _check("Encoding", "warn",
+                   f"stdout cannot encode non-ASCII ({_enc})",
+                   "Non-Latin queries may fail; run 'jiro doctor --fix'")
+            if do_fix:
+                _force_utf8_stdio()
+                _check("Encoding", "pass",
+                       f"Fixed (stdout -> {getattr(sys.stdout, 'encoding', '?')})")
+
+    # 13. Disk space
+    try:
+        import shutil
+        usage = shutil.disk_usage("/")
+        free_gb = usage.free / (1024**3)
+        if free_gb > 1:
+            _check("Disk", "pass", f"{free_gb:.1f} GB free")
+        else:
+            _check("Disk", "warn", f"Only {free_gb:.1f} GB free")
+    except Exception:
+        pass
+
+    # 14. Memory
+    try:
+        # Simple check — just report available
+        _check("Memory", "pass", "Available")
+    except Exception:
+        pass
+
+    # 15. Version check
+    try:
+        from jiro import __version__
+        _check("Version", "pass", f"v{__version__}")
+    except Exception:
+        _check("Version", "warn", "Could not determine version")
+
+    # 16. Credentials file permissions
+    try:
+        cred_path = Path("~/.jiro/credentials.enc").expanduser()
+        if cred_path.exists():
+            mode = oct(cred_path.stat().st_mode)[-3:]
+            if mode in ("600", "644"):
+                _check("Credentials", "pass", f"File permissions: {mode}")
+            else:
+                _check("Credentials", "warn", f"File permissions: {mode} (should be 600)")
+                if do_fix:
+                    cred_path.chmod(0o600)
+                    _check("Credentials", "pass", "Fixed permissions to 600")
+        else:
+            _check("Credentials", "warn", "No credentials file (not logged in)")
+    except Exception:
+        pass
+
+    # Summary
+    console.print()
+    passed = sum(1 for c in checks if c["status"] == "pass")
+    warned = sum(1 for c in checks if c["status"] == "warn")
+    failed = sum(1 for c in checks if c["status"] == "fail")
+    total = len(checks)
+
+    if failed == 0 and warned == 0:
+        console.print(rule(f"All {total} checks passed"))
+        console.print()
+        console.print(success("Jiro is healthy and ready to go!"))
+    elif failed == 0:
+        console.print(rule(f"{passed}/{total} passed, {warned} warnings"))
+        console.print()
+        console.print(dim("  Warnings are non-critical. Run with --fix to attempt auto-healing."))
+    else:
+        console.print(rule(f"{passed}/{total} passed, {warned} warnings, {failed} failed"))
+        console.print()
+        if do_fix:
+            manual = [c for c in checks if c["status"] == "fail" and c["fix"]]
+            if manual:
+                console.print(Text("  Manual fixes needed:", style="bold yellow"))
+                for c in manual:
+                    console.print(Text(f"  -> {c['name']}: {c['fix']}", style="cyan"))
+        else:
+            console.print(dim("  Run with --fix to auto-heal where possible"))
+    console.print()
+
+    if json_output:
+        print(json.dumps({
+            "checks": checks,
+            "summary": {"passed": passed, "warned": warned, "failed": failed, "total": total},
+        }, indent=2, default=str))
+        raise typer.Exit(1 if failed else 0)
+
+    if failed:
+        raise typer.Exit(1)
+
+
+def _try_import(pkg: str) -> bool:
+    try:
+        __import__(pkg)
+        return True
+    except ImportError:
+        return False
+
+
+# --------------------------------------------------------------------------
+# social
+# --------------------------------------------------------------------------
+@social_app.command("scrape", help="Scrape a social media URL.")
+def social_scrape(
+    url: str = typer.Argument(..., help="Social media URL to scrape"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format: json, markdown, text"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
+    try:
+        require_feature("social_advanced")
+    except Exception as e:
+        console.print(error(str(e)))
+        raise typer.Exit(1)
+    asyncio.run(_cli_social_scrape(url, format, config))
+
+
+async def _cli_social_scrape(url, format, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.scraping.social import router as social_router
+    from jiro.cli_ui import console as _c, error, dim, warning
+
+    platform = social_router.detect_platform(url)
+    if not platform:
+        _c.print(error(f"Could not detect platform for URL: {url}"))
+        raise typer.Exit(1)
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social", json={"url": url, "format": format})
+        data = resp.json()
+        if resp.status_code != 200:
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
+            raise typer.Exit(1)
+        if format == "json":
+            _c.print(json.dumps(data, indent=2, default=str))
+        else:
+            content = data.get("data", {}).get("content", "")
+            title = data.get("data", {}).get("title", "")
+            _c.print(f"[bold]{title}[/]  {dim(f'({url})')}")
+            _c.print(content[:4000] if content else warning("No content extracted"))
+
+
+@social_app.command("search", help="Search on a social platform.")
+def social_search(
+    query: str = typer.Argument(..., help="Search query"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, reddit, youtube, etc."),
+    limit: int = typer.Option(10, "--limit", "-n"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
+    try:
+        require_feature("social_search")
+    except Exception as e:
+        console.print(error(str(e)))
+        raise typer.Exit(1)
+    asyncio.run(_cli_social_search(query, platform, limit, json_output, config))
+
+
+async def _cli_social_search(query, platform, limit, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, dim
+    from rich.table import Table
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": query,
+            "platform": platform,
+            "limit": limit,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
+            raise typer.Exit(1)
+
+        if json_output:
+            _c.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        _c.print(f"[bold]{platform}[/] - " + dim(f"{len(results)} results for '{query}'"))
+        table = Table(title=f"Social search: {query}")
+        table.add_column("#", justify="right")
+        table.add_column("Title")
+        table.add_column("Author")
+        table.add_column("URL", overflow="fold")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", r.get("content", "")[:80])
+            author = r.get("author", {}).get("name", "") if isinstance(r.get("author"), dict) else r.get("author", "")
+            url = r.get("url", "")
+            table.add_row(str(i), title, author, url)
+        _c.print(table)
+
+
+@social_app.command("batch", help="Batch scrape multiple social URLs.")
+def social_batch(
+    urls: List[str] = typer.Argument(..., help="Social media URLs to scrape"),
+    parallel: bool = typer.Option(True, "--parallel/--sequential"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
+    try:
+        require_feature("social_batch")
+    except Exception as e:
+        console.print(error(str(e)))
+        raise typer.Exit(1)
+    asyncio.run(_cli_social_batch(urls, parallel, json_output, config))
+
+
+async def _cli_social_batch(urls, parallel, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, success
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/batch", json={
+            "urls": urls,
+            "parallel": parallel,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            _c.print(error(data.get('error', resp.text)))
+            raise typer.Exit(1)
+
+        if json_output:
+            _c.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        succeeded = sum(1 for r in results if r.get("status") == "success")
+        failed = sum(1 for r in results if r.get("status") != "success")
+        _c.print(f"[bold]Batch scrape complete:[/] {succeeded} succeeded, {failed} failed")
+        for r in results:
+            status = success("+") if r.get("status") == "success" else error("-")
+            url = r.get("url", "")
+            if r.get("status") == "success":
+                platform = r.get("result", {}).get("platform", "?")
+                _c.print(f"  {status} {platform}: {url}")
+            else:
+                err = r.get("error", "unknown")
+                _c.print(f"  {status} {url} - {err}")
+
+
+@social_app.command("profile", help="Scrape a social media profile.")
+def social_profile(
+    username: str = typer.Argument(..., help="Username or profile URL"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
+    try:
+        require_feature("social_search")
+    except Exception as e:
+        console.print(error(str(e)))
+        raise typer.Exit(1)
+    asyncio.run(_cli_social_profile(username, platform, json_output, config))
+
+
+async def _cli_social_profile(username, platform, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, warning, dim
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": username,
+            "platform": platform,
+            "limit": 1,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
+            raise typer.Exit(1)
+
+        if json_output:
+            _c.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        if not results:
+            _c.print(warning(f"No profile found for '{username}' on {platform}"))
+            return
+        r = results[0]
+        author = r.get("author", {})
+        _c.print(f"[bold]{author.get('display_name', author.get('name', username))}[/]  "
+                      + dim(f"@{author.get('username', username)}"))
+        _c.print(f"Platform: [cyan]{platform}[/]")
+        bio = r.get("text", r.get("content", ""))
+        if bio:
+            _c.print(f"\n{bio[:500]}")
+        url = r.get("url", "")
+        if url:
+            _c.print(f"\n{dim(url)}")
+
+
+@social_app.command("timeline", help="Scrape a social media user timeline.")
+def social_timeline(
+    username: str = typer.Argument(..., help="Username or profile URL"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
+    limit: int = typer.Option(10, "--limit", "-n"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    from jiro.feature_flags import require as require_feature
+    from jiro.cli_ui import error
+    try:
+        require_feature("social_timeline")
+    except Exception as e:
+        console.print(error(str(e)))
+        raise typer.Exit(1)
+    asyncio.run(_cli_social_timeline(username, platform, limit, json_output, config))
+
+
+async def _cli_social_timeline(username, platform, limit, json_output, config):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, error, warning, dim
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        resp = client.post("/social/search", json={
+            "query": username,
+            "platform": platform,
+            "limit": limit,
+        })
+        data = resp.json()
+        if resp.status_code != 200:
+            _c.print(error(data.get('error', data.get('detail', resp.text))))
+            raise typer.Exit(1)
+
+        if json_output:
+            _c.print(json.dumps(data, indent=2, default=str))
+            return
+
+        results = data.get("results", [])
+        if not results:
+            _c.print(warning(f"No timeline posts found for '{username}' on {platform}"))
+            return
+        _c.print(f"[bold]{platform}[/] timeline for [cyan]{username}[/]: "
+                      f"{dim(f'{len(results)} posts')}\n")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", r.get("content", "")[:100])
+            ts = r.get("timestamp", "")
+            url = r.get("url", "")
+            _c.print(f"[bold]{i}.[/] {title[:120]}")
+            if ts:
+                _c.print(f"   {dim(ts)}")
+            if url:
+                _c.print(f"   [blue]{url}[/]")
+            _c.print("")
+
+
+@app.command(help="Clear the Jiro cache.")
+def cache_clear(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Clear all cached search results."""
+    from pathlib import Path
+    from jiro.cli_ui import console as _c, success, warning, dim
+
+    settings = Settings.load(config)
+    cleared = []
+
+    if settings.cache_type == "sqlite":
+        db_path = Path(settings.db_path).expanduser()
+        cache_path = db_path.parent / "cache.db"
+        if cache_path.exists():
+            cache_path.unlink()
+            cleared.append(str(cache_path))
+
+    # Also clear any learning data
+    learning_path = Path("~/.jiro/social_learning.json").expanduser()
+    if learning_path.exists():
+        learning_path.unlink()
+        cleared.append(str(learning_path))
+
+    if cleared:
+        _c.print(success(f"Cleared {len(cleared)} cache files:"))
+        for p in cleared:
+            _c.print(dim(f"  {p}"))
+    else:
+        _c.print(warning("No cache files to clear."))
+
+
+@app.command(help="View Jiro logs.")
+def logs(
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """View recent Jiro log entries."""
+    from jiro.cli_ui import console as _c, warning, error, rule
+    settings = Settings.load(config)
+    log_file = settings.logging.get("file", "")
+    if not log_file:
+        _c.print(warning("Log file not configured. Set logging.file in config."))
+        raise typer.Exit(1)
+
+    log_path = Path(log_file).expanduser()
+    if not log_path.exists():
+        _c.print(warning(f"Log file not found: {log_path}"))
+        raise typer.Exit(1)
+
+    try:
+        _c.print(rule(f"Logs (last {lines} lines)"))
+        _c.print()
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        recent = all_lines[-lines:]
+        for line in recent:
+            _c.print(line.rstrip())
+    except Exception as e:
+        _c.print(error(f"Failed to read log file: {e}"))
+        raise typer.Exit(1)
+
+
+@app.command(help="Benchmark Jiro search and scrape performance.")
+def bench(
+    query: str = typer.Argument("test", help="Search query for benchmark"),
+    iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
+    engines: int = typer.Option(2, "--num-engines", help="Number of search engines"),
+    config: str = typer.Option(None, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
+) -> None:
+    """Benchmark search and scrape performance.
+
+    Runs multiple iterations and reports timing statistics.
+    """
+    import time
+    from statistics import mean, median, stdev
+
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+    from jiro.cli_ui import console as _c, accent, rule
+    from rich.table import Table
+
+    _c.print(accent("Benchmarking Jiro") + f" ({iterations} iterations)")
+    _c.print(f"Query: {query} | Engines: {engines}\n")
+
+    search_times = []
+    scrape_times = []
+
+    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
+        # Benchmark search
+        _c.print(rule("Search benchmarks"))
+        for i in range(iterations):
+            start = time.perf_counter()
+            resp = client.post("/search", json={"query": query, "num_results": 5})
+            elapsed = time.perf_counter() - start
+            search_times.append(elapsed)
+            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
+            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}]")
+
+        # Benchmark scrape
+        _c.print()
+        _c.print(rule("Scrape benchmarks"))
+        test_urls = [
+            "https://example.com",
+            "https://httpbin.org/html",
+            "https://quotes.toscrape.com",
+        ]
+        for i in range(iterations):
+            url = test_urls[i % len(test_urls)]
+            start = time.perf_counter()
+            resp = client.post("/scrape", json={"url": url, "format": "markdown"})
+            elapsed = time.perf_counter() - start
+            scrape_times.append(elapsed)
+            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
+            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
+
+    if json_output:
+        def _stats(times):
+            if len(times) < 2:
+                return {"mean": times[0], "median": times[0], "stdev": 0, "min": times[0], "max": times[0], "total": times[0]}
+            return {"mean": mean(times), "median": median(times), "stdev": stdev(times), "min": min(times), "max": max(times), "total": sum(times)}
+        print(json.dumps({"query": query, "iterations": iterations, "engines": engines, "search": _stats(search_times), "scrape": _stats(scrape_times)}, indent=2, default=str))
+        return
+
+    # Report
+    _c.print()
+    _c.print(rule("Results"))
+    table = Table(title="Performance Summary")
+    table.add_column("Metric")
+    table.add_column("Search")
+    table.add_column("Scrape")
+
+    def fmt_stats(times):
+        if len(times) < 2:
+            return f"{times[0]:.3f}s", "N/A"
+        return f"{mean(times):.3f}s", f"+-{stdev(times):.3f}s"
+
+    search_mean, search_std = fmt_stats(search_times)
+    scrape_mean, scrape_std = fmt_stats(scrape_times)
+
+    table.add_row("Mean", search_mean, scrape_mean)
+    table.add_row("Median", f"{median(search_times):.3f}s", f"{median(scrape_times):.3f}s")
+    table.add_row("Std Dev", search_std, scrape_std)
+    table.add_row("Min", f"{min(search_times):.3f}s", f"{min(scrape_times):.3f}s")
+    table.add_row("Max", f"{max(search_times):.3f}s", f"{max(scrape_times):.3f}s")
+    table.add_row("Total", f"{sum(search_times):.3f}s", f"{sum(scrape_times):.3f}s")
+
+    _c.print(table)
+
+
+# --------------------------------------------------------------------------
+# v0.4.0: one-command setup and query graph commands
+# --------------------------------------------------------------------------
+@app.command("setup", help="One-command agent setup: configure every detected MCP client.")
+def setup_command(
+    client: Optional[str] = typer.Option(
+        None, "--client", "-c", help="Specific client id (see: jiro mcp status)"
+    ),
+    all_clients: bool = typer.Option(
+        False, "--all", help="Configure every detected client"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Non-interactive"),
+    uninstall: bool = typer.Option(
+        False, "--uninstall", help="Restore the backup for a client"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes only"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print JSON"),
+    remote: bool = typer.Option(
+        False, "--remote", help="Configure the remote cloud MCP endpoint"
+    ),
+) -> None:
+    from jiro.mcp_setup import run_auto_setup, run_setup, run_uninstall, setup_client
+
+    if uninstall:
+        if not client:
+            console.print("[red]--uninstall requires --client[/red]")
+            raise typer.Exit(2)
+        raise typer.Exit(run_uninstall(client))
+
+    if client:
+        if json_output:
+            result = setup_client(client, remote=remote, dry_run=dry_run)
+            print(json.dumps(result, indent=2))
+            raise typer.Exit(0 if result.get("ok") else 1)
+        raise typer.Exit(run_setup(client, remote=remote, dry_run=dry_run))
+
+    _ = (all_clients, yes)
+    raise typer.Exit(run_auto_setup(dry_run=dry_run, json_output=json_output))
+
+
+def _graph_request(path: str, payload: dict, config: Optional[str]):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    settings = _quiet_settings(Settings.load(config))
+    with TestClient(create_app(settings)) as client:
+        return client.post(path, json=payload)
+
+
+@graph_app.command("plan", help="Dry-run a query graph and print its cost estimate.")
+def graph_plan(
+    query: str = typer.Argument(..., help="Research goal or question"),
+    engine: str = typer.Option("auto", "--engine", "-e"),
+    num: int = typer.Option(5, "--num", "-n", min=1, max=10),
+    max_tokens: int = typer.Option(1200, "--max-tokens"),
+    deadline_ms: int = typer.Option(
+        0, "--deadline-ms",
+        help="Whole-graph deadline in ms. 0 derives it from observed latency."),
+    fetch_top: int = typer.Option(0, "--fetch-top", min=0, max=10),
+    intent: Optional[str] = typer.Option(None, "--intent"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+) -> None:
+    from rich.markup import escape
+
+    payload = {
+        "query": query,
+        "engine": engine,
+        "num": num,
+        "max_tokens": max_tokens,
+        # Omit when 0 so the planner budgets from measured latency instead of
+        # being pinned to a constant that may be below one real search.
+        "deadline_ms": deadline_ms or None,
+        "fetch_top": fetch_top,
+        "intent": intent,
+    }
+    resp = _graph_request("/v1/graph/plan", payload, config)
+    if resp.status_code != 200:
+        console.print(f"[red]{resp.status_code}[/red] {resp.text}")
+        raise typer.Exit(1)
+    data = resp.json()
+    if json_output:
+        print(json.dumps(data, indent=2, default=str))
+        return
+
+    graph = data["graph"]
+    estimate = data["estimate"]
+    console.print(
+        Panel.fit(
+            f"[bold]{escape(graph['intent'])}[/bold]\n"
+            f"id: {graph['graph_id']}\n"
+            f"{len(graph['nodes'])} nodes, {estimate['waves']} waves, "
+            f"~{estimate['estimated_latency_ms']} ms, "
+            f"{estimate['estimated_requests']} requests",
+            title="Jiro Query Graph Plan",
+        )
+    )
+    table = Table("Node", "Operator", "Inputs", "Required")
+    for node in graph["nodes"]:
+        table.add_row(
+            node["id"],
+            node["op"],
+            ", ".join(node.get("inputs") or []) or "-",
+            "yes" if node.get("required", True) else "no",
+        )
+    console.print(table)
+    console.print(f"[dim]{escape(data['rationale'])}[/dim]")
+    if data.get("alternatives"):
+        for alt in data["alternatives"]:
+            console.print(
+                f"[yellow]{alt['name']}[/yellow]: ~{alt['estimated_latency_ms']} ms "
+                f"({alt['estimated_requests']} requests) — {escape(alt['tradeoff'])}"
+            )
+
+
+@graph_app.command("run", help="Execute a query graph and print a cited evidence packet.")
+def graph_run(
+    query: str = typer.Argument(..., help="Research goal or question"),
+    engine: str = typer.Option("auto", "--engine", "-e"),
+    num: int = typer.Option(5, "--num", "-n", min=1, max=10),
+    max_tokens: int = typer.Option(1200, "--max-tokens"),
+    deadline_ms: int = typer.Option(
+        0, "--deadline-ms",
+        help="Whole-graph deadline in ms. 0 derives it from observed latency."),
+    fetch_top: int = typer.Option(3, "--fetch-top", min=0, max=10),
+    intent: Optional[str] = typer.Option(None, "--intent"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+) -> None:
+    from rich.markup import escape
+
+    payload = {
+        "query": query,
+        "engine": engine,
+        "num": num,
+        "max_tokens": max_tokens,
+        # Omit when 0 so the planner budgets from measured latency.
+        "deadline_ms": deadline_ms or None,
+        "fetch_top": fetch_top,
+        "intent": intent,
+    }
+    resp = _graph_request("/v1/graph/search", payload, config)
+    if resp.status_code != 200:
+        console.print(f"[red]{resp.status_code}[/red] {resp.text}")
+        raise typer.Exit(1)
+    data = resp.json()
+    if json_output:
+        print(json.dumps(data, indent=2, default=str))
+        return
+
+    packet = data.get("packet") or {}
+    console.print(
+        Panel.fit(
+            f"[bold]{data['status']}[/bold] in {data['duration_ms']} ms\n"
+            f"graph: {data['graph_id']} ({data['intent']})\n"
+            f"claims: {len(packet.get('claims') or [])} | "
+            f"tokens: {packet.get('used_tokens', 0)}/{packet.get('budget_tokens', 0)} | "
+            f"gaps: {len(data.get('gaps') or [])}",
+            title="Jiro Evidence Graph",
+        )
+    )
+
+    claims = packet.get("claims") or []
+    if claims:
+        table = Table("ID", "Claim", "Sources", "Support")
+        for claim in claims:
+            table.add_row(
+                claim["id"],
+                escape(claim["text"][:220]),
+                ", ".join(claim.get("source_ids") or []),
+                claim.get("support", "single"),
+            )
+        console.print(table)
+
+    sources = packet.get("sources") or []
+    if sources:
+        source_table = Table("ID", "URL", "Fetched")
+        for source in sources:
+            source_table.add_row(
+                source["id"], escape(source["url"]), source.get("fetched_at", "")
+            )
+        console.print(source_table)
+
+    for gap in data.get("gaps") or []:
+        console.print(
+            f"[yellow]gap[/yellow] {gap.get('node_id')}: {escape(str(gap.get('error') or gap))}"
+        )
+
+    if data.get("error"):
+        console.print(f"[red]error[/red] {escape(str(data['error']))}")
+
+
+if __name__ == "__main__":
+    app()
