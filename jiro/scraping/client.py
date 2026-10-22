@@ -550,3 +550,493 @@ class ScrapingClient:
         if self.breaker.is_open(engine):
             raise EngineBlockedError(
                 f"engine '{engine}' circuit open (recent failures); cooling down",
+                details={"engine": engine},
+            )
+
+        # Per-engine rate limiting
+        await self.rate_limiter.acquire(engine)
+
+        proxy = self._next_proxy()
+        last_error: Optional[Exception] = None
+        # Bound the whole retry sequence, not just each attempt. The adaptive
+        # backoff is (2**attempt) * uniform(min, max), which for google is 3-7s
+        # on the first retry alone and compounds past a minute across attempts;
+        # an unbounded tail is indistinguishable to a caller from a hang.
+        retry_budget_s = float(self.settings.get("scraping.retry_budget_seconds", 20.0))
+        retry_deadline = time.monotonic() + retry_budget_s
+
+        for attempt in range(self.retries + 1):
+            try:
+                response = await self._do_request(
+                    url, params=params, engine=engine,
+                    extra_headers=extra_headers, proxy=proxy,
+                )
+            except (EngineBlockedError, EngineError, EngineTimeoutError):
+                raise
+            except httpx.TimeoutException:
+                last_error = EngineTimeoutError(
+                    f"timeout fetching {url}", details={"engine": engine, "attempt": attempt}
+                )
+            except Exception as exc:
+                last_error = EngineError(
+                    f"request failed: {exc}", details={"engine": engine, "attempt": attempt}
+                )
+            else:
+                if proxy:
+                    self.proxies.record_success(proxy)
+                    try:
+                        latency = getattr(response, '_latency_ms', 0)
+                        self.proxies.record_cost(proxy, 0.0, latency)
+                    except Exception:
+                        pass
+                try:
+                    self._check_blocked(engine, url, response)
+                except EngineBlockedError:
+                    if proxy:
+                        self.proxies.record_failure(proxy)
+                    self.breaker.record_failure(engine)
+                    raise
+                # Validate redirect target to prevent SSRF via redirect chain
+                try:
+                    await self._validate_response_url(url, response)
+                except SSRFError:
+                    raise
+                except Exception:
+                    pass  # non-critical; log but don't fail the request
+                self.breaker.record_success(engine)
+                return (response.text, response)
+
+            if proxy:
+                self.proxies.record_failure(proxy)
+            if attempt < self.retries:
+                # Adaptive delay based on engine to avoid detection
+                min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
+                delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                # Stop retrying once the sequence budget is spent rather than
+                # sleeping past it: the caller gets the real error sooner.
+                if time.monotonic() + delay > retry_deadline:
+                    break
+                await asyncio.sleep(delay)
+
+        assert last_error is not None
+        self.breaker.record_failure(engine)
+        raise last_error
+
+    async def post(self, url: str, *, engine: str = "social",
+                   data: Optional[Dict[str, Any]] = None,
+                   json: Optional[Dict[str, Any]] = None,
+                   params: Optional[Dict[str, Any]] = None,
+                   extra_headers: Optional[Dict[str, str]] = None,
+                   headers: Optional[Dict[str, str]] = None) -> Tuple[str, Any]:
+        """POST with retries + backoff + proxy rotation + block detection.
+
+        Mirrors ``get()`` interface for backward-compatibility.
+        """
+        if headers and not extra_headers:
+            extra_headers = headers
+
+        if self.breaker.is_open(engine):
+            raise EngineBlockedError(
+                f"engine '{engine}' circuit open (recent failures); cooling down",
+                details={"engine": engine},
+            )
+
+        await self.rate_limiter.acquire(engine)
+        proxy = self._next_proxy()
+        last_error: Optional[Exception] = None
+        # Bound the whole retry sequence, not just each attempt. The adaptive
+        # backoff is (2**attempt) * uniform(min, max), which for google is 3-7s
+        # on the first retry alone and compounds past a minute across attempts;
+        # an unbounded tail is indistinguishable to a caller from a hang.
+        retry_budget_s = float(self.settings.get("scraping.retry_budget_seconds", 20.0))
+        retry_deadline = time.monotonic() + retry_budget_s
+
+        for attempt in range(self.retries + 1):
+            try:
+                response = await self._do_request_post(
+                    url, data=data, json=json, params=params, engine=engine,
+                    extra_headers=extra_headers, proxy=proxy,
+                )
+            except (EngineBlockedError, EngineError, EngineTimeoutError):
+                raise
+            except httpx.TimeoutException:
+                last_error = EngineTimeoutError(
+                    f"timeout posting {url}", details={"engine": engine, "attempt": attempt}
+                )
+            except Exception as exc:
+                last_error = EngineError(
+                    f"request failed: {exc}", details={"engine": engine, "attempt": attempt}
+                )
+            else:
+                if proxy:
+                    self.proxies.record_success(proxy)
+                try:
+                    self._check_blocked(engine, url, response)
+                except EngineBlockedError:
+                    if proxy:
+                        self.proxies.record_failure(proxy)
+                    self.breaker.record_failure(engine)
+                    raise
+                try:
+                    await self._validate_response_url(url, response)
+                except SSRFError:
+                    raise
+                except Exception:
+                    pass
+                self.breaker.record_success(engine)
+                return (response.text, response)
+
+            if proxy:
+                self.proxies.record_failure(proxy)
+            if attempt < self.retries:
+                min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
+                delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                await asyncio.sleep(delay)
+
+        assert last_error is not None
+        self.breaker.record_failure(engine)
+        raise last_error
+
+    async def _do_request_post(self, url: str, *, data, json, params,
+                                engine, extra_headers, proxy) -> Any:
+        """Route POST request through curl_cffi or httpx."""
+        if _CURL_CFFI_AVAILABLE:
+            return await self._request_curl_post(url, data=data, json=json,
+                                                  params=params, engine=engine,
+                                                  extra_headers=extra_headers,
+                                                  proxy=proxy)
+        return await self._request_httpx_post(url, data=data, json=json,
+                                               params=params, engine=engine,
+                                               extra_headers=extra_headers,
+                                               proxy=proxy)
+
+    async def _request_curl_post(self, url, *, data, json, params, engine,
+                                  extra_headers, proxy):
+        """POST via curl_cffi."""
+        session = await self._get_curl_session(engine)
+        h = await self._headers(engine, extra_headers)
+        body = json if json is not None else data
+        content_type = "application/json" if json is not None else "application/x-www-form-urlencoded"
+        h["Content-Type"] = content_type
+        resp = await session.post(url, data=body, headers=h, params=params,
+                                   proxies={"https": proxy, "http": proxy} if proxy else None,
+                                   timeout=self.timeout)
+        resp._latency_ms = getattr(resp, '_latency_ms', 0)
+        return resp
+
+    async def _request_httpx_post(self, url, *, data, json, params, engine,
+                                   extra_headers, proxy):
+        """POST via httpx."""
+        h = await self._headers(engine, extra_headers)
+        if proxy:
+            # Reuse the pooled per-proxy client rather than paying a fresh
+            # handshake for every POST.
+            client = await self._proxy_client(proxy)
+            return await client.post(url, data=data, json=json, params=params,
+                                     headers=h)
+        async with httpx.AsyncClient(
+            timeout=self.timeout, follow_redirects=True, trust_env=False,
+        ) as client:
+            return await client.post(url, data=data, json=json, params=params,
+                                     headers=h)
+
+    async def _enforce_robots(self, url: str) -> None:
+        """Best-effort robots.txt gate for user-supplied scrape targets.
+
+        Fails *open* on network/parse errors (logs a warning) so legitimate
+        scraping still works offline; only an explicit ``Disallow`` blocks the
+        request, and only hard-blocks when ``strict_mode`` is enabled.
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        host = parsed.netloc or parsed.hostname or ""
+        if not host:
+            return
+        scheme = parsed.scheme or "https"
+        now = time.time()
+        if host in self._robots_cache:
+            allowed, expires = self._robots_cache[host]
+            if expires > now:
+                if not allowed and self._robots_strict:
+                    raise ScrapeError(
+                        f"robots.txt disallows scraping {host}",
+                        status_code=403, details={"host": host},
+                    )
+                return
+        try:
+            robots_url = f"{scheme}://{host}/robots.txt"
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=5.0, follow_redirects=True,
+                                          trust_env=False) as c:
+                resp = await c.get(robots_url)
+            text = resp.text if resp.status_code == 200 else ""
+        except Exception as exc:
+            _ssrf_log.warning("robots.txt fetch failed; allowing",
+                              extra={"host": host, "error": str(exc)})
+            self._robots_cache[host] = (True, now + self._robots_cache_ttl)
+            return
+
+        allowed = _robots_path_allowed(
+            _robots_rules_for(text, self.settings.robots_txt.get("user_agent", "")),
+            parsed.path or "/",
+        )
+        self._robots_cache[host] = (allowed, now + self._robots_cache_ttl)
+        if not allowed:
+            _ssrf_log.info("robots.txt disallows path",
+                           extra={"host": host, "path": parsed.path or "/"})
+            if self._robots_strict:
+                raise ScrapeError(
+                    f"robots.txt disallows scraping {host}",
+                    status_code=403, details={"host": host},
+                )
+
+    async def _do_request(self, url: str, *, params: Optional[Dict[str, Any]],
+                          engine: str, extra_headers: Optional[Dict[str, str]],
+                          proxy: Optional[str]) -> Any:
+        """Route request through curl_cffi (preferred) or httpx (fallback)."""
+        if _CURL_CFFI_AVAILABLE:
+            return await self._request_curl(url, params=params, engine=engine,
+                                            extra_headers=extra_headers, proxy=proxy)
+        return await self._request_httpx(url, params=params, engine=engine,
+                                         extra_headers=extra_headers, proxy=proxy)
+
+    async def _request_curl(self, url: str, *, params: Optional[Dict[str, Any]],
+                            engine: str, extra_headers: Optional[Dict[str, str]],
+                            proxy: Optional[str]) -> Any:
+        """Request via curl_cffi with TLS fingerprint impersonation."""
+        session = await self._get_curl_session(engine)
+        headers = await self._headers(engine, extra_headers)
+        # Simulate referer chain
+        chain = _REFERER_CHAINS.get(engine, [])
+        if chain:
+            headers["Referer"] = chain[-1]
+
+        import time as _time
+        start = time.monotonic()
+        # Pass the timeout per request. Relying on the session-level value alone
+        # has proven unreliable here, and an origin that never responds would
+        # otherwise hang the caller indefinitely.
+        resp = await session.get(url, params=params, headers=headers, proxy=proxy,
+                                 timeout=self.timeout)
+        latency_ms = (time.monotonic() - start) * 1000
+
+        # Update cookie jar from response
+        set_cookies = resp.headers.get_list("set-cookie") if hasattr(resp.headers, 'get_list') else []
+        if set_cookies:
+            self.cookie_jar.update(engine, set_cookies)
+
+        # Track proxy cost
+        if proxy and self._db is not None:
+            try:
+                await self._db.proxy_cost_add(
+                    proxy_url=proxy, latency_ms=latency_ms,
+                    status=resp.status_code, cost=0.0, engine=engine,
+                    success=resp.status_code < 400,
+                )
+            except Exception:
+                pass
+
+        # Build a response-like object for compatibility
+        return _CurlResponseAdapter(resp)
+
+    async def _proxy_client(self, proxy: str) -> httpx.AsyncClient:
+        """A pooled AsyncClient for one proxy.
+
+        Building a fresh `httpx.AsyncClient` per request threw away the
+        connection pool, so every proxied request paid a new TCP and TLS
+        handshake. Clients are cached per proxy and closed with the scraper.
+        """
+        async with self._proxy_clients_lock:
+            existing = self._proxy_clients.get(proxy)
+            if existing is not None and not existing.is_closed:
+                return existing
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+                follow_redirects=True,
+                http2=_HTTP2_AVAILABLE,
+                trust_env=False,
+                proxy=proxy,
+            )
+            self._proxy_clients[proxy] = client
+            return client
+
+    async def _request_httpx(self, url: str, *, params: Optional[Dict[str, Any]],
+                             engine: str, extra_headers: Optional[Dict[str, str]],
+                             proxy: Optional[str]) -> Any:
+        """Request via httpx (fallback)."""
+        client = await self.client()
+        headers = await self._headers(engine, extra_headers)
+        if proxy:
+            proxy_client = await self._proxy_client(proxy)
+            return await proxy_client.get(url, params=params, headers=headers)
+        return await client.get(url, params=params, headers=headers)
+
+    async def get_rendered(self, url: str, *, engine: str,
+                           params: Optional[Dict[str, Any]] = None) -> str:
+        """Browser-render a page (Playwright fallback for JS-heavy/blocked pages)."""
+        from urllib.parse import urlencode
+
+        target = url + ("?" + urlencode(params) if params else "")
+        if self.browser_fallback is None:
+            raise EngineBlockedError(
+                "browser fallback disabled (set scraping.browser_fallback: true and "
+                "install 'jiro-search[browser]')",
+                details={"engine": engine},
+            )
+        try:
+            html = await self.browser_fallback.fetch(target)
+        except Exception as exc:
+            raise EngineBlockedError(
+                f"browser fallback failed for {engine}: {exc}",
+                details={"engine": engine},
+            ) from exc
+        return html
+
+    @staticmethod
+    def _check_blocked(engine: str, url: str, response: Any) -> None:
+        if response.status_code in (403, 429):
+            raise EngineBlockedError(
+                f"engine '{engine}' returned HTTP {response.status_code}",
+                details={"engine": engine, "status": response.status_code, "url": url},
+            )
+        if response.status_code >= 400:
+            raise EngineError(
+                f"engine '{engine}' returned HTTP {response.status_code}",
+                details={"engine": engine, "status": response.status_code},
+            )
+        markers = BLOCK_MARKERS.get(engine, ())
+        if markers:
+            body = response.text[:200_000].lower()
+            if any(m in body for m in markers):
+                raise EngineBlockedError(
+                    f"engine '{engine}' served a bot-wall (captcha/anomaly) page",
+                    details={"engine": engine, "status": response.status_code},
+                )
+
+
+class _CurlResponseAdapter:
+    """Adapter to make curl_cffi responses compatible with httpx-like interface."""
+
+    def __init__(self, resp: Any) -> None:
+        self._resp = resp
+
+    @property
+    def status_code(self) -> int:
+        return self._resp.status_code
+
+    @property
+    def text(self) -> str:
+        if isinstance(self._resp.text, bytes):
+            return self._resp.text.decode("utf-8", errors="replace")
+        return self._resp.text
+
+    @property
+    def headers(self) -> Any:
+        return self._resp.headers
+
+    @property
+    def content(self) -> bytes:
+        return self._resp.content
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            message = f"HTTP {self.status_code} for url (curl path)"
+            if httpx is not None:
+                request = httpx.Request("GET", getattr(self._resp, "url", "") or "http://localhost")
+                raise httpx.HTTPStatusError(
+                    message, request=request, response=httpx.Response(self.status_code, request=request)
+                )
+            raise RuntimeError(message)
+
+    def json(self) -> Any:
+        import json as _json
+
+        return _json.loads(self.text)
+
+
+def parse_html(html: str) -> HTMLParser:
+    return HTMLParser(html)
+
+
+def _robots_rules_for(robots_text: str, user_agent: str) -> List[Tuple[str, str]]:
+    """Parse robots.txt and return allow/disallow rules for the given UA.
+
+    Only the most recently activated matching group is used (robots.txt
+    semantics: a specific UA group overrides the ``*`` group).
+    """
+    ua = (user_agent or "").lower()
+    rules: List[Tuple[str, str]] = []
+    active = False
+    saw_matching = False
+    for raw_line in robots_text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        field, _, value = line.partition(":")
+        field = field.strip().lower()
+        value = value.strip()
+        if field == "user-agent":
+            low_ua = value.lower()
+            matches = (low_ua == "*" or low_ua in ua or ua in low_ua)
+            if matches and not saw_matching:
+                active, rules, saw_matching = True, [], True
+            elif matches and saw_matching:
+                active, rules = True, []
+            else:
+                active = False
+        elif active and field in ("disallow", "allow"):
+            rules.append(("allow" if field == "allow" else "disallow", value))
+    return rules
+
+
+def _robots_path_allowed(rules: List[Tuple[str, str]], path: str) -> bool:
+    """Apply collected allow/disallow rules to a concrete path."""
+    allowed = True
+    for kind, pattern in rules:
+        if not pattern:
+            continue
+        if _robots_match(pattern, path):
+            allowed = (kind == "allow")
+    return allowed
+
+
+def _robots_match(pattern: str, path: str) -> bool:
+    """Wildcard-ish robots pattern match (``*`` = any sequence)."""
+    if pattern == "":
+        return True
+    if pattern.startswith("/"):
+        pat = pattern
+    else:
+        pat = "/" + pattern
+    # Build a regex: escape, then turn \* into .*
+    import re as _re
+    rx = _re.escape(pat).replace(r"\*", ".*")
+    return _re.match(rx, path) is not None
+
+
+def normalize_url(raw: str) -> str:
+    """Clean engine redirect wrappers (Bing /ck/a) and URL entities."""
+    import base64
+    import re
+    raw = raw.strip()
+    m = re.match(r"https?://www\.bing\.com/ck/a\?(.*)", raw)
+    if m:
+        query = dict(pair.split("=", 1) for pair in m.group(1).split("&") if "=" in pair)
+        encoded = query.get("u", "")
+        if encoded.startswith("a1"):
+            data = encoded[2:].rstrip("=")
+            pad = (-len(data)) % 4
+            try:
+                decoded = base64.b64decode(data + "=" * pad, validate=True).decode("utf-8", "ignore")
+                if decoded:
+                    return decoded
+            except Exception:
+                try:
+                    decoded = base64.b64decode(data).decode("utf-8", "ignore")
+                    if decoded:
+                        return decoded
+                except Exception:
+                    pass
+        return raw
+    return raw
