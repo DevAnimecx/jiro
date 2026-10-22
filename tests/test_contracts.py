@@ -148,16 +148,24 @@ class TestMCPProtocolContract:
             assert "properties" in tool["inputSchema"]
 
     def test_mcp_tool_names(self):
-        """Test required tool names are present."""
+        """Test required tool names are present.
+
+        Asserted as a subset, not an exact set: the tool surface grows, and a
+        contract test should pin the tools that must exist rather than fail
+        every time one is added. The full list is still validated for
+        duplicates and schema shape elsewhere.
+        """
         from jiro.ai.tools import mcp_tools
 
         tool_names = {t["name"] for t in mcp_tools()}
-        assert tool_names == {
+        required = {
             "search", "scrape", "ai_search", "search_hybrid", "search_structured",
             "social_scrape", "social_search", "social_batch", "smart_search",
             "smart_classify", "compare_engines", "monitor_status", "health_check",
             "cache_stats", "list_engines", "list_social_platforms",
+            "task_submit", "task_status", "task_cancel",
         }
+        assert required <= tool_names, f"missing: {sorted(required - tool_names)}"
 
     def test_mcp_search_tool_schema(self):
         """Test search tool input schema."""
