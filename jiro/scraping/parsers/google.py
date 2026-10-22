@@ -51,6 +51,8 @@ DATE_RE = re.compile(
 class GoogleEngine(BaseEngine):
     name = "google"
     types = ["web", "images", "news", "videos", "shopping", "places"]
+    # Google honours the `start` page-offset parameter.
+    supports_pagination = True
     parser_version = "1.1"
 
     async def search(self, req: SearchRequest) -> SearchResponse:
