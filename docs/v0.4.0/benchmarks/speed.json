@@ -1,0 +1,164 @@
+{
+  "claim_id": "speed-2x",
+  "created_at": "2026-10-22T14:27:41+00:00",
+  "commit": "a331066",
+  "version": "0.3.3",
+  "hardware": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.3",
+    "processor": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel"
+  },
+  "network": {
+    "class": "live",
+    "base_url": "http://127.0.0.1:8000"
+  },
+  "workload": "research_5q_10src",
+  "cache_state": "cold",
+  "reproduction": "python benchmarks/run.py --base-url http://127.0.0.1:8000 --runs 5",
+  "raw": {
+    "baseline": [
+      {
+        "duration_s": 11.147,
+        "searches": 5,
+        "pages": 7,
+        "raw_tokens": 49718,
+        "tokens_per_citation": 7102.571,
+        "citations": 7,
+        "errors": [
+          "scrape https://superfastpython.com/threading-vs-asyncio/: HTTP Error 502: Bad Gateway",
+          "scrape https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio: HTTP Error 429: Too Many Requests",
+          "scrape https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/: HTTP Error 502: Bad Gateway"
+        ]
+      },
+      {
+        "duration_s": 2.936,
+        "searches": 5,
+        "pages": 7,
+        "raw_tokens": 49718,
+        "tokens_per_citation": 7102.571,
+        "citations": 7,
+        "errors": [
+          "scrape https://superfastpython.com/threading-vs-asyncio/: HTTP Error 502: Bad Gateway",
+          "scrape https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio: HTTP Error 429: Too Many Requests",
+          "scrape https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/: HTTP Error 502: Bad Gateway"
+        ]
+      },
+      {
+        "duration_s": 2.582,
+        "searches": 5,
+        "pages": 7,
+        "raw_tokens": 49718,
+        "tokens_per_citation": 7102.571,
+        "citations": 7,
+        "errors": [
+          "scrape https://superfastpython.com/threading-vs-asyncio/: HTTP Error 502: Bad Gateway",
+          "scrape https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio: HTTP Error 429: Too Many Requests",
+          "scrape https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/: HTTP Error 502: Bad Gateway"
+        ]
+      },
+      {
+        "duration_s": 3.257,
+        "searches": 5,
+        "pages": 7,
+        "raw_tokens": 49718,
+        "tokens_per_citation": 7102.571,
+        "citations": 7,
+        "errors": [
+          "scrape https://superfastpython.com/threading-vs-asyncio/: HTTP Error 502: Bad Gateway",
+          "scrape https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio: HTTP Error 429: Too Many Requests",
+          "scrape https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/: HTTP Error 502: Bad Gateway"
+        ]
+      },
+      {
+        "duration_s": 0.124,
+        "searches": 5,
+        "pages": 7,
+        "raw_tokens": 49718,
+        "tokens_per_citation": 7102.571,
+        "citations": 7,
+        "errors": [
+          "scrape https://superfastpython.com/threading-vs-asyncio/: HTTP Error 429: Too Many Requests",
+          "scrape https://stackoverflow.com/questions/1936466/how-do-i-use-asyncio: HTTP Error 429: Too Many Requests",
+          "scrape https://www.geeksforgeeks.org/difference-between-asynchronous-and-synchronous/: HTTP Error 429: Too Many Requests"
+        ]
+      }
+    ],
+    "candidate": [
+      {
+        "duration_s": 3.854,
+        "status": "ok",
+        "graph_id": "g_0dd6f48a703e75b6",
+        "used_tokens": 618,
+        "claims": 13,
+        "citations": 13,
+        "tokens_per_citation": 47.538,
+        "gaps": 0
+      },
+      {
+        "duration_s": 0.325,
+        "status": "ok",
+        "graph_id": "g_0dd6f48a703e75b6",
+        "used_tokens": 1200,
+        "claims": 10,
+        "citations": 10,
+        "tokens_per_citation": 120.0,
+        "gaps": 0
+      },
+      {
+        "duration_s": 0.027,
+        "status": "ok",
+        "graph_id": "g_0dd6f48a703e75b6",
+        "used_tokens": 1200,
+        "claims": 10,
+        "citations": 10,
+        "tokens_per_citation": 120.0,
+        "gaps": 0
+      },
+      {
+        "duration_s": 0.036,
+        "status": "ok",
+        "graph_id": "g_0dd6f48a703e75b6",
+        "used_tokens": 1200,
+        "claims": 10,
+        "citations": 10,
+        "tokens_per_citation": 120.0,
+        "gaps": 0
+      },
+      {
+        "duration_s": 0.029,
+        "status": "ok",
+        "graph_id": "g_0dd6f48a703e75b6",
+        "used_tokens": 1200,
+        "claims": 10,
+        "citations": 10,
+        "tokens_per_citation": 120.0,
+        "gaps": 0
+      }
+    ]
+  },
+  "runs": 5,
+  "coverage": {
+    "baseline_calls_ok": 60,
+    "baseline_calls_failed": 15,
+    "baseline_coverage": 0.8,
+    "note": "Per-call failures are third-party transport errors (blocked or rate-limited source sites), not Jiro errors. They are retained in raw and excluded from no timing sample."
+  },
+  "metrics": {
+    "baseline": {
+      "p50": 2.936,
+      "p95": 11.147,
+      "unit": "s",
+      "runs": 5
+    },
+    "candidate": {
+      "p50": 0.036,
+      "p95": 3.854,
+      "unit": "s",
+      "runs": 5
+    },
+    "ratio": 81.556,
+    "target": 2.0,
+    "met": true
+  },
+  "notes": "Every run that returned a response is timed on both sides; per-call transport failures are recorded in coverage."
+}
