@@ -23,6 +23,8 @@ BAIDU_SEARCH_URL = "https://www.baidu.com/s"
 class BaiduEngine(BaseEngine):
     name = "baidu"
     types = ["web"]
+    # Baidu honours the `pn` page-offset parameter.
+    supports_pagination = True
     parser_version = "1.0"
 
     async def search(self, req: SearchRequest) -> SearchResponse:
