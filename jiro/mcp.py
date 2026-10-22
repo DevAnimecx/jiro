@@ -1738,3 +1738,554 @@ class JiroMCPServer:
 
     def _require_runtime(self):
         """The task runtime, or a clear error when MCP is not started."""
+        runtime = getattr(self, "runtime", None)
+        if runtime is None:
+            raise MCPError(INTERNAL_ERROR,
+                           "durable task runtime is not initialised",
+                           data={"hint": "call initialize/start first"})
+        return runtime
+
+    async def _tool_task_submit(self, args: Dict[str, Any],
+                                progress: ProgressReporter) -> Dict[str, Any]:
+        """Submit a durable task into the MCP owner namespace."""
+        runtime = self._require_runtime()
+        task_type = self._require_query(args, "type")
+        payload = args.get("payload")
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            raise MCPError(INVALID_PARAMS, "'payload' must be an object",
+                           data={"received": type(payload).__name__})
+
+        limits = {}
+        if args.get("max_attempts") is not None:
+            limits["max_attempts"] = self._validate_int(
+                args, "max_attempts", 3, 1, 10)
+        if args.get("timeout") is not None:
+            limits["attempt_timeout_seconds"] = self._validate_int(
+                args, "timeout", 60, 1, 3600)
+
+        idempotency_key = args.get("idempotency_key")
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str) or not idempotency_key.strip()
+        ):
+            raise MCPError(INVALID_PARAMS,
+                           "'idempotency_key' must be a non-empty string")
+
+        record = await runtime.submit(
+            task_type,
+            payload,
+            owner_key_id=self.task_owner,
+            idempotency_key=(idempotency_key.strip() if idempotency_key else None),
+            limits=limits or None,
+        )
+        status = record.to_status()
+        status["hint"] = ("task is persisted; poll task_status for the result. "
+                          "State 'running' with cancel_requested means "
+                          "cancellation was asked for but the work has not "
+                          "stopped yet.")
+        return self._text_result(status)
+
+    async def _tool_task_status(self, args: Dict[str, Any],
+                                progress: ProgressReporter) -> Dict[str, Any]:
+        """Read a task this MCP session submitted."""
+        runtime = self._require_runtime()
+        task_id = self._require_query(args, "task_id")
+        include_result = args.get("include_result", True) is not False
+        record = await runtime.get(task_id, owner_key_id=self.task_owner)
+        status = record.to_result() if include_result else record.to_status()
+        status.pop("result", None) if not include_result else None
+        return self._text_result(status)
+
+    async def _tool_task_cancel(self, args: Dict[str, Any],
+                                progress: ProgressReporter) -> Dict[str, Any]:
+        """Cancel a task this MCP session submitted."""
+        runtime = self._require_runtime()
+        task_id = self._require_query(args, "task_id")
+        record = await runtime.cancel(task_id, owner_key_id=self.task_owner)
+        status = record.to_status()
+        if not record.is_terminal:
+            status["hint"] = ("cancellation requested; the task stops once its "
+                              "handler unwinds")
+        return self._text_result(status)
+
+    def _engine_registry(self):
+        """Return the engine registry, importing parsers if needed.
+
+        Discovery tools must work before ``start()`` has run, so this does not
+        depend on a live orchestrator.
+        """
+        from jiro.scraping.engines import _build_registry
+
+        return _build_registry()
+
+    async def _tool_list_engines(self, args: Dict[str, Any],
+                                 progress: ProgressReporter) -> Dict[str, Any]:
+        """List engines with capabilities read from the live registry.
+
+        The capability list used to be a hardcoded table that disagreed with
+        the engines (it advertised ``videos``/``places`` for engines that do
+        not implement them). It is now derived from each engine's own
+        ``types`` attribute.
+        """
+        registry = self._engine_registry()
+        engines: List[Dict[str, Any]] = []
+
+        for name in sorted(registry.names()):
+            try:
+                engine_cls = registry.get(name)
+                types = sorted(set(engine_cls.types))
+                description = getattr(engine_cls, "description", "") or \
+                    ENGINE_DESCRIPTIONS.get(name, "")
+            except Exception:
+                types = sorted(ENGINE_TYPES.get(name, ["web"]))
+                description = ENGINE_DESCRIPTIONS.get(name, "")
+            engines.append({
+                "name": name,
+                "types": types,
+                "description": description,
+                "default": name == self.settings.default_engine,
+                "enabled": name in set(self.settings.engines),
+                "supports_freshness": name in {
+                    "google", "bing", "brave", "youtube", "yandex", "baidu",
+                },
+            })
+
+        type_matrix = {t: _engines_supporting(t) for t in _all_types()}
+        return self._text_result({
+            "engines": engines,
+            "total": len(engines),
+            "type_matrix": type_matrix,
+            "default_engine": self.settings.default_engine,
+            "fallback_order": list(self.settings.fallback_order),
+            "notes": (
+                "Engine fallback is automatic: if the requested engine is "
+                "blocked (rate limit, CAPTCHA) or fails, Jiro substitutes "
+                "another engine and records the reason in "
+                "search_metadata.skipped_engines. Check "
+                "search_metadata.engine vs search_metadata.engine_requested, "
+                "or call health_check for live reachability."
+            ),
+        })
+
+    async def _tool_list_social_platforms(self, args: Dict[str, Any],
+                                          progress: ProgressReporter) -> Dict[str, Any]:
+        """List supported social platforms from the live scraper registry."""
+        from jiro.scraping.social import registry as social_registry
+
+        platforms = [
+            {
+                "name": info["platform"],
+                "capabilities": sorted(info.get("supported_actions", [])),
+                "requires_auth": info.get("requires_auth", False),
+                "rate_limit_rpm": info.get("rate_limit_rpm"),
+                "search": "search" in info.get("supported_actions", []),
+            }
+            for info in sorted(social_registry.list_platforms(),
+                               key=lambda i: i["platform"])
+        ]
+        return self._text_result({
+            "platforms": platforms,
+            "total": len(platforms),
+            "searchable": [p["name"] for p in platforms if p["search"]],
+        })
+
+    # --------------------------------------------------------- resources
+    def _handle_resources_list(self) -> Dict[str, Any]:
+        return {"resources": [
+            {
+                "uri": "jiro://engines",
+                "name": "Supported engines",
+                "description": "List of configured search engines and supported types",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://compliance",
+                "name": "Engine ToS compliance",
+                "description": "Terms-of-service notes per engine",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://social_platforms",
+                "name": "Social platforms",
+                "description": "List of supported social media platforms and their capabilities",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://plans",
+                "name": "Pricing plans",
+                "description": "Available pricing tiers and feature comparison",
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "jiro://plugins",
+                "name": "Plugins",
+                "description": "Installed search, engine, and datasource plugins",
+                "mimeType": "application/json",
+            },
+        ]}
+
+    async def _handle_resources_read(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        uri = params.get("uri", "")
+        if uri == "jiro://engines":
+            data = (await self.orchestrator.engines_info()) if self.orchestrator else []
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(data, indent=2)}]}
+        if uri == "jiro://compliance":
+            from jiro.compliance import ComplianceManager
+            cm = ComplianceManager(self.settings, self.db)
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(cm.generate_compliance_report(),
+                                                     indent=2)}]}
+        if uri == "jiro://social_platforms":
+            platforms = [
+                {"name": "Reddit", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "Hacker News", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "YouTube", "capabilities": ["scrape", "search", "channel", "video"]},
+                {"name": "Bluesky", "capabilities": ["scrape", "search", "profile", "post"]},
+                {"name": "Twitter/X", "capabilities": ["scrape", "search", "profile", "post"]},
+                {"name": "Threads", "capabilities": ["scrape", "search", "profile"]},
+                {"name": "Instagram", "capabilities": ["scrape", "profile", "post"]},
+                {"name": "TikTok", "capabilities": ["scrape", "profile", "video"]},
+                {"name": "LinkedIn", "capabilities": ["scrape", "profile", "company"]},
+                {"name": "Facebook", "capabilities": ["scrape", "profile", "group", "page"]},
+                {"name": "Telegram", "capabilities": ["scrape", "channel", "message"]},
+                {"name": "Pinterest", "capabilities": ["scrape", "search", "pin"]},
+            ]
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps({"platforms": platforms}, indent=2)}]}
+        if uri == "jiro://plans":
+            from jiro.pro import PLAN_LIMITS
+            plans = []
+            for tier, limits in PLAN_LIMITS.items():
+                plans.append({
+                    "name": tier.value,
+                    "requests_per_minute": limits.rpm,
+                    "requests_per_day": limits.rpd,
+                    "max_results": limits.max_results,
+                })
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps({"plans": plans}, indent=2)}]}
+        if uri == "jiro://plugins":
+            from jiro.plugins import engine_registry, search_plugin_registry, datasource_registry
+            plugins = {
+                "engines": engine_registry.names(),
+                "search": search_plugin_registry.names(),
+                "datasources": datasource_registry.names(),
+            }
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps({"plugins": plugins}, indent=2)}]}
+        raise MCPError(INVALID_PARAMS, f"resource not found: {uri}")
+
+    # --------------------------------------------------------- prompts
+    def _handle_prompts_list(self) -> Dict[str, Any]:
+        return {
+            "prompts": [
+                {
+                    "name": "search_and_summarize",
+                    "description": "Search the web and provide a summary with citations",
+                    "arguments": [
+                        {
+                            "name": "topic",
+                            "description": "The topic to search and summarize",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "compare_engines",
+                    "description": "Compare search results across multiple engines",
+                    "arguments": [
+                        {
+                            "name": "query",
+                            "description": "The search query to compare",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "social_research",
+                    "description": "Research a topic across social media platforms",
+                    "arguments": [
+                        {
+                            "name": "topic",
+                            "description": "The topic to research on social media",
+                            "required": True,
+                        },
+                        {
+                            "name": "platforms",
+                            "description": "Comma-separated list of platforms (e.g., reddit,twitter,youtube)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "deep_research",
+                    "description": "Deep AI research with multiple sources and citations",
+                    "arguments": [
+                        {
+                            "name": "question",
+                            "description": "The research question to answer",
+                            "required": True,
+                        },
+                        {
+                            "name": "max_sources",
+                            "description": "Maximum number of sources to consult",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "extract_structured",
+                    "description": "Extract structured data from search results",
+                    "arguments": [
+                        {
+                            "name": "query",
+                            "description": "What to search for",
+                            "required": True,
+                        },
+                        {
+                            "name": "fields",
+                            "description": "JSON fields to extract (e.g., {\"name\": {}, \"price\": {}, \"rating\": {}})",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "competitor_analysis",
+                    "description": "Analyze competitors across search engines and social media",
+                    "arguments": [
+                        {
+                            "name": "competitor",
+                            "description": "The competitor company or product to analyze",
+                            "required": True,
+                        },
+                    ],
+                },
+            ]
+        }
+
+    def _handle_prompts_get(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        name = params.get("name", "")
+        args = params.get("arguments") or {}
+
+        if name == "search_and_summarize":
+            topic = args.get("topic", "latest technology trends")
+            return {
+                "description": f"Search and summarize: {topic}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Search the web for '{topic}' and provide a comprehensive "
+                                f"summary with citations. Use the search tool to find relevant "
+                                f"results, then scrape the top 3 pages for detailed information, "
+                                f"and synthesize a well-sourced answer."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "compare_engines":
+            query = args.get("query", "python web scraping")
+            return {
+                "description": f"Compare results for: {query}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Search for '{query}' on google, bing, and brave engines "
+                                f"using the search tool. Compare the top 3 results from each "
+                                f"engine and identify which engine provides the most relevant "
+                                f"results for this query."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "social_research":
+            topic = args.get("topic", "artificial intelligence")
+            platforms = args.get("platforms", "reddit,twitter,youtube")
+            return {
+                "description": f"Research '{topic}' on social media",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Research '{topic}' across social media platforms: {platforms}. "
+                                f"Use the social_search tool to find discussions, then use "
+                                f"social_scrape to get detailed content from top posts. "
+                                f"Summarize the key insights, opinions, and trends you find."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "deep_research":
+            question = args.get("question", "latest advances in AI")
+            max_sources = args.get("max_sources", "8")
+            return {
+                "description": f"Deep research: {question}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Perform deep research on: '{question}'. "
+                                f"Use the ai_search tool with max_sources={max_sources} to "
+                                f"find and analyze multiple sources. Provide a comprehensive "
+                                f"answer with proper citations."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "extract_structured":
+            query = args.get("query", "python libraries")
+            fields = args.get("fields", '{"name": {}, "description": {}, "stars": {}}')
+            return {
+                "description": f"Extract structured data for: {query}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Search for '{query}' and extract structured data with "
+                                f"the following schema: {fields}. "
+                                f"Use the search_structured tool to extract and organize "
+                                f"the information in a consistent format."
+                            ),
+                        },
+                    }
+                ],
+            }
+        elif name == "competitor_analysis":
+            competitor = args.get("competitor", "fastapi")
+            return {
+                "description": f"Analyze competitor: {competitor}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": (
+                                f"Perform a comprehensive competitor analysis of '{competitor}'. "
+                                f"1. Search for '{competitor}' on Google and Bing using search tool.\n"
+                                f"2. Scrape the top 3 competitor pages for detailed features.\n"
+                                f"3. Search social media (reddit, twitter, youtube) for "
+                                f"discussions about '{competitor}'.\n"
+                                f"4. Compare results across engines using compare_engines.\n"
+                                f"5. Provide a summary of their positioning, strengths, "
+                                f"weaknesses, and community sentiment."
+                            ),
+                        },
+                    }
+                ],
+            }
+        else:
+            raise MCPError(-32602, f"unknown prompt: {name}")
+
+    # --------------------------------------------------------- completion
+    def _handle_completion(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        ref = params.get("ref", {})
+        ref_type = ref.get("type", "")
+        argument = params.get("argument", {})
+        arg_name = argument.get("name", "")
+        arg_value = argument.get("value", "")
+
+        values: List[str] = []
+        if ref_type == "ref/tool":
+            tool_name = ref.get("name", "")
+            if tool_name == "search" and arg_name == "engine":
+                values = [e for e in ENGINE_ENUM if e.startswith(arg_value)]
+            elif tool_name == "search" and arg_name == "type":
+                all_types = ["web", "images", "news", "videos", "shopping", "places"]
+                values = [t for t in all_types if t.startswith(arg_value)]
+            elif tool_name == "search" and arg_name == "time_range":
+                all_ranges = ["any", "day", "week", "month", "year"]
+                values = [r for r in all_ranges if r.startswith(arg_value)]
+            elif tool_name == "scrape" and arg_name == "format":
+                all_fmts = ["markdown", "text", "html", "json"]
+                values = [f for f in all_fmts if f.startswith(arg_value)]
+            elif tool_name == "social_search" and arg_name == "platforms":
+                all_platforms = ["reddit", "twitter", "youtube", "bluesky", "hackernews",
+                                 "threads", "instagram", "tiktok", "linkedin", "facebook",
+                                 "telegram", "pinterest"]
+                values = [p for p in all_platforms if p.startswith(arg_value)]
+            elif tool_name == "social_scrape" and arg_name == "format":
+                all_formats = ["markdown", "text", "json"]
+                values = [f for f in all_formats if f.startswith(arg_value)]
+            elif tool_name == "smart_search" and arg_name == "type":
+                all_types = ["web", "social", "structured"]
+                values = [t for t in all_types if t.startswith(arg_value)]
+            elif tool_name == "compare_engines" and arg_name == "engines":
+                values = [e for e in ENGINE_ENUM if e.startswith(arg_value)]
+            elif tool_name == "health_check" and arg_name == "timeout":
+                values = ["1", "5", "10", "30", "60"]
+            elif tool_name == "search_structured" and arg_name == "schema":
+                schemas = [
+                    '{"name": {}, "description": {}, "url": {}}',
+                    '{"title": {}, "author": {}, "date": {}, "content": {}}',
+                    '{"product": {}, "price": {}, "rating": {}, "reviews": {}}',
+                    '{"name": {}, "email": {}, "phone": {}, "address": {}}',
+                ]
+                values = [s for s in schemas if s.startswith(arg_value)]
+
+        return {
+            "completion": {
+                "values": values[:25],
+                "hasMore": len(values) > 25,
+            }
+        }
+
+    # --------------------------------------------------------- helpers
+    @staticmethod
+    def _text_result(payload: Any, summary: Optional[str] = None) -> Dict[str, Any]:
+        text = json.dumps(payload, default=str, indent=2)
+        # MCP has a 1MB limit on tool results; truncate if needed
+        if len(text) > 900_000:
+            text = text[:900_000] + "\n... (truncated)"
+        if summary:
+            text = f"{summary}\n\n---\n\n{text}"
+        return {"content": [{"type": "text", "text": text}]}
+
+    # ------------------------------------------------------------------ run
+    async def run_stdio(self) -> None:
+        await self.start()
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    log.warning("invalid JSON on stdin", extra={"error": str(exc)})
+                    continue
+                response = await self.dispatch(msg)
+                if response is not None:
+                    sys.stdout.write(json.dumps(response) + "\n")
+                    sys.stdout.flush()
+        finally:
+            await self.stop()
+
+
+def run_mcp_stdio(settings: Optional[Settings] = None) -> None:
+    server = JiroMCPServer(settings)
+    asyncio.run(server.run_stdio())
+
+
+if __name__ == "__main__":  # allows `python -m jiro.mcp`
+    run_mcp_stdio()
