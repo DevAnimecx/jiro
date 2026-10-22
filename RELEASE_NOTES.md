@@ -1,32 +1,65 @@
-## What's New in 0.3.1
+## What's New in 0.3.3
 
-### Realtime CLI Authentication
-Browser-based device authorization with Firebase ID-token refresh, resilient loading states, and fresh CLI keys on every authorization.
+### Results That Match Your Request
+Engines return about one page of results regardless of `num`. `num` above that page size used to be
+ignored, so a request for 50 results silently came back with 3. Jiro now walks successive SERP pages
+on the same engine until the count is met, the engine runs dry, or the page budget is used up.
+Results are deduped by link and capped back to `num`.
 
-### Unified 0.3.1 Packages
-CLI, JavaScript SDK, Python SDK, and Cloud API are aligned on `0.3.1`.
+Pagination is opt-in per engine via `BaseEngine.supports_pagination`, enabled for Google (`start`),
+Bing (`first`), and Baidu (`pn`) — the engines whose upstream request actually accepts an offset.
+Paging an engine that ignores the offset just re-fetches the same rows, so it is not attempted.
 
-### Hardened API Surface
-- Synchronized credit pricing across search, scrape, AI, agent, MCP, and AEO actions
-- Stronger WAF query normalization and internal authentication
-- Correct Firestore user resolution for device-authorized keys
-- Explicit circuit-breaker engine-unavailable responses
+### No More Silent Short Pages
+When fewer results than requested are available, Jiro says so instead of letting you assume a short
+page is the complete answer:
 
-### Local Development
-Firestore emulator support works end-to-end for device code, authorization, token polling, and CLI login.
+```json
+"search_metadata": {
+  "requested_num": 50,
+  "truncated": true,
+  "pages_fetched": 2,
+  "pagination_supported": true
+}
+```
+
+### You Always Know Which Engine Answered
+If a fallback engine served your request, `search_metadata` now records both:
+
+```json
+"search_metadata": {
+  "engine_requested": "google",
+  "engine": "bing",
+  "engine_substituted": true
+}
+```
+
+This is set on fresh results, exact cache hits, and semantic cache hits alike.
+
+### Health Checks That Actually Check
+`health_check()` defaults to live mode: each engine is probed with a real request, so rate limits,
+CAPTCHA walls, and parse regressions show up as failures. Previously every engine reported healthy
+because its module merely imported. Pass `live=False` for the cheap instantiation-only check.
+
+```python
+orchestrator.probe_engine("google")   # single engine, no fallback chain
+await orchestrator.health_check()     # live probes, all engines
+```
+
+### Expanded MCP Tool Surface
+MCP tools gained structured input validation — bad engines, result types, scrape formats, oversized
+URLs, and malformed schemas are rejected up front with actionable messages instead of surfacing as
+internal errors.
+
+### Unified 0.3.3 Packages
+CLI, OpenAPI spec, npm package, and the Python, JavaScript, and Go SDKs are aligned on `0.3.3`.
 
 ## Bug Fixes
-- Fixed jose importJwk breaking middleware auth
-- Fixed admin pages snake_case vs camelCase
-- Fixed device auth API key creation in Firestore
-- Fixed pricing data YAML inconsistencies
-
-## Security
-- Device code polling rate-limited per RFC 8628
-- License keys hardware-bound, max 3 devices
-- 24-hour grace period for renewal
+- Fixed `jiro ai` failing on the removed Starlette `TestClient(timeout=...)` kwarg
+- Fixed `_heal_file_lock()` shadowing the module-level `os` import
+- Fixed device authorization reporting a licence failure as an internal error
 
 ## Install
 ```bash
-pip install jirosearch==0.3.1
+pip install jirosearch==0.3.3
 ```
