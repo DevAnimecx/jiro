@@ -337,3 +337,351 @@ class WorkerPool:
         self._wake.clear()
 
     # ---------------------------------------------------------------- execute
+    async def _execute(self, worker_id: str, record: TaskRecord) -> None:
+        """Run one attempt and durably record its outcome."""
+        started = time.monotonic()
+        try:
+            spec = self._registry.get(record.type)
+        except UnknownTaskType as exc:
+            # The type is no longer registered — a deploy removed the handler,
+            # or the task predates the current build. Retrying cannot fix that,
+            # so fail it permanently rather than let the worker spin on it
+            # forever and hold its concurrency slot.
+            code, message = sanitize_error(exc)
+            await self._repo.complete_failure(
+                task_id=record.id,
+                worker_id=worker_id,
+                error_code=code,
+                error_message=message,
+                now=time.time(),
+            )
+            self._count("tasks_failed", 1)
+            await self._record_event(
+                record.id,
+                EventType.FAILED,
+                record.attempts,
+                {"error_code": code, "reason": "unregistered_type"},
+            )
+            log.error(
+                "task type is not registered",
+                extra={
+                    "task_id": record.id,
+                    "type": record.type,
+                },
+            )
+            return
+
+        await self._record_event(
+            record.id,
+            EventType.EXECUTION_STARTED,
+            record.attempts,
+            {"worker": worker_id, "attempt": record.attempts},
+        )
+        ctx = TaskContext(
+            task_id=record.id,
+            task_type=record.type,
+            input=record.input,
+            attempt=record.attempts,
+            idempotency_key=record.idempotency_key,
+            deadline_at=record.limits.deadline,
+            limits=record.limits,
+            owner_key_id=record.owner_key_id,
+            runtime=self._runtime,
+        )
+        try:
+            result = await self._run_handler(ctx, spec.handler, record.limits.attempt_timeout)
+        except asyncio.CancelledError:
+            # Either the runtime cancelled this task, or the pool is shutting
+            # down. Re-check the durable cancellation flag rather than assuming:
+            # a shutdown must not be recorded as a user-requested cancellation.
+            await self._on_cancelled(record, worker_id)
+            raise
+        except BaseException as exc:  # noqa: BLE001 - classified immediately below
+            # BaseException so a handler raising e.g. KeyboardInterrupt cannot
+            # bypass failure recording; classification decides the outcome.
+            await self._on_failure(record, worker_id, exc, started)
+            if isinstance(exc, Exception):
+                return
+            raise
+
+        elapsed = time.monotonic() - started
+        encoded = await asyncio.to_thread(_encode_result, result, record.limits.max_result_bytes)
+        if isinstance(encoded, str):
+            # Result exceeded the task's cap. Treated as a permanent failure:
+            # retrying an oversized payload cannot make it smaller.
+            await self._on_failure(
+                record,
+                worker_id,
+                _oversize(encoded),
+                started,
+            )
+            return
+
+        await self._repo.complete_success(
+            task_id=record.id, worker_id=worker_id, result=encoded, now=time.time()
+        )
+        self._observe(record.id, "succeeded", elapsed)
+        self._count("tasks_succeeded", 1)
+        await self._record_event(
+            record.id,
+            EventType.SUCCEEDED,
+            record.attempts,
+            {"duration_ms": round(elapsed * 1000, 2)},
+        )
+        await self._emit_terminal(record.id)
+
+    async def _run_handler(self, ctx: TaskContext, handler, timeout: float):
+        """Await ``handler(ctx)`` under a wall-clock attempt timeout.
+
+        ``wait_for`` cancels the inner task on timeout, so an async handler that
+        cooperates with cancellation stops promptly. A handler that ignores
+        cancellation cannot be forced, which is why sync handlers are refused at
+        registration and why the attempt timeout is documented as the backstop
+        rather than a guarantee.
+        """
+        return await asyncio.wait_for(handler(ctx), timeout=timeout)
+
+    # --------------------------------------------------------------- outcomes
+    async def _on_failure(
+        self, record: TaskRecord, worker_id: str, exc: BaseException, started: float
+    ) -> None:
+        kind = classify_failure(exc)
+        code, message = sanitize_error(exc)
+        elapsed = time.monotonic() - started
+        log.warning(
+            "task attempt failed",
+            extra={
+                "task_id": record.id,
+                "type": record.type,
+                "attempt": record.attempts,
+                "failure_kind": kind.value,
+                "error_code": code,
+            },
+        )
+
+        await self._record_event(
+            record.id,
+            EventType.ATTEMPT_FAILED,
+            record.attempts,
+            {
+                "failure_kind": kind.value,
+                "error_code": code,
+                "duration_ms": round(elapsed * 1000, 2),
+            },
+        )
+        if kind is FailureKind.TIMEOUT:
+            self._count("task_timeouts", 1)
+
+        policy = RetryPolicy(record.limits)
+        decision = policy.decide(
+            kind=kind,
+            attempts=record.attempts,
+            deadline_at=record.limits.deadline,
+        )
+        now = time.time()
+
+        if decision.retry and decision.delay is not None:
+            available_at = now + decision.delay
+            scheduled = await self._repo.schedule_retry(
+                task_id=record.id,
+                worker_id=worker_id,
+                available_at=available_at,
+                error_code=code,
+                error_message=message,
+                now=now,
+            )
+            if scheduled:
+                log.info(
+                    "task retry scheduled",
+                    extra={
+                        "task_id": record.id,
+                        "attempt": record.attempts,
+                        "delay": round(decision.delay, 3),
+                        "reason": decision.reason,
+                    },
+                )
+                self._count("task_retries", 1)
+                await self._record_event(
+                    record.id,
+                    EventType.RETRY_SCHEDULED,
+                    record.attempts,
+                    {
+                        "delay": round(decision.delay, 3),
+                        "reason": decision.reason,
+                        "failure_kind": kind.value,
+                    },
+                )
+                self._observe(record.id, "retry_wait", elapsed)
+                return
+
+        failed = await self._repo.complete_failure(
+            task_id=record.id,
+            worker_id=worker_id,
+            error_code=code,
+            error_message=message,
+            now=now,
+        )
+        if failed:
+            self._count("tasks_failed", 1)
+            await self._record_event(
+                record.id,
+                EventType.FAILED,
+                record.attempts,
+                {"error_code": code, "reason": decision.reason, "failure_kind": kind.value},
+            )
+            await self._emit_terminal(record.id)
+        self._observe(record.id, "failed", elapsed)
+
+    async def _on_cancelled(self, record: TaskRecord, worker_id: str) -> None:
+        """Persist the honest outcome of an interrupted attempt.
+
+        Only records ``cancelled`` when the runtime's cancellation flag is
+        durably set. A shutdown-driven interruption leaves the lease in place so
+        recovery reclaims the task and re-runs it — which is the truthful
+        description of what happened.
+        """
+        now = time.time()
+        flag = await self._repo.request_cancel(record.id)
+        current = await self._repo.get(record.id)
+        state = current.state if current else record.state
+
+        if state is TaskState.CANCELLED:
+            return
+
+        if flag and state is TaskState.RUNNING:
+            await self._repo.set_state(
+                task_id=record.id,
+                state=TaskState.CANCELLED,
+                now=now,
+                reason="cancelled_by_request",
+            )
+            self._count("tasks_cancelled", 1)
+            await self._record_event(
+                record.id, EventType.EXECUTION_CANCELLED, record.attempts, {"worker": worker_id}
+            )
+            await self._record_event(record.id, EventType.CANCELLED, record.attempts, {})
+            await self._emit_terminal(record.id)
+            log.info(
+                "task cancelled",
+                extra={
+                    "task_id": record.id,
+                    "attempt": record.attempts,
+                },
+            )
+            return
+
+        # Interrupted without a user request (pool shutdown). Leave the task
+        # running with a lapsing lease so recovery handles it on next start.
+        log.info(
+            "attempt interrupted by shutdown; lease left for recovery",
+            extra={
+                "task_id": record.id,
+                "attempt": record.attempts,
+            },
+        )
+        self._count("attempts_interrupted", 1)
+
+    # ----------------------------------------------------------------- helpers
+    async def _record_event(
+        self,
+        task_id: str,
+        event_type: EventType,
+        attempt: Optional[int],
+        metadata: Dict[str, object],
+    ) -> None:
+        """Persist a lifecycle event; never let observability break execution."""
+        try:
+            await self._repo.append_event(
+                TaskEvent(
+                    task_id=task_id,
+                    type=event_type,
+                    ts=time.time(),
+                    attempt=attempt,
+                    metadata=dict(metadata),
+                )
+            )
+        except Exception:
+            log.exception(
+                "failed to record task event",
+                extra={
+                    "task_id": task_id,
+                    "event": event_type.value,
+                },
+            )
+            self._count("event_write_failures", 1)
+
+    async def _emit_terminal(self, task_id: str) -> None:
+        """Notify the terminal-state hook, awaiting it when it is a coroutine.
+
+        Awaiting matters: an async hook that was merely scheduled could be
+        cancelled by a shutdown landing before it committed its own write.
+        """
+        if self._on_terminal is None:
+            return
+        try:
+            record = await self._repo.get(task_id)
+            if record is None:
+                return
+            outcome = self._on_terminal(record)
+            if inspect.isawaitable(outcome):
+                await outcome
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A terminal hook must never be able to fail a completed task. The
+            # task's own state is already committed at this point.
+            log.exception("terminal callback failed", extra={"task_id": task_id})
+
+    def _observe(self, task_id: str, state: str, elapsed: float) -> None:
+        if self._metrics is None:
+            return
+        try:
+            self._metrics("jiro_task_duration_seconds", state, {"seconds": elapsed})
+        except Exception:
+            log.debug("metrics sink raised", exc_info=True)
+
+    def _count(self, name: str, value: float = 1.0) -> None:
+        if self._metrics is None:
+            return
+        try:
+            self._metrics(f"jiro_runtime_{name}", "", {"value": value})
+        except Exception:
+            log.debug("metrics sink raised", exc_info=True)
+
+
+def _encode_result(result: Any, max_bytes: int):
+    """Serialise and size-check a handler result.
+
+    Returns:
+        The decoded dict on success, or an error string when the payload is
+        oversized or not JSON-serialisable.
+    """
+    import json
+
+    try:
+        encoded = json.dumps(result, default=str)
+    except (TypeError, ValueError) as exc:
+        return f"result is not JSON-serialisable: {exc}"
+    if len(encoded.encode("utf-8")) > max_bytes:
+        return f"result exceeds {max_bytes} bytes"
+    if not isinstance(result, dict):
+        # Normalised to an object so the persisted column is always JSON-object
+        # shaped and the API contract stays stable.
+        return {"value": result}
+    try:
+        return json.loads(encoded)
+    except ValueError:  # pragma: no cover - round-trip of our own output
+        return {"value": result}
+
+
+def _oversize(detail: str) -> ResultTooLarge:
+    """Build the marker that routes an oversized result into the failure path.
+
+    ``ResultTooLarge`` is classified as permanent, so the task fails
+    immediately instead of burning its retry budget on a payload that cannot
+    shrink.
+    """
+    return ResultTooLarge(detail)
+
+
+__all__ = ["WorkerPool"]
