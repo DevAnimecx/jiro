@@ -409,3 +409,308 @@ def _validate_result(result: Any) -> bool:
 
 
 async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) -> Any:
+    """Call ``method`` with automatic healing on failure (async version).
+
+    Retries up to ``MAX_HEAL_RETRIES`` times, applying increasingly
+    aggressive recovery strategies based on the error type. Supports
+    cancellation via ``asyncio.CancelledError``.
+    """
+    platform = getattr(scraper, "platform", "unknown")
+
+    if _stats.is_blocked(platform):
+        raise EngineBlockedError(
+            f"{platform} is temporarily blocked (cooldown active)"
+        )
+
+    last_exc = None
+    for attempt in range(1 + MAX_HEAL_RETRIES):
+        await _stats.record_attempt(platform)
+        try:
+            result = method(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            if not _validate_result(result):
+                raise EmptyResultError(f"empty result from {platform}.{getattr(method, '__name__', method)}")
+            await _stats.record_success(platform)
+            return result
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            await _stats.record_failure(platform, str(exc))
+
+            try:
+                if _is_stale_hash_error(exc):
+                    result = _heal_stale_hash(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after stale-hash healing for {platform}")
+
+                elif _is_selector_error(exc):
+                    result = _heal_selector(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after selector healing for {platform}")
+
+                elif _is_blocked_error(exc):
+                    result = await _heal_blocked(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after blocked healing for {platform}")
+
+                elif _is_file_lock_error(exc):
+                    result = await _heal_file_lock(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after file-lock healing for {platform}")
+
+                elif _is_dns_error(exc):
+                    result = await _heal_dns(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = exc
+
+                elif _is_ssl_error(exc):
+                    result = await _heal_ssl(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = exc
+
+                elif _is_http_5xx(exc):
+                    result = await _heal_http_5xx(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = exc
+
+                elif _is_proxy_error(exc):
+                    result = await _heal_proxy(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = exc
+
+                elif "auth" in str(exc).lower() or "token" in str(exc).lower():
+                    result = await _heal_credentials(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if _validate_result(result):
+                        await _stats.record_success(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after credential healing for {platform}")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as heal_exc:
+                last_exc = heal_exc
+                log.warning("heal attempt failed for %s: %s", platform, heal_exc)
+
+    raise last_exc or EngineBlockedError(f"{platform}: max heal retries exceeded")
+
+
+def heal(scraper: Any, method: Callable, *args: Any, **kwargs: Any) -> Any:
+    """Call ``method`` with automatic healing on failure (sync version).
+
+    For async scrapers, prefer ``heal_async()``.
+    """
+    platform = getattr(scraper, "platform", "unknown")
+
+    if _stats.is_blocked(platform):
+        raise EngineBlockedError(
+            f"{platform} is temporarily blocked (cooldown active)"
+        )
+
+    last_exc = None
+    for attempt in range(1 + MAX_HEAL_RETRIES):
+        _stats.record_attempt_sync(platform)
+        try:
+            result = method(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                raise RuntimeError(
+                    "heal() cannot await coroutines; use heal_async() in async code"
+                )
+            if not _validate_result(result):
+                raise EmptyResultError(f"empty result from {platform}.{getattr(method, '__name__', method)}")
+            _stats.record_success_sync(platform)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            _stats.record_failure_sync(platform, str(exc))
+
+            try:
+                if _is_stale_hash_error(exc):
+                    result = _heal_stale_hash(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after stale-hash healing for {platform}")
+                elif _is_selector_error(exc):
+                    result = _heal_selector(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after selector healing for {platform}")
+                elif _is_blocked_error(exc):
+                    result = _heal_blocked(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after blocked healing for {platform}")
+                elif _is_file_lock_error(exc):
+                    result = _heal_file_lock(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after file-lock healing for {platform}")
+                elif _is_dns_error(exc):
+                    result = _heal_dns(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = exc
+                elif _is_ssl_error(exc):
+                    result = _heal_ssl(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = exc
+                elif _is_http_5xx(exc):
+                    result = _heal_http_5xx(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = exc
+                elif _is_proxy_error(exc):
+                    result = _heal_proxy(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = exc
+                elif "auth" in str(exc).lower() or "token" in str(exc).lower():
+                    result = _heal_credentials(scraper, method, args, kwargs)
+                    if asyncio.iscoroutine(result):
+                        raise RuntimeError("heal() cannot await coroutines; use heal_async()")
+                    if _validate_result(result):
+                        _stats.record_success_sync(platform)
+                        return result
+                    last_exc = EmptyResultError(f"empty result after credential healing for {platform}")
+            except RuntimeError:
+                raise
+            except Exception as heal_exc:
+                last_exc = heal_exc
+                log.warning("heal attempt failed for %s: %s", platform, heal_exc)
+
+    raise last_exc or EngineBlockedError(f"{platform}: max heal retries exceeded")
+
+
+def get_stats() -> Dict[str, Any]:
+    """Return healing statistics for monitoring."""
+    return {
+        "attempts": dict(_stats.attempts),
+        "successes": dict(_stats.successes),
+        "failures": dict(_stats.failures),
+        "blocked": {p: _stats.blocked_until[p] for p in _stats.blocked_until},
+        "last_errors": dict(_stats.last_error),
+        "success_rates": {
+            p: _stats.success_rate(p) for p in set(
+                list(_stats.successes.keys()) + list(_stats.failures.keys())
+            )
+        },
+    }
+
+
+def reset_stats() -> None:
+    """Reset all healing statistics."""
+    global _stats
+    _stats = HealingStats()
+
+
+def unblock_all() -> None:
+    """Unblock all platforms (admin operation)."""
+    _stats.blocked_until.clear()
+
+
+def _is_winerror_32(exc: Exception) -> bool:
+    """Check if an exception is a WinError 32 (file locked by another process)."""
+    text = str(exc).lower()
+    return "winerror 32" in text or "winerror 10022" in text or "being used by another process" in text or "file in use" in text
+
+
+def _kill_jiro_exe() -> bool:
+    """Force-kill any running jiro.exe process on Windows. Returns True if killed or not found."""
+    if sys.platform != "win32":
+        return False
+    try:
+        result = subprocess.run(
+            ["taskkill", "/F", "/IM", "jiro.exe"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode == 0 or "not found" in result.stderr.lower()
+    except Exception:
+        return False
+
+
+def heal_pip_install(pip_args: list[str], max_retries: int = 5) -> subprocess.CompletedProcess:
+    """Run pip install with automatic file-lock healing and retry.
+
+    If the install fails due to a file lock (WinError 32), the running
+    jiro.exe process is killed and the install is retried with
+    exponential backoff.
+    """
+    result = None
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(pip_args, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                return result
+            if _is_winerror_32(OSError(result.stderr)) or _is_winerror_32(OSError(result.stdout)):
+                log.warning("pip install failed with file lock on attempt %d/%d", attempt + 1, max_retries)
+                _kill_jiro_exe()
+                time.sleep(min(2.0 * (attempt + 1), 15.0))
+                continue
+            return result
+        except subprocess.TimeoutExpired:
+            if attempt < max_retries - 1:
+                _kill_jiro_exe()
+                time.sleep(min(2.0 * (attempt + 1), 15.0))
+                continue
+            raise
+    return result or subprocess.run(pip_args, capture_output=True, text=True, timeout=180)
