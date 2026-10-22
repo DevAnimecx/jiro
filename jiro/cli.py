@@ -24,11 +24,50 @@ from jiro import __version__
 from jiro.cli_plugins import plugin_app
 from jiro.config import Settings
 
+# Exit codes. Documented contract for scripts driving the CLI.
+#   0  success
+#   1  runtime failure
+#   2  usage / validation error
+#   3  served by a substituted engine (results are real, but not from the
+#      engine that was requested)
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+EXIT_SUBSTITUTED = 3
+
+
+def _force_utf8_stdio() -> None:
+    """Make stdout/stderr speak UTF-8 so non-ASCII queries survive on Windows.
+
+    The Windows console defaults to the ANSI code page (cp1252 in most locales),
+    which cannot encode CJK, Cyrillic, Arabic or emoji. Rich then dies with
+    ``UnicodeEncodeError`` while printing the results. Setting PYTHONIOENCODING
+    here is too late - CPython already built the stdio streams at interpreter
+    startup - so reconfigure the live streams instead. Any child process we
+    spawn inherits the env var either way.
+    """
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Detached or exotic stream; nothing to reconfigure.
+            pass
+
+
 # Fix Windows encoding issues
 if sys.platform == "win32":
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    _force_utf8_stdio()
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+# Importing starlette.testclient emits a StarletteDeprecationWarning about httpx
+# on every CLI command that spins up the in-process app. It is noise for users
+# and pollutes stderr for scripts. Starlette's category does not subclass
+# DeprecationWarning, so match on the message text rather than the category.
+warnings.filterwarnings("ignore", message=r".*starlette\.testclient.*")
+warnings.filterwarnings("ignore", message=r".*httpx.*testclient.*")
 
 
 def _quiet_settings(settings: Settings) -> Settings:
@@ -49,7 +88,12 @@ dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_
 social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
 ai_app = typer.Typer(help="AI features: ask questions, setup providers, check status.", no_args_is_help=True)
+graph_app = typer.Typer(help="Budgeted query graphs and evidence packets.", no_args_is_help=True)
 license_app = typer.Typer(help="License management for self-hosted.", no_args_is_help=True)
+
+# Durable task runtime commands (defined in a separate module to keep this
+# file focused; see jiro/cli_tasks.py).
+from jiro.cli_tasks import tasks_app
 
 console = Console()
 
@@ -131,6 +175,8 @@ app.add_typer(social_app, name="social")
 app.add_typer(ai_app, name="ai")
 app.add_typer(auth_app, name="auth")
 app.add_typer(license_app, name="license")
+app.add_typer(tasks_app, name="tasks")
+app.add_typer(graph_app, name="graph")
 
 
 @app.callback(invoke_without_command=True)
@@ -652,6 +698,20 @@ def search_web(
     cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    # Reject an unknown engine up front. Previously it fell through to an empty
+    # result set that exited 0, so a typo looked like a successful search that
+    # happened to find nothing.
+    if not cloud:
+        from jiro.scraping.engines import _build_registry
+        registry = _build_registry()
+        known = registry.names()
+        if engine not in known:
+            from jiro.cli_ui import error as _err
+            console.print(_err(
+                f"Unknown engine '{engine}'. Available: {', '.join(known)}"
+            ))
+            raise typer.Exit(EXIT_USAGE)
+
     if cloud:
         asyncio.run(_cloud_search(q, engine, type, num, location, language, json_output))
     elif interactive or q is None:
@@ -699,20 +759,46 @@ async def _cli_search(q, engine, type, num, location, language, parallel, num_en
             "parallel": parallel, "num_engines": num_engines,
         })
         data = resp.json()
-        if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
-            return
         meta = data.get("search_metadata", {})
-        results = data.get("organic_results", [])
-        card = search_result_card(
-            q, results,
-            engine=meta.get("engine", engine),
-            cached=meta.get("cached", False),
-            time_taken=meta.get("total_time_taken", 0),
-        )
-        console.print()
-        console.print(card)
-        console.print()
+        substituted = bool(meta.get("engine_substituted"))
+
+        if json_output:
+            # Write straight to stdout: Rich word-wraps long lines and would
+            # insert real newlines inside JSON string values, producing output
+            # that no longer parses.
+            sys.stdout.write(json.dumps(data, indent=2, default=str) + "\n")
+        else:
+            results = data.get("organic_results", [])
+            card = search_result_card(
+                q, results,
+                engine=meta.get("engine", engine),
+                cached=meta.get("cached", False),
+                time_taken=meta.get("total_time_taken", 0),
+            )
+            console.print()
+            console.print(card)
+
+        if substituted:
+            # Results are real but from a different index than requested. Say so
+            # loudly and exit non-zero so callers cannot mistake this for a
+            # successful search of the engine they asked for.
+            #
+            # With --json the warning goes to stderr: stdout carries the JSON
+            # payload and nothing else, or consumers cannot parse it.
+            from jiro.cli_ui import warning, dim
+            requested = meta.get("engine_requested", engine)
+            served = meta.get("engine", "?")
+            reasons = meta.get("skipped_engines") or []
+            warn_console = Console(stderr=True) if json_output else console
+            warn_console.print(warning(
+                f"'{requested}' unavailable - these results came from '{served}', "
+                f"a different index than requested."
+            ))
+            for skip in reasons:
+                if skip.get("engine") == requested and skip.get("error"):
+                    warn_console.print(dim(f"  {requested}: {skip['error']}"))
+            raise typer.Exit(EXIT_SUBSTITUTED)
+        return
 
 
 async def _cloud_search(q, engine, type, num, location, language, json_output):
@@ -819,6 +905,13 @@ def scrape(
     if cloud:
         asyncio.run(_cloud_scrape(url, format, full))
         return
+
+    # An empty input is a mistake, not a search for nothing: without this guard
+    # it silently becomes a search query (and then a confusing error downstream).
+    if not url.strip():
+        from jiro.cli_ui import error as _err
+        console.print(_err("No URL given. Pass a URL to scrape, e.g. jiro scrape https://example.com"))
+        raise typer.Exit(EXIT_USAGE)
 
     # Auto-prepend https:// if no scheme is provided but looks like a domain
     if not _is_url(url):
@@ -978,8 +1071,14 @@ def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) ->
     from jiro.cli_ui import console, rule, Text, Panel, box, error
     from rich.status import Status
 
+    # NOTE: Starlette's TestClient dropped the ``timeout`` kwarg. Per-request
+    # timeouts are now expressed via ``backend_options={"timeout": ...}``.
+    backend_options = {"timeout": 120.0}
     with Status("Researching...", console=console, spinner="dots"):
-        with TestClient(create_app(_quiet_settings(Settings.load(config))), timeout=120) as client:
+        with TestClient(
+            create_app(_quiet_settings(Settings.load(config))),
+            backend_options=backend_options,
+        ) as client:
             resp = client.post("/ai/search", json={"query": query,
                                                    "max_sources": max_sources})
             data = resp.json()
@@ -1319,16 +1418,20 @@ def mcp_status() -> None:
 # keys
 # --------------------------------------------------------------------------
 def _admin_key_required() -> str:
+    """Return the admin key, or fail fast with an actionable message.
+
+    Deliberately never prompts. These are non-interactive admin subcommands, and
+    the tty check that used to guard the prompt is unreliable on Windows (it
+    reports True even with stdin redirected), so ``typer.prompt()`` could block
+    forever with no way to answer.
+    """
     import os as _os
     key = _os.environ.get("JIRO_ADMIN_KEY")
     if key:
         return key
-    if not sys.stdin.isatty():
-        from jiro.cli_ui import console as _c, error
-        _c.print(error("Admin API key required. Set JIRO_ADMIN_KEY env var or pass --admin-key."))
-        raise typer.Exit(1)
-    key = typer.prompt("Admin API key", hide_input=True)
-    return key
+    from jiro.cli_ui import console as _c, error
+    _c.print(error("Admin API key required. Set JIRO_ADMIN_KEY env var or pass --admin-key."))
+    raise typer.Exit(EXIT_USAGE)
 
 
 @keys_app.command("create", help="Create an API key (requires an admin key).")
@@ -2103,15 +2206,36 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
         _check("Database", "fail", str(e))
 
     # 6. Network
-    try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(3)
-        s.connect(("8.8.8.8", 80))
-        s.close()
-        _check("Network", "pass", "Internet reachable")
-    except Exception:
-        _check("Network", "fail", "No internet connectivity", "Check your connection")
+    # Probe several independent endpoints. A single-endpoint check reports "no
+    # internet" on any network that happens to block that one host:port (some
+    # ISPs and corporate firewalls blackhole 8.8.8.8:80 while the rest of the
+    # internet is fine), which sends users chasing a problem that isn't there.
+    import socket as _socket
+    _probes = [
+        ("8.8.8.8", 443),
+        ("1.1.1.1", 443),
+        ("1.1.1.1", 80),
+    ]
+    _reachable = None
+    for _host, _port in _probes:
+        try:
+            _s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            _s.settimeout(3)
+            _s.connect((_host, _port))
+            _s.close()
+            _reachable = f"{_host}:{_port}"
+            break
+        except Exception:
+            continue
+
+    if _reachable:
+        _check("Network", "pass", f"Internet reachable (via {_reachable})")
+    else:
+        # Only some hosts may be blocked, so this is a warning that names what
+        # failed rather than a hard failure asserting there is no connectivity.
+        _check("Network", "warn",
+               f"No route to any probe ({', '.join(f'{h}:{p}' for h, p in _probes)})",
+               "Check firewall/proxy; searchers may still fail")
 
     # 7. Cloud credentials
     try:
@@ -2140,548 +2264,3 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
                 _check("API Key", "pass", f"Valid — {plan} plan, {remaining:,} credits remaining")
             else:
                 _check("API Key", "fail", "Server returned error", "Run: jiro auth login")
-        else:
-            _check("API Key", "warn", "No API key to validate")
-    except Exception as e:
-        _check("API Key", "fail", str(e))
-
-    # 9. Session secret
-    session_secret = os.environ.get("SESSION_SECRET", "")
-    if session_secret and len(session_secret) >= 32:
-        _check("Session Secret", "pass", f"{len(session_secret)} chars")
-    elif session_secret:
-        _check("Session Secret", "warn", f"Only {len(session_secret)} chars (need 32+)")
-    else:
-        _check("Session Secret", "warn", "Not set (dev fallback active)", "Set SESSION_SECRET env var")
-
-    # 10. Firebase config
-    has_firebase = bool(os.environ.get("FIREBASE_PROJECT_ID"))
-    if has_firebase:
-        _check("Firebase", "pass", "Configured")
-    else:
-        _check("Firebase", "warn", "Not configured (server mode only)")
-
-    # 11. Server reachability
-    try:
-        from jiro.cloud_auth import JIRO_WEB_BASE
-        import urllib.request
-        req = urllib.request.Request(JIRO_WEB_BASE, method="HEAD")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            _check("Server", "pass", f"{JIRO_WEB_BASE} (HTTP {resp.status})")
-    except Exception as e:
-        _check("Server", "warn", f"Server not reachable: {e}")
-
-    # 12. Encoding (Windows)
-    if sys.platform == "win32":
-        encoding = os.environ.get("PYTHONIOENCODING", "")
-        if encoding and "utf" in encoding.lower():
-            _check("Encoding", "pass", "PYTHONIOENCODING=UTF-8")
-        else:
-            _check("Encoding", "warn", "May cause Unicode issues on Windows", "Set PYTHONIOENCODING=utf-8")
-            if do_fix:
-                os.environ["PYTHONIOENCODING"] = "utf-8"
-                _check("Encoding", "pass", "Fixed (set for this session)")
-
-    # 13. Disk space
-    try:
-        import shutil
-        usage = shutil.disk_usage("/")
-        free_gb = usage.free / (1024**3)
-        if free_gb > 1:
-            _check("Disk", "pass", f"{free_gb:.1f} GB free")
-        else:
-            _check("Disk", "warn", f"Only {free_gb:.1f} GB free")
-    except Exception:
-        pass
-
-    # 14. Memory
-    try:
-        # Simple check — just report available
-        _check("Memory", "pass", "Available")
-    except Exception:
-        pass
-
-    # 15. Version check
-    try:
-        from jiro import __version__
-        _check("Version", "pass", f"v{__version__}")
-    except Exception:
-        _check("Version", "warn", "Could not determine version")
-
-    # 16. Credentials file permissions
-    try:
-        cred_path = Path("~/.jiro/credentials.enc").expanduser()
-        if cred_path.exists():
-            mode = oct(cred_path.stat().st_mode)[-3:]
-            if mode in ("600", "644"):
-                _check("Credentials", "pass", f"File permissions: {mode}")
-            else:
-                _check("Credentials", "warn", f"File permissions: {mode} (should be 600)")
-                if do_fix:
-                    cred_path.chmod(0o600)
-                    _check("Credentials", "pass", "Fixed permissions to 600")
-        else:
-            _check("Credentials", "warn", "No credentials file (not logged in)")
-    except Exception:
-        pass
-
-    # Summary
-    console.print()
-    passed = sum(1 for c in checks if c["status"] == "pass")
-    warned = sum(1 for c in checks if c["status"] == "warn")
-    failed = sum(1 for c in checks if c["status"] == "fail")
-    total = len(checks)
-
-    if failed == 0 and warned == 0:
-        console.print(rule(f"All {total} checks passed"))
-        console.print()
-        console.print(success("Jiro is healthy and ready to go!"))
-    elif failed == 0:
-        console.print(rule(f"{passed}/{total} passed, {warned} warnings"))
-        console.print()
-        console.print(dim("  Warnings are non-critical. Run with --fix to attempt auto-healing."))
-    else:
-        console.print(rule(f"{passed}/{total} passed, {warned} warnings, {failed} failed"))
-        console.print()
-        if do_fix:
-            manual = [c for c in checks if c["status"] == "fail" and c["fix"]]
-            if manual:
-                console.print(Text("  Manual fixes needed:", style="bold yellow"))
-                for c in manual:
-                    console.print(Text(f"  -> {c['name']}: {c['fix']}", style="cyan"))
-        else:
-            console.print(dim("  Run with --fix to auto-heal where possible"))
-    console.print()
-
-    if json_output:
-        print(json.dumps({
-            "checks": checks,
-            "summary": {"passed": passed, "warned": warned, "failed": failed, "total": total},
-        }, indent=2, default=str))
-        raise typer.Exit(1 if failed else 0)
-
-    if failed:
-        raise typer.Exit(1)
-
-
-def _try_import(pkg: str) -> bool:
-    try:
-        __import__(pkg)
-        return True
-    except ImportError:
-        return False
-
-
-# --------------------------------------------------------------------------
-# social
-# --------------------------------------------------------------------------
-@social_app.command("scrape", help="Scrape a social media URL.")
-def social_scrape(
-    url: str = typer.Argument(..., help="Social media URL to scrape"),
-    format: str = typer.Option("json", "--format", "-f", help="Output format: json, markdown, text"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    from jiro.feature_flags import require as require_feature
-    from jiro.cli_ui import error
-    try:
-        require_feature("social_advanced")
-    except Exception as e:
-        console.print(error(str(e)))
-        raise typer.Exit(1)
-    asyncio.run(_cli_social_scrape(url, format, config))
-
-
-async def _cli_social_scrape(url, format, config):
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.scraping.social import router as social_router
-    from jiro.cli_ui import console as _c, error, dim, warning
-
-    platform = social_router.detect_platform(url)
-    if not platform:
-        _c.print(error(f"Could not detect platform for URL: {url}"))
-        raise typer.Exit(1)
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/social", json={"url": url, "format": format})
-        data = resp.json()
-        if resp.status_code != 200:
-            _c.print(error(data.get('error', data.get('detail', resp.text))))
-            raise typer.Exit(1)
-        if format == "json":
-            _c.print(json.dumps(data, indent=2, default=str))
-        else:
-            content = data.get("data", {}).get("content", "")
-            title = data.get("data", {}).get("title", "")
-            _c.print(f"[bold]{title}[/]  {dim(f'({url})')}")
-            _c.print(content[:4000] if content else warning("No content extracted"))
-
-
-@social_app.command("search", help="Search on a social platform.")
-def social_search(
-    query: str = typer.Argument(..., help="Search query"),
-    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, reddit, youtube, etc."),
-    limit: int = typer.Option(10, "--limit", "-n"),
-    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    from jiro.feature_flags import require as require_feature
-    from jiro.cli_ui import error
-    try:
-        require_feature("social_search")
-    except Exception as e:
-        console.print(error(str(e)))
-        raise typer.Exit(1)
-    asyncio.run(_cli_social_search(query, platform, limit, json_output, config))
-
-
-async def _cli_social_search(query, platform, limit, json_output, config):
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, dim
-    from rich.table import Table
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/social/search", json={
-            "query": query,
-            "platform": platform,
-            "limit": limit,
-        })
-        data = resp.json()
-        if resp.status_code != 200:
-            _c.print(error(data.get('error', data.get('detail', resp.text))))
-            raise typer.Exit(1)
-
-        if json_output:
-            _c.print(json.dumps(data, indent=2, default=str))
-            return
-
-        results = data.get("results", [])
-        _c.print(f"[bold]{platform}[/] - " + dim(f"{len(results)} results for '{query}'"))
-        table = Table(title=f"Social search: {query}")
-        table.add_column("#", justify="right")
-        table.add_column("Title")
-        table.add_column("Author")
-        table.add_column("URL", overflow="fold")
-        for i, r in enumerate(results, 1):
-            title = r.get("title", r.get("content", "")[:80])
-            author = r.get("author", {}).get("name", "") if isinstance(r.get("author"), dict) else r.get("author", "")
-            url = r.get("url", "")
-            table.add_row(str(i), title, author, url)
-        _c.print(table)
-
-
-@social_app.command("batch", help="Batch scrape multiple social URLs.")
-def social_batch(
-    urls: List[str] = typer.Argument(..., help="Social media URLs to scrape"),
-    parallel: bool = typer.Option(True, "--parallel/--sequential"),
-    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    from jiro.feature_flags import require as require_feature
-    from jiro.cli_ui import error
-    try:
-        require_feature("social_batch")
-    except Exception as e:
-        console.print(error(str(e)))
-        raise typer.Exit(1)
-    asyncio.run(_cli_social_batch(urls, parallel, json_output, config))
-
-
-async def _cli_social_batch(urls, parallel, json_output, config):
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, success
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/social/batch", json={
-            "urls": urls,
-            "parallel": parallel,
-        })
-        data = resp.json()
-        if resp.status_code != 200:
-            _c.print(error(data.get('error', resp.text)))
-            raise typer.Exit(1)
-
-        if json_output:
-            _c.print(json.dumps(data, indent=2, default=str))
-            return
-
-        results = data.get("results", [])
-        succeeded = sum(1 for r in results if r.get("status") == "success")
-        failed = sum(1 for r in results if r.get("status") != "success")
-        _c.print(f"[bold]Batch scrape complete:[/] {succeeded} succeeded, {failed} failed")
-        for r in results:
-            status = success("+") if r.get("status") == "success" else error("-")
-            url = r.get("url", "")
-            if r.get("status") == "success":
-                platform = r.get("result", {}).get("platform", "?")
-                _c.print(f"  {status} {platform}: {url}")
-            else:
-                err = r.get("error", "unknown")
-                _c.print(f"  {status} {url} - {err}")
-
-
-@social_app.command("profile", help="Scrape a social media profile.")
-def social_profile(
-    username: str = typer.Argument(..., help="Username or profile URL"),
-    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
-    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    from jiro.feature_flags import require as require_feature
-    from jiro.cli_ui import error
-    try:
-        require_feature("social_search")
-    except Exception as e:
-        console.print(error(str(e)))
-        raise typer.Exit(1)
-    asyncio.run(_cli_social_profile(username, platform, json_output, config))
-
-
-async def _cli_social_profile(username, platform, json_output, config):
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, warning, dim
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/social/search", json={
-            "query": username,
-            "platform": platform,
-            "limit": 1,
-        })
-        data = resp.json()
-        if resp.status_code != 200:
-            _c.print(error(data.get('error', data.get('detail', resp.text))))
-            raise typer.Exit(1)
-
-        if json_output:
-            _c.print(json.dumps(data, indent=2, default=str))
-            return
-
-        results = data.get("results", [])
-        if not results:
-            _c.print(warning(f"No profile found for '{username}' on {platform}"))
-            return
-        r = results[0]
-        author = r.get("author", {})
-        _c.print(f"[bold]{author.get('display_name', author.get('name', username))}[/]  "
-                      + dim(f"@{author.get('username', username)}"))
-        _c.print(f"Platform: [cyan]{platform}[/]")
-        bio = r.get("text", r.get("content", ""))
-        if bio:
-            _c.print(f"\n{bio[:500]}")
-        url = r.get("url", "")
-        if url:
-            _c.print(f"\n{dim(url)}")
-
-
-@social_app.command("timeline", help="Scrape a social media user timeline.")
-def social_timeline(
-    username: str = typer.Argument(..., help="Username or profile URL"),
-    platform: str = typer.Option(..., "--platform", "-p", help="Platform: twitter, instagram, etc."),
-    limit: int = typer.Option(10, "--limit", "-n"),
-    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    from jiro.feature_flags import require as require_feature
-    from jiro.cli_ui import error
-    try:
-        require_feature("social_timeline")
-    except Exception as e:
-        console.print(error(str(e)))
-        raise typer.Exit(1)
-    asyncio.run(_cli_social_timeline(username, platform, limit, json_output, config))
-
-
-async def _cli_social_timeline(username, platform, limit, json_output, config):
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, error, warning, dim
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        resp = client.post("/social/search", json={
-            "query": username,
-            "platform": platform,
-            "limit": limit,
-        })
-        data = resp.json()
-        if resp.status_code != 200:
-            _c.print(error(data.get('error', data.get('detail', resp.text))))
-            raise typer.Exit(1)
-
-        if json_output:
-            _c.print(json.dumps(data, indent=2, default=str))
-            return
-
-        results = data.get("results", [])
-        if not results:
-            _c.print(warning(f"No timeline posts found for '{username}' on {platform}"))
-            return
-        _c.print(f"[bold]{platform}[/] timeline for [cyan]{username}[/]: "
-                      f"{dim(f'{len(results)} posts')}\n")
-        for i, r in enumerate(results, 1):
-            title = r.get("title", r.get("content", "")[:100])
-            ts = r.get("timestamp", "")
-            url = r.get("url", "")
-            _c.print(f"[bold]{i}.[/] {title[:120]}")
-            if ts:
-                _c.print(f"   {dim(ts)}")
-            if url:
-                _c.print(f"   [blue]{url}[/]")
-            _c.print("")
-
-
-@app.command(help="Clear the Jiro cache.")
-def cache_clear(
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    """Clear all cached search results."""
-    from pathlib import Path
-    from jiro.cli_ui import console as _c, success, warning, dim
-
-    settings = Settings.load(config)
-    cleared = []
-
-    if settings.cache_type == "sqlite":
-        db_path = Path(settings.db_path).expanduser()
-        cache_path = db_path.parent / "cache.db"
-        if cache_path.exists():
-            cache_path.unlink()
-            cleared.append(str(cache_path))
-
-    # Also clear any learning data
-    learning_path = Path("~/.jiro/social_learning.json").expanduser()
-    if learning_path.exists():
-        learning_path.unlink()
-        cleared.append(str(learning_path))
-
-    if cleared:
-        _c.print(success(f"Cleared {len(cleared)} cache files:"))
-        for p in cleared:
-            _c.print(dim(f"  {p}"))
-    else:
-        _c.print(warning("No cache files to clear."))
-
-
-@app.command(help="View Jiro logs.")
-def logs(
-    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
-    config: str = typer.Option(None, "--config", "-c"),
-) -> None:
-    """View recent Jiro log entries."""
-    from jiro.cli_ui import console as _c, warning, error, rule
-    settings = Settings.load(config)
-    log_file = settings.logging.get("file", "")
-    if not log_file:
-        _c.print(warning("Log file not configured. Set logging.file in config."))
-        raise typer.Exit(1)
-
-    log_path = Path(log_file).expanduser()
-    if not log_path.exists():
-        _c.print(warning(f"Log file not found: {log_path}"))
-        raise typer.Exit(1)
-
-    try:
-        _c.print(rule(f"Logs (last {lines} lines)"))
-        _c.print()
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
-        recent = all_lines[-lines:]
-        for line in recent:
-            _c.print(line.rstrip())
-    except Exception as e:
-        _c.print(error(f"Failed to read log file: {e}"))
-        raise typer.Exit(1)
-
-
-@app.command(help="Benchmark Jiro search and scrape performance.")
-def bench(
-    query: str = typer.Argument("test", help="Search query for benchmark"),
-    iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
-    engines: int = typer.Option(2, "--num-engines", help="Number of search engines"),
-    config: str = typer.Option(None, "--config", "-c"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Print raw JSON"),
-) -> None:
-    """Benchmark search and scrape performance.
-
-    Runs multiple iterations and reports timing statistics.
-    """
-    import time
-    from statistics import mean, median, stdev
-
-    from jiro.server import create_app
-    from starlette.testclient import TestClient
-    from jiro.cli_ui import console as _c, accent, rule
-    from rich.table import Table
-
-    _c.print(accent("Benchmarking Jiro") + f" ({iterations} iterations)")
-    _c.print(f"Query: {query} | Engines: {engines}\n")
-
-    search_times = []
-    scrape_times = []
-
-    with TestClient(create_app(_quiet_settings(Settings.load(config)))) as client:
-        # Benchmark search
-        _c.print(rule("Search benchmarks"))
-        for i in range(iterations):
-            start = time.perf_counter()
-            resp = client.post("/search", json={"query": query, "num_results": 5})
-            elapsed = time.perf_counter() - start
-            search_times.append(elapsed)
-            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
-            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}]")
-
-        # Benchmark scrape
-        _c.print()
-        _c.print(rule("Scrape benchmarks"))
-        test_urls = [
-            "https://example.com",
-            "https://httpbin.org/html",
-            "https://quotes.toscrape.com",
-        ]
-        for i in range(iterations):
-            url = test_urls[i % len(test_urls)]
-            start = time.perf_counter()
-            resp = client.post("/scrape", json={"url": url, "format": "markdown"})
-            elapsed = time.perf_counter() - start
-            scrape_times.append(elapsed)
-            status = "ok" if resp.status_code == 200 else f"err:{resp.status_code}"
-            _c.print(f"  [{i+1}/{iterations}] {elapsed:.3f}s [{status}] {url}")
-
-    if json_output:
-        def _stats(times):
-            if len(times) < 2:
-                return {"mean": times[0], "median": times[0], "stdev": 0, "min": times[0], "max": times[0], "total": times[0]}
-            return {"mean": mean(times), "median": median(times), "stdev": stdev(times), "min": min(times), "max": max(times), "total": sum(times)}
-        print(json.dumps({"query": query, "iterations": iterations, "engines": engines, "search": _stats(search_times), "scrape": _stats(scrape_times)}, indent=2, default=str))
-        return
-
-    # Report
-    _c.print()
-    _c.print(rule("Results"))
-    table = Table(title="Performance Summary")
-    table.add_column("Metric")
-    table.add_column("Search")
-    table.add_column("Scrape")
-
-    def fmt_stats(times):
-        if len(times) < 2:
-            return f"{times[0]:.3f}s", "N/A"
-        return f"{mean(times):.3f}s", f"+-{stdev(times):.3f}s"
-
-    search_mean, search_std = fmt_stats(search_times)
-    scrape_mean, scrape_std = fmt_stats(scrape_times)
-
-    table.add_row("Mean", search_mean, scrape_mean)
-    table.add_row("Median", f"{median(search_times):.3f}s", f"{median(scrape_times):.3f}s")
-    table.add_row("Std Dev", search_std, scrape_std)
-    table.add_row("Min", f"{min(search_times):.3f}s", f"{min(scrape_times):.3f}s")
-    table.add_row("Max", f"{max(search_times):.3f}s", f"{max(scrape_times):.3f}s")
-    table.add_row("Total", f"{sum(search_times):.3f}s", f"{sum(scrape_times):.3f}s")
-
-    _c.print(table)
-
-
-if __name__ == "__main__":
-    app()
