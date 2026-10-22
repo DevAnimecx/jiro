@@ -796,3 +796,386 @@ class Database:
         return {"tables": tables, "indexes": indexes}
 
     async def verify_schema(self, required_tables: List[str]) -> None:
+        """Assert that every required table exists.
+
+        Raises:
+            CacheError: naming the missing objects. Called at startup so a
+                half-migrated or corrupt database is reported immediately
+                rather than on the first task submission.
+        """
+        present = await self.schema_objects()
+        missing_tables = sorted(set(required_tables) - set(present["tables"]))
+        if missing_tables:
+            raise CacheError(
+                "database schema is incomplete; missing table(s): "
+                f"{', '.join(missing_tables)}",
+                details={"path": self.path, "missing": missing_tables},
+            )
+
+    async def table_columns(self, table: str) -> List[str]:
+        """Column names for ``table``. Used to detect schema drift."""
+        rows = await self.fetchall(f"PRAGMA table_info({table})")
+        return [r["name"] for r in rows]
+
+    async def fetchone(self, sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
+        conn = await self._acquire()
+        try:
+            cur = await conn.execute(sql, params)
+            row = await cur.fetchone()
+            await cur.close()
+            return dict(row) if row else None
+        finally:
+            await self._release(conn)
+
+    async def fetchall(self, sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+        conn = await self._acquire()
+        try:
+            cur = await conn.execute(sql, params)
+            rows = await cur.fetchall()
+            await cur.close()
+            return [dict(r) for r in rows]
+        finally:
+            await self._release(conn)
+
+    async def _require(self) -> None:
+        if not self._connected:
+            raise CacheError("database not connected")
+
+    # ------------------------------------------------------------------ cache
+    async def cache_get(self, key: str) -> Optional[Dict[str, Any]]:
+        row = await self.fetchone(
+            "SELECT payload, created_at FROM cache WHERE key = ? AND expires_at > ?",
+            (key, time.time()),
+        )
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload"]), "created_at": row["created_at"]}
+
+    async def cache_put(self, key: str, payload: Any, *, engine: str, kind: str,
+                        ttl: int) -> None:
+        now = time.time()
+        await self.execute(
+            "INSERT OR REPLACE INTO cache (key, payload, engine, kind, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (key, json.dumps(payload, default=str), engine, kind, now, now + ttl),
+        )
+
+    async def cache_stats(self) -> Dict[str, Any]:
+        row = await self.fetchone(
+            "SELECT COUNT(*) AS entries, COALESCE(SUM(expires_at > ?), 0) AS live FROM cache",
+            (time.time(),),
+        )
+        return {"entries": row.get("entries", 0) if row else 0,
+                "live": row.get("live", 0) if row else 0}
+
+    async def cache_clear(self) -> int:
+        await self.execute("DELETE FROM cache")
+        row = await self.fetchone("SELECT changes() AS n")
+        return int(row.get("n", 0)) if row else 0
+
+    # ----------------------------------------------------------------- api keys
+    async def key_create(self, key_id: str, name: str, key_hash: str, prefix: str,
+                         role: str, scopes: List[str], rate_limit_rpm: int) -> None:
+        await self.execute(
+            "INSERT INTO api_keys (id, name, key_hash, key_prefix, role, scopes,"
+            " rate_limit_rpm, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key_id, name, key_hash, prefix, role, json.dumps(scopes),
+             rate_limit_rpm, time.time()),
+        )
+
+    async def key_get_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        row = await self.fetchone(
+            "SELECT * FROM api_keys WHERE key_hash = ? AND revoked = 0", (key_hash,)
+        )
+        return self._key_row(row)
+
+    async def key_get(self, key_id: str) -> Optional[Dict[str, Any]]:
+        row = await self.fetchone("SELECT * FROM api_keys WHERE id = ?", (key_id,))
+        return self._key_row(row)
+
+    async def key_list(self, include_revoked: bool = False) -> List[Dict[str, Any]]:
+        rows = await self.fetchall(
+            "SELECT * FROM api_keys" + ("" if include_revoked else " WHERE revoked = 0")
+            + " ORDER BY created_at DESC"
+        )
+        return [
+            out
+            for out in (self._key_row(r) for r in rows if r is not None)
+            if out is not None
+        ]
+
+    async def key_revoke(self, key_id: str) -> bool:
+        await self.execute("UPDATE api_keys SET revoked = 1 WHERE id = ?", (key_id,))
+        return True
+
+    async def key_touch(self, key_id: str) -> None:
+        await self.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+                           (time.time(), key_id))
+
+    @staticmethod
+    def _key_row(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if row is None:
+            return None
+        row["scopes"] = json.loads(row.get("scopes") or "[]")
+        row["revoked"] = bool(row.get("revoked"))
+        return row
+
+    # ------------------------------------------------------------------- usage
+    async def usage_add(self, *, key_id: Optional[str], endpoint: str,
+                        engine: Optional[str] = None, query: Optional[str] = None,
+                        status: int = 200, latency_ms: float = 0.0,
+                        tokens_in: int = 0, tokens_out: int = 0,
+                        cached: bool = False) -> None:
+        await self.execute(
+            "INSERT INTO usage (ts, key_id, endpoint, engine, query, status, latency_ms,"
+            " tokens_in, tokens_out, cached) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (time.time(), key_id, endpoint, engine, query, status, latency_ms,
+             tokens_in, tokens_out, int(cached)),
+        )
+
+    async def usage_summary(self, key_id: Optional[str] = None,
+                            since: float = 0.0) -> Dict[str, Any]:
+        where = " WHERE ts >= ?"
+        params: tuple = (since,)
+        if key_id:
+            where += " AND key_id = ?"
+            params += (key_id,)
+        total = await self.fetchone(
+            f"SELECT COUNT(*) AS n, SUM(tokens_in) AS ti, SUM(tokens_out) AS to_,"
+            f" SUM(cached) AS c FROM usage{where}",
+            params,
+        )
+        by_endpoint = await self.fetchall(
+            f"SELECT endpoint, COUNT(*) AS n FROM usage{where} GROUP BY endpoint"
+            f" ORDER BY n DESC",
+            params,
+        )
+        return {
+            "requests": total["n"] if total else 0,
+            "tokens_in": total["ti"] if total else 0,
+            "tokens_out": total["to_"] if total else 0,
+            "cached": total["c"] if total else 0,
+            "by_endpoint": by_endpoint,
+        }
+
+    # ------------------------------------------------------------------ cookies
+    async def cookie_load_all(self) -> Dict[str, Dict[str, str]]:
+        """Load all non-expired cookies grouped by engine."""
+        rows = await self.fetchall(
+            "SELECT engine, name, value FROM cookies WHERE expires_at = 0 OR expires_at > ?",
+            (time.time(),),
+        )
+        result: Dict[str, Dict[str, str]] = {}
+        for row in rows:
+            eng = row["engine"]
+            if eng not in result:
+                result[eng] = {}
+            result[eng][row["name"]] = row["value"]
+        return result
+
+    async def cookie_save(self, engine: str, cookies: Dict[str, str],
+                          ttl: int = 86400) -> None:
+        """Save cookies for an engine with a TTL."""
+        now = time.time()
+        expires = now + ttl
+        for name, value in cookies.items():
+            await self.execute(
+                "INSERT OR REPLACE INTO cookies (engine, name, value, created_at, expires_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (engine, name, value, now, expires),
+            )
+
+    async def cookie_clear(self, engine: Optional[str] = None) -> int:
+        """Delete cookies for an engine or all engines."""
+        if engine:
+            await self.execute("DELETE FROM cookies WHERE engine = ?", (engine,))
+        else:
+            await self.execute("DELETE FROM cookies")
+        row = await self.fetchone("SELECT changes() AS n")
+        return int(row.get("n", 0)) if row else 0
+
+    # ------------------------------------------------------------- proxy costs
+    async def proxy_cost_add(self, *, proxy_url: str, latency_ms: float,
+                             status: int, cost: float, engine: Optional[str] = None,
+                             success: bool = True) -> None:
+        await self.execute(
+            "INSERT INTO proxy_costs (proxy_url, request_ts, latency_ms, status,"
+            " cost, engine, success) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (proxy_url, time.time(), latency_ms, status, cost, engine, int(success)),
+        )
+
+    async def proxy_cost_summary(self, proxy_url: Optional[str] = None,
+                                 since: float = 0.0) -> Dict[str, Any]:
+        where = " WHERE request_ts >= ?"
+        params: tuple = (since,)
+        if proxy_url:
+            where += " AND proxy_url = ?"
+            params += (proxy_url,)
+        total = await self.fetchone(
+            f"SELECT COUNT(*) AS n, SUM(cost) AS total_cost,"
+            f" AVG(latency_ms) AS avg_latency,"
+            f" SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successes"
+            f" FROM proxy_costs{where}",
+            params,
+        )
+        by_proxy = await self.fetchall(
+            f"SELECT proxy_url, COUNT(*) AS n, SUM(cost) AS total_cost,"
+            f" AVG(latency_ms) AS avg_latency"
+            f" FROM proxy_costs{where} GROUP BY proxy_url ORDER BY n DESC",
+            params,
+        )
+        return {
+            "total_requests": total["n"] if total else 0,
+            "total_cost": round(total["total_cost"] or 0, 6) if total else 0,
+            "avg_latency_ms": round(total["avg_latency"] or 0, 1) if total else 0,
+            "successes": total["successes"] if total else 0,
+            "by_proxy": by_proxy,
+        }
+
+    # ---------------------------------------------------- tos acknowledgments
+    async def tos_ack_create(self, ack: Dict[str, Any]) -> None:
+        """Persist a ToS acknowledgment record (legal record-keeping)."""
+        await self.execute(
+            "INSERT OR REPLACE INTO tos_acknowledgments"
+            " (id, user_id, engine, tos_version, ip_address, user_agent, acknowledged_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                ack.get("id"),
+                ack.get("user_id"),
+                ack.get("engine"),
+                ack.get("tos_version"),
+                ack.get("ip_address"),
+                ack.get("user_agent"),
+                ack.get("acknowledged_at", time.time()),
+            ),
+        )
+
+    async def tos_ack_get(self, user_id: str, engine: str) -> Optional[Dict[str, Any]]:
+        """Return the latest ToS acknowledgment for a user+engine, if any."""
+        row = await self.fetchone(
+            "SELECT * FROM tos_acknowledgments WHERE user_id = ? AND engine = ?"
+            " ORDER BY acknowledged_at DESC LIMIT 1",
+            (user_id, engine),
+        )
+        return dict(row) if row else None
+
+    # ------------------------------------------------------------- role permissions (RBAC)
+    async def rbac_get_permissions(self, identity: str) -> List[str]:
+        """Get all permissions for an identity."""
+        rows = await self.fetchall(
+            "SELECT permission FROM role_permissions WHERE identity = ?",
+            (identity,),
+        )
+        return [row["permission"] for row in rows]
+
+    async def rbac_grant(self, identity: str, permission: str, granted_by: Optional[str] = None) -> None:
+        """Grant a permission to an identity."""
+        await self.execute(
+            "INSERT OR IGNORE INTO role_permissions (identity, permission, granted_at, granted_by)"
+            " VALUES (?, ?, ?, ?)",
+            (identity, permission, time.time(), granted_by),
+        )
+
+    async def rbac_revoke(self, identity: str, permission: str) -> None:
+        """Revoke a permission from an identity."""
+        await self.execute(
+            "DELETE FROM role_permissions WHERE identity = ? AND permission = ?",
+            (identity, permission),
+        )
+
+    async def rbac_set_role(self, identity: str, role: str, granted_by: Optional[str] = None) -> None:
+        """Replace all permissions for an identity with a role template."""
+        await self.execute("DELETE FROM role_permissions WHERE identity = ?", (identity,))
+        perms = ROLE_TEMPLATES.get(role, set())
+        now = time.time()
+        for perm in perms:
+            await self.execute(
+                "INSERT INTO role_permissions (identity, permission, granted_at, granted_by)"
+                " VALUES (?, ?, ?, ?)",
+                (identity, perm, now, granted_by),
+            )
+
+    async def rbac_list_by_permission(self, permission: str) -> List[str]:
+        """List all identities with a specific permission."""
+        rows = await self.fetchall(
+            "SELECT identity FROM role_permissions WHERE permission = ?",
+            (permission,),
+        )
+        return [row["identity"] for row in rows]
+
+    # ------------------------------------------------------------- sessions (JWT revocation)
+    async def session_create(self, jti: str, key_id: str, expires_at: float,
+                            user_agent: Optional[str] = None,
+                            ip_address: Optional[str] = None) -> None:
+        """Create a new session record for JWT revocation tracking."""
+        await self.execute(
+            "INSERT INTO sessions (jti, key_id, expires_at, created_at, user_agent, ip_address)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (jti, key_id, expires_at, time.time(), user_agent, ip_address),
+        )
+
+    async def session_revoke(self, jti: str) -> None:
+        """Revoke a session by JTI."""
+        await self.execute("UPDATE sessions SET revoked = 1 WHERE jti = ?", (jti,))
+
+    async def session_is_valid(self, jti: str) -> bool:
+        """Check if a session is still valid (not revoked and not expired)."""
+        row = await self.fetchone(
+            "SELECT revoked, expires_at FROM sessions WHERE jti = ?",
+            (jti,),
+        )
+        if row is None:
+            return False
+        if row["revoked"]:
+            return False
+        if time.time() > row["expires_at"]:
+            return False
+        return True
+
+    async def session_cleanup(self) -> int:
+        """Remove expired sessions. Returns count of deleted rows."""
+        await self.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        row = await self.fetchone("SELECT changes() AS n")
+        return int(row.get("n", 0)) if row else 0
+
+    async def session_list_for_key(self, key_id: str) -> List[Dict[str, Any]]:
+        """List all sessions for an API key."""
+        rows = await self.fetchall(
+            "SELECT * FROM sessions WHERE key_id = ? ORDER BY created_at DESC",
+            (key_id,),
+        )
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------- OIDC identities
+    async def oidc_get(self, provider: str, subject: str) -> Optional[Dict[str, Any]]:
+        """Get OIDC identity by provider + subject."""
+        row = await self.fetchone(
+            "SELECT * FROM oidc_identities WHERE provider = ? AND subject = ?",
+            (provider, subject),
+        )
+        return dict(row) if row else None
+
+    async def oidc_create(self, identity_id: str, provider: str, subject: str,
+                          email: Optional[str] = None, name: Optional[str] = None) -> None:
+        """Create a new OIDC identity."""
+        now = time.time()
+        await self.execute(
+            "INSERT INTO oidc_identities (id, provider, subject, email, name, created_at, last_login)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (identity_id, provider, subject, email, name, now, now),
+        )
+
+    async def oidc_update_last_login(self, identity_id: str) -> None:
+        """Update last login timestamp."""
+        await self.execute(
+            "UPDATE oidc_identities SET last_login = ? WHERE id = ?",
+            (time.time(), identity_id),
+        )
+
+    async def oidc_link_api_key(self, identity_id: str, key_id: str) -> None:
+        """Link an OIDC identity to an API key."""
+        await self.execute(
+            "INSERT OR IGNORE INTO oidc_api_keys (identity_id, key_id, linked_at)"
+            " VALUES (?, ?, ?)",
+            (identity_id, key_id, time.time()),
+        )
