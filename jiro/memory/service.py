@@ -887,3 +887,423 @@ class MemoryService:
 
         Returns whether vectors were actually used. Any incompatibility or
         provider failure leaves the lexical ranking untouched — the result is
+        still correct, just less well ordered.
+        """
+        embeddings = [r for r in records if r.embedding is not None]
+        if not embeddings:
+            return False
+        first = embeddings[0]
+        if not self._embeddings.compatible(
+            model=first.embedding_model,
+            dimensions=first.embedding_dimensions,
+        ):
+            log.debug("stored embeddings are from an incompatible model; "
+                      "skipping vector rerank", extra={
+                          "stored_model": first.embedding_model,
+                          "current_model": self._embeddings.model_id,
+                      })
+            return False
+        query_embedding = await self._embeddings.embed_one(query)
+        if query_embedding is None:
+            return False
+        similarities = {
+            r.id: _cosine(query_embedding.vector, r.embedding or [])
+            for r in embeddings
+        }
+        for item in ranked:
+            similarity = similarities.get(item.record.id)
+            if similarity is None:
+                continue
+            # Clamp into [0, 1]: cosine over text embeddings is often negative.
+            normalised = max(0.0, min(1.0, (similarity + 1.0) / 2.0))
+            item.breakdown["vector"] = normalised
+            item.score = (
+                0.7 * item.score + 0.3 * normalised
+            )
+        ranked.sort(key=lambda r: (-r.score, -r.record.importance,
+                                   -r.record.updated_at, r.record.id))
+        return True
+
+    # ============================================================== lifecycle
+    async def get(
+        self, memory_id: str, *, owner_key_id: Optional[str]
+    ) -> MemoryRecord:
+        record = await self._repo.get(memory_id, owner_key_id=owner_key_id)
+        if record is None:
+            raise MemoryNotFound(f"no such memory: {memory_id}",
+                                 details={"memory_id": memory_id})
+        return record
+
+    async def provenance(self, memory_id: str, *,
+                         owner_key_id: Optional[str]) -> Tuple[Provenance, ...]:
+        await self.get(memory_id, owner_key_id=owner_key_id)
+        return await self._repo.provenance_for(memory_id)
+
+    async def history(self, memory_id: str, *, owner_key_id: Optional[str],
+                      limit: int = 20) -> List[MemoryRecord]:
+        """The supersession chain around a record, newest first."""
+        await self.get(memory_id, owner_key_id=owner_key_id)
+        current = await self._repo.get(memory_id, owner_key_id=owner_key_id)
+        if current is None:  # pragma: no cover - get already raised otherwise
+            return []
+        seen = {current.id}
+        chain: List[MemoryRecord] = [current]
+        node = current.superseded_by_id
+        while node and node not in seen and len(chain) < limit:
+            seen.add(node)
+            nxt = await self._repo.get(node, owner_key_id=owner_key_id)
+            if nxt is None:
+                break
+            chain.append(nxt)
+            node = nxt.superseded_by_id
+        node = current.supersedes_id
+        while node and node not in seen and len(chain) < limit:
+            seen.add(node)
+            prev = await self._repo.get(node, owner_key_id=owner_key_id)
+            if prev is None:
+                break
+            chain.append(prev)
+            node = prev.supersedes_id
+        return chain
+
+    async def sweep_expired(self, *, limit: int = 500) -> int:
+        """Mark expired memories. Returns how many were expired.
+
+        Sweeping changes status rather than erasing: an expired working-memory
+        entry is disposable, but an expired fact may still be wanted as history.
+        """
+        now = self._clock()
+        expired = await self._repo.expired(now=now, limit=limit)
+        count_swept = 0
+        for record in expired:
+            updated = await self._repo.set_status(
+                record.id, owner_key_id=record.scope.owner_key_id,
+                status=MemoryStatus.EXPIRED, now=now,
+            )
+            if updated is not None and updated.status is MemoryStatus.EXPIRED:
+                count_swept += 1
+        if count_swept:
+            count("jiro_memory_expired_swept", float(count_swept))
+        return count_swept
+
+    async def apply_retention(self, *, limit: int = 500) -> int:
+        """Purge memories past their configured retention window.
+
+        Only types with a non-zero retention window are affected; a window of 0
+        means keep indefinitely.
+        """
+        now = self._clock()
+        removed = 0
+        for memory_type in (MemoryType.EPISODIC, MemoryType.SEMANTIC,
+                            MemoryType.PROCEDURAL):
+            window = self._config.retention_seconds(memory_type.value)
+            if not window:
+                continue
+            cutoff = now - window
+            # `expired` returns rows whose expires_at has passed, which is the
+            # same condition once retention has been applied at write time.
+            candidates = await self._repo.expired(now=cutoff, limit=limit)
+            for record in candidates:
+                if record.memory_type is not memory_type:
+                    continue
+                if await self._repo.purge(
+                    owner_key_id=record.scope.owner_key_id, memory_id=record.id):
+                    removed += 1
+        if removed:
+            count("jiro_memory_retention_purged", float(removed))
+        return removed
+
+    # ================================================================ deletion
+    async def delete(
+        self, memory_id: str, *, owner_key_id: Optional[str], hard: bool = False
+    ) -> Dict[str, Any]:
+        """Delete one memory and report what was actually done.
+
+        Returns a verification payload so the caller can check the claim instead
+        of trusting it. Idempotent: deleting an already-deleted memory succeeds
+        with the same shape.
+        """
+        record = await self._repo.get(memory_id, owner_key_id=owner_key_id)
+        if record is None or record.status is MemoryStatus.DELETED:
+            # Already gone, or already marked deleted. Still idempotent, and we
+            # report honestly which of the two it was.
+            absent = await self.verify_deleted(
+                memory_id, owner_key_id=owner_key_id, hard=hard)
+            return {
+                "memory_id": memory_id, "deleted": True, "hard": hard,
+                "already_absent": True, "verification": absent,
+            }
+        now = self._clock()
+        if hard:
+            await self._repo.purge(
+                owner_key_id=owner_key_id, memory_id=memory_id)
+        else:
+            await self._repo.soft_delete(
+                owner_key_id=owner_key_id, memory_id=memory_id, now=now)
+        absent = await self.verify_deleted(
+            memory_id, owner_key_id=owner_key_id, hard=hard)
+        count("jiro_memory_deleted")
+        log.info("memory deleted", extra={
+            "memory_id": memory_id, "type": record.memory_type.value,
+            "hard": hard, "owner_key_id": owner_key_id,
+            "verified": absent,
+        })
+        return {
+            "memory_id": memory_id, "deleted": True, "hard": hard,
+            "already_absent": False, "verification": absent,
+        }
+
+    async def delete_source(
+        self, *, source_kind: str, source_id: str,
+        owner_key_id: Optional[str], hard: bool = False,
+    ) -> Dict[str, Any]:
+        """Delete a source and everything derived from it.
+
+        Derived memories are found through their provenance rows, so the
+        dependency edge is real rather than inferred. Verification confirms that
+        nothing derived remains reachable.
+        """
+        dependents = await self._repo.dependents_of_source(
+            source_kind=source_kind, source_id=source_id)
+        scoped = [r for r in dependents
+                  if owner_key_id is None or r.scope.owner_key_id == owner_key_id]
+        now = self._clock()
+        deleted: List[str] = []
+        for record in scoped:
+            if hard:
+                await self._repo.purge(
+                    owner_key_id=record.scope.owner_key_id, memory_id=record.id)
+            else:
+                await self._repo.soft_delete(
+                    owner_key_id=record.scope.owner_key_id,
+                    memory_id=record.id, now=now)
+            deleted.append(record.id)
+        count("jiro_memory_source_deleted", float(len(deleted)))
+        log.info("memory source deleted", extra={
+            "source_kind": source_kind, "source_id": source_id,
+            "derived_removed": len(deleted), "hard": hard,
+        })
+        return {
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "derived_removed": len(deleted),
+            "derived_memory_ids": deleted,
+            "hard": hard,
+        }
+
+    async def verify_deleted(
+        self, memory_id: str, *, owner_key_id: Optional[str], hard: bool = False
+    ) -> Dict[str, Any]:
+        """Report exactly what remains for a memory after a deletion attempt."""
+        absent = await self._repo.verify_absent(
+            owner_key_id=owner_key_id, memory_id=memory_id)
+        record = await self._repo.get(memory_id, owner_key_id=owner_key_id)
+        reachable = False
+        if record is not None:
+            page = await self._repo.search(RetrievalQuery(
+                owner_key_id=owner_key_id, limit=1,
+                status=(MemoryStatus.ACTIVE,),
+            ))
+            reachable = any(r.id == memory_id for r in page.hits)
+        return {
+            "memory_id": memory_id,
+            "row_present": absent["row_present"],
+            "physically_erased": absent["row_present"] is False,
+            "marked_deleted": absent["status_deleted"],
+            "residual_detail_rows": absent["detail_rows"],
+            "residual_search_rows": absent["search_rows"],
+            "returned_by_retrieval": reachable,
+            "hard_delete": hard,
+            "guarantee": (
+                "row physically removed" if hard and not absent["row_present"]
+                else "row marked deleted and excluded from retrieval; "
+                     "physical erasure requires hard delete"
+            ),
+        }
+
+    # ================================================================ helpers
+    async def _require_owner(self, memory_id: str, scope: MemoryScope) -> None:
+        record = await self._repo.get(memory_id, owner_key_id=scope.owner_key_id)
+        if record is None:
+            raise MemoryNotFound(f"no such memory: {memory_id}",
+                                 details={"memory_id": memory_id})
+
+    def _require_enabled(self) -> None:
+        if not self._config.enabled:
+            raise MemoryNotDeletable(
+                "memory is disabled by configuration; writes are refused",
+                details={"hint": "set memory.enabled: true"},
+            )
+
+    def _resolve_limit(self, limit: Optional[int]) -> int:
+        if limit is None:
+            return self._config.default_retrieval_limit
+        try:
+            value = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise MemoryValidationError("limit must be an integer") from exc
+        if value < 1:
+            raise MemoryValidationError("limit must be >= 1",
+                                        details={"value": value})
+        return min(value, self._config.max_retrieval_limit)
+
+    def _expiry_for(self, memory_type: MemoryType, now: float) -> Optional[float]:
+        window = self._config.retention_seconds(memory_type.value)
+        return (now + window) if window else None
+
+    async def _persist(
+        self,
+        memory_type: MemoryType,
+        record: MemoryRecord,
+        *,
+        fact: Optional[MemoryFact] = None,
+        procedure: Optional[MemoryProcedure] = None,
+        provenance: Tuple[Provenance, ...] = (),
+        claim_key: Optional[str] = None,
+    ) -> Tuple[MemoryRecord, bool]:
+        """Insert or deduplicate, within the per-scope ceiling."""
+        await self._enforce_scope_ceiling(record.scope, memory_type)
+        item = NewMemory(record=record, fact=fact, procedure=procedure,
+                         provenance=provenance, fact_claim_key=claim_key)
+        stored, created = await self._repo.upsert(item, now=record.created_at)
+        if created:
+            count(f"jiro_memory_{memory_type.value}_written")
+            await self._maybe_queue_embedding(stored)
+        return stored, created
+
+    async def _enforce_scope_ceiling(
+        self, scope: MemoryScope, memory_type: MemoryType
+    ) -> None:
+        total = await self._repo.scope_count(
+            owner_key_id=scope.owner_key_id, memory_type=None)
+        if total >= self._config.max_memories_per_scope:
+            raise MemoryLimitExceeded(
+                f"memory ceiling of {self._config.max_memories_per_scope} "
+                f"reached for this owner",
+                details={"limit": self._config.max_memories_per_scope,
+                         "type": memory_type.value},
+            )
+
+    async def _maybe_queue_embedding(self, record: MemoryRecord) -> None:
+        """Schedule an optional vector. Never inline, never blocking.
+
+        Vectorisation is asynchronous by design: doing it in the write path would
+        tie memory durability to provider latency.
+        """
+        if not self._embeddings.available():
+            await self._repo.set_embedding(
+                record.id, vector=None, model="", dimensions=0,
+                status=EmbeddingStatus.DISABLED)
+            return
+        await self._repo.set_embedding(
+            record.id, vector=None, model="", dimensions=0,
+            status=EmbeddingStatus.MISSING)
+
+    async def embed_pending(
+        self, *, limit: int = 50
+    ) -> Dict[str, Any]:
+        """Background pass that fills in vectors for records missing them.
+
+        Separate from the write path so a slow or absent provider cannot delay
+        memory writes. Safe to call concurrently: the ``MISSING`` status filter
+        plus per-id update makes a duplicate pass idempotent.
+        """
+        if not self._embeddings.available():
+            return {"processed": 0, "embedded": 0, "failed": 0,
+                    "reason": self._embeddings.health.disabled_reason}
+        page = await self._repo.search(RetrievalQuery(
+            owner_key_id=None, limit=limit,
+            status=(MemoryStatus.ACTIVE,),
+        ))
+        candidates = [
+            r for r in page.hits
+            if isinstance(r, MemoryRecord)
+            and r.embedding_status in (EmbeddingStatus.MISSING,
+                                       EmbeddingStatus.FAILED)
+            and r.content_text
+        ]
+        embedded = 0
+        failed = 0
+        for record in candidates:
+            result = await self._embeddings.embed_one(record.content_text[:4000])
+            if result is None or result.is_degenerate():
+                await self._repo.set_embedding(
+                    record.id, vector=None, model="", dimensions=0,
+                    status=EmbeddingStatus.FAILED)
+                failed += 1
+                continue
+            await self._repo.set_embedding(
+                record.id, vector=result.vector, model=result.model,
+                dimensions=result.dimensions, status=EmbeddingStatus.READY)
+            embedded += 1
+        if embedded or failed:
+            count("jiro_memory_embedded", float(embedded))
+            count("jiro_memory_embed_failed", float(failed))
+        return {"processed": len(candidates), "embedded": embedded,
+                "failed": failed}
+
+    async def near_duplicates(
+        self, content_text: str, *, scope: MemoryScope,
+        memory_type: MemoryType, threshold: float = 0.9,
+    ) -> List[MemoryRecord]:
+        """Candidates that look textually similar.
+
+        A *review* signal only. Nothing is ever merged automatically on this
+        basis: two records with different sources or verification states stay
+        separate regardless of how similar they read.
+        """
+        page = await self._repo.search(RetrievalQuery(
+            owner_key_id=scope.owner_key_id,
+            types=(memory_type,),
+            limit=200,
+        ))
+        return [
+            r for r in page.hits
+            if isinstance(r, MemoryRecord)
+            and r.id != getattr(content_text, "id", "")
+            and near_duplicate(content_text, r.content_text, threshold=threshold)
+        ]
+
+
+def clean_title(text: str) -> str:
+    """Derive a short title from body text when the caller supplied none."""
+    normalised = normalise_text(text)
+    if not normalised:
+        return "memory"
+    return normalised[:80]
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    from jiro.memory.embeddings import cosine
+
+    return cosine(left, right)
+
+
+def _select_within_budget(
+    ranked: List[Tuple[Any, float, Dict[str, float], str]],
+    *, max_memories: int, total_budget_chars: int, per_memory_budget: int,
+) -> List[Any]:
+    """Pick the records that fit, stopping at the first that does not.
+
+    Never truncates a memory that would then look complete: a half-memory in a
+    prompt is worse than no memory.
+    """
+    selected: List[Any] = []
+    used = 0
+    for item in ranked[:max_memories]:
+        record = item[0]
+        size = len(record.content_text or record.title)
+        allowance = min(per_memory_budget, total_budget_chars - used)
+        if size > allowance:
+            break
+        selected.append(item)
+        used += size
+    return selected
+
+
+def _with_claim_key(fact: MemoryFact, claim_key: str) -> MemoryFact:
+    """Deprecated shim. The claim key is carried on :class:`NewMemory`."""
+    return fact
+
+
+__all__ = ["Contradiction", "MemoryService"]
