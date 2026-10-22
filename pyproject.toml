@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jirosearch"
-version = "0.3.3"
+version = "0.4.0"
 description = "Local-first, AI-native web search & scraping API with 12 social platforms, hybrid search, structured extraction, and Pro tier. A drop-in SerpAPI alternative with MCP server, agentic research, and built-in legal compliance."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -112,6 +112,22 @@ target-version = "py311"
 "jiro/scraping/social/__init__.py" = ["E402"]
 "jiro/secrets.py" = ["E741"]
 "jiro/telemetry.py" = ["E741"]
+# Runtime tests re-export shared pytest fixtures by importing them; ruff reads
+# the imported names as ordinary variables and then flags every parameter that
+# shadows one (F811). F401 is part of the same re-export idiom.
+"tests/conftest_runtime.py" = ["F401"]
+"tests/test_runtime_lifecycle.py" = ["F401", "F811"]
+"tests/test_runtime_persistence.py" = ["F401", "F811"]
+"tests/test_runtime_integration.py" = ["F401", "F811"]
+"tests/test_runtime_recovery.py" = ["F401", "F811"]
+"tests/test_runtime_api.py" = ["F401", "F811"]
+"tests/conftest_memory.py" = ["F401"]
+"tests/test_memory_domain.py" = ["F401", "F811"]
+"tests/test_memory_persistence.py" = ["F401", "F811"]
+"tests/test_memory_retrieval.py" = ["F401", "F811"]
+"tests/test_memory_types.py" = ["F401", "F811"]
+"tests/test_memory_security.py" = ["F401", "F811"]
+"tests/test_memory_integration.py" = ["F401", "F811"]
 
 [tool.mypy]
 python_version = "3.11"

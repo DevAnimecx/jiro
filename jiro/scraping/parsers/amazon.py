@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import Node
+from selectolax.lexbor import LexborNode as Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse

@@ -20,7 +20,7 @@ import time
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
-from selectolax.parser import HTMLParser
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
 from jiro.browser import BrowserFetcher, playwright_available
 from jiro.proxy import ProxyManager
@@ -369,7 +369,8 @@ class EngineCookieJar:
 
 
 class ScrapingClient:
-    def __init__(self, settings: Settings, db: Optional[Any] = None) -> None:
+    def __init__(self, settings: Settings, db: Optional[Any] = None, *,
+                 allow_private_targets: bool = False) -> None:
         self.settings = settings
         self.timeout = settings.timeout
         self.retries = settings.retries
@@ -384,6 +385,10 @@ class ScrapingClient:
         ) else None
         self._curl_sessions: Dict[str, Any] = {}  # per-engine curl_cffi sessions
         self._client: Any = None  # httpx fallback
+        # Pooled httpx clients, keyed by proxy URL, so proxied requests reuse
+        # connections instead of handshaking per request.
+        self._proxy_clients: Dict[str, Any] = {}
+        self._proxy_clients_lock: asyncio.Lock = asyncio.Lock()
         self._db = db  # for proxy cost tracking
         self._proxy_costs: Dict[str, List[float]] = {}  # per-proxy latencies
         # SSRF guard: refuse to scrape the server's own host.
@@ -393,6 +398,10 @@ class ScrapingClient:
             own_hosts.append(host)
         own_hosts.append("localhost")
         self._own_hosts = own_hosts
+        # Permit private/loopback scrape targets. Off by default and never
+        # enabled from user input: it exists so an integration test can point
+        # the client at a controlled local fixture server.
+        self._allow_private_targets = bool(allow_private_targets)
         # robots.txt enforcement for user-supplied scrape targets.
         robots_cfg = settings.robots_txt
         self._respect_robots = bool(robots_cfg.get("enabled", True))
@@ -447,6 +456,13 @@ class ScrapingClient:
             except Exception:
                 pass
         self._curl_sessions.clear()
+        for proxy_client in list(self._proxy_clients.values()):
+            try:
+                if not getattr(proxy_client, "is_closed", False):
+                    await proxy_client.aclose()
+            except Exception:
+                pass
+        self._proxy_clients.clear()
         if self._client is not None:
             try:
                 if hasattr(self._client, 'is_closed') and not self._client.is_closed:
@@ -523,7 +539,9 @@ class ScrapingClient:
         # SSRF + robots defenses apply only to user-controlled scrape targets.
         if engine == "scrape":
             try:
-                await async_validate_target_url(url, own_hosts=self._own_hosts)
+                await async_validate_target_url(
+                    url, allow_private=self._allow_private_targets,
+                    own_hosts=self._own_hosts)
             except ValueError as exc:
                 raise SSRFError(str(exc), details={"url": url})
             if self._respect_robots:
@@ -540,6 +558,12 @@ class ScrapingClient:
 
         proxy = self._next_proxy()
         last_error: Optional[Exception] = None
+        # Bound the whole retry sequence, not just each attempt. The adaptive
+        # backoff is (2**attempt) * uniform(min, max), which for google is 3-7s
+        # on the first retry alone and compounds past a minute across attempts;
+        # an unbounded tail is indistinguishable to a caller from a hang.
+        retry_budget_s = float(self.settings.get("scraping.retry_budget_seconds", 20.0))
+        retry_deadline = time.monotonic() + retry_budget_s
 
         for attempt in range(self.retries + 1):
             try:
@@ -588,6 +612,10 @@ class ScrapingClient:
                 # Adaptive delay based on engine to avoid detection
                 min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
                 delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                # Stop retrying once the sequence budget is spent rather than
+                # sleeping past it: the caller gets the real error sooner.
+                if time.monotonic() + delay > retry_deadline:
+                    break
                 await asyncio.sleep(delay)
 
         assert last_error is not None
@@ -616,6 +644,12 @@ class ScrapingClient:
         await self.rate_limiter.acquire(engine)
         proxy = self._next_proxy()
         last_error: Optional[Exception] = None
+        # Bound the whole retry sequence, not just each attempt. The adaptive
+        # backoff is (2**attempt) * uniform(min, max), which for google is 3-7s
+        # on the first retry alone and compounds past a minute across attempts;
+        # an unbounded tail is indistinguishable to a caller from a hang.
+        retry_budget_s = float(self.settings.get("scraping.retry_budget_seconds", 20.0))
+        retry_deadline = time.monotonic() + retry_budget_s
 
         for attempt in range(self.retries + 1):
             try:
@@ -657,6 +691,10 @@ class ScrapingClient:
             if attempt < self.retries:
                 min_d, max_d = _ADAPTIVE_DELAYS.get(engine, (0.5, 2.0))
                 delay = (2 ** attempt) * random.uniform(min_d, max_d)
+                # Stop retrying once the sequence budget is spent rather than
+                # sleeping past it: the caller gets the real error sooner.
+                if time.monotonic() + delay > retry_deadline:
+                    break
                 await asyncio.sleep(delay)
 
         assert last_error is not None
@@ -694,13 +732,17 @@ class ScrapingClient:
                                    extra_headers, proxy):
         """POST via httpx."""
         h = await self._headers(engine, extra_headers)
+        if proxy:
+            # Reuse the pooled per-proxy client rather than paying a fresh
+            # handshake for every POST.
+            client = await self._proxy_client(proxy)
+            return await client.post(url, data=data, json=json, params=params,
+                                     headers=h)
         async with httpx.AsyncClient(
             timeout=self.timeout, follow_redirects=True, trust_env=False,
-            proxy=proxy,
         ) as client:
-            resp = await client.post(url, data=data, json=json, params=params,
-                                      headers=h)
-        return resp
+            return await client.post(url, data=data, json=json, params=params,
+                                     headers=h)
 
     async def _enforce_robots(self, url: str) -> None:
         """Best-effort robots.txt gate for user-supplied scrape targets.
@@ -774,10 +816,13 @@ class ScrapingClient:
         if chain:
             headers["Referer"] = chain[-1]
 
-        import time as _time
-        start = _time.monotonic()
-        resp = await session.get(url, params=params, headers=headers, proxy=proxy)
-        latency_ms = (_time.monotonic() - start) * 1000
+        start = time.monotonic()
+        # Pass the timeout per request. Relying on the session-level value alone
+        # has proven unreliable here, and an origin that never responds would
+        # otherwise hang the caller indefinitely.
+        resp = await session.get(url, params=params, headers=headers, proxy=proxy,
+                                 timeout=self.timeout)
+        latency_ms = (time.monotonic() - start) * 1000
 
         # Update cookie jar from response
         set_cookies = resp.headers.get_list("set-cookie") if hasattr(resp.headers, 'get_list') else []
@@ -798,22 +843,37 @@ class ScrapingClient:
         # Build a response-like object for compatibility
         return _CurlResponseAdapter(resp)
 
+    async def _proxy_client(self, proxy: str) -> httpx.AsyncClient:
+        """A pooled AsyncClient for one proxy.
+
+        Building a fresh `httpx.AsyncClient` per request threw away the
+        connection pool, so every proxied request paid a new TCP and TLS
+        handshake. Clients are cached per proxy and closed with the scraper.
+        """
+        async with self._proxy_clients_lock:
+            existing = self._proxy_clients.get(proxy)
+            if existing is not None and not existing.is_closed:
+                return existing
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+                follow_redirects=True,
+                http2=_HTTP2_AVAILABLE,
+                trust_env=False,
+                proxy=proxy,
+            )
+            self._proxy_clients[proxy] = client
+            return client
+
     async def _request_httpx(self, url: str, *, params: Optional[Dict[str, Any]],
                              engine: str, extra_headers: Optional[Dict[str, str]],
                              proxy: Optional[str]) -> Any:
         """Request via httpx (fallback)."""
         client = await self.client()
+        headers = await self._headers(engine, extra_headers)
         if proxy:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-                headers=await self._headers(engine, extra_headers),
-                http2=_HTTP2_AVAILABLE,
-                trust_env=False,
-                proxy=proxy,
-            ) as proxy_client:
-                return await proxy_client.get(url, params=params)
-        return await client.get(url, params=params, headers=await self._headers(engine, extra_headers))
+            proxy_client = await self._proxy_client(proxy)
+            return await proxy_client.get(url, params=params, headers=headers)
+        return await client.get(url, params=params, headers=headers)
 
     async def get_rendered(self, url: str, *, engine: str,
                            params: Optional[Dict[str, Any]] = None) -> str:

@@ -1,0 +1,45 @@
+version: 1
+# Every public performance number must point at a committed artifact.
+# The release job fails if an artifact is missing, stale, or below target.
+claims:
+  - id: speed-2x
+    public: "2x faster on multi-source research"
+    metric: wall_clock_p50_seconds
+    baseline: "0.3.3"
+    workload: research_5q_10src
+    target_ratio: 2.0
+    artifact: docs/v0.4.0/benchmarks/speed.json
+    owner: engine
+    required: true
+
+  - id: efficiency-3x
+    public: "3x fewer tokens per verified citation"
+    metric: tokens_per_verified_citation
+    baseline: raw_markdown
+    workload: research_5q_10src
+    target_ratio: 3.0
+    quality_gate: required
+    # Publishing the measured ratio while the non-inferiority gate is still
+    # pending is a deliberate, recorded choice, not an oversight. The caveat
+    # must appear verbatim next to any public use of the number, and the claim
+    # reverts to unreleased if the gate later fails.
+    caveat: "quality non-inferiority gate pending: 30 LLM-judge runs and 50 blind human spot checks have not been run, so this ratio is unverified for equivalent answer quality"
+    artifact: docs/v0.4.0/benchmarks/efficiency.json
+    owner: evidence
+    required: true
+
+  - id: citation-complete
+    public: "every claim cites a source"
+    metric: non_gap_claims_with_source_ratio
+    target: 1.0
+    artifact: docs/v0.4.0/benchmarks/citations.json
+    owner: evidence
+    required: true
+
+  - id: setup-15
+    public: "15+ agents, one command"
+    metric: tier_a_clients_passing
+    target: 15
+    artifact: docs/v0.4.0/benchmarks/setup.json
+    owner: fabric
+    required: true

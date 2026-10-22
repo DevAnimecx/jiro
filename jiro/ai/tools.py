@@ -311,6 +311,41 @@ def mcp_tools() -> List[Dict[str, Any]]:
                         "Use to understand caching behavior and debug stale results. "
                         "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "task_submit",
+         "description": "Submit a durable background task. The task is persisted "
+                        "before it is accepted, so it survives a restart. Returns "
+                        "the task id immediately; use task_status to check on it. "
+                        "Supported types: ai_search (query), ai_agent (goal), "
+                        "batch_scrape (urls). Example: "
+                        "{'type': 'ai_search', 'payload': {'query': 'x'}}.",
+         "inputSchema": {"type": "object", "properties": {
+             "type": {"type": "string",
+                      "description": "ai_search | ai_agent | batch_scrape"},
+             "payload": {"type": "object",
+                         "description": "Task input, validated against the type's schema"},
+             "idempotency_key": {"type": "string",
+                                 "description": "Repeat key returns the same task"},
+             "max_attempts": {"type": "integer", "description": "1-10",
+                              "minimum": 1, "maximum": 10},
+             "timeout": {"type": "integer", "description": "Attempt timeout seconds",
+                          "minimum": 1}},
+             "required": ["type", "payload"]}},
+        {"name": "task_status",
+         "description": "Check a durable task's state (queued, running, retry_wait, "
+                        "succeeded, failed, cancelled) and its result if finished. "
+                        "Example: {'task_id': 'task_abc123'}.",
+         "inputSchema": {"type": "object", "properties": {
+             "task_id": {"type": "string", "description": "Task id from task_submit"},
+             "include_result": {"type": "boolean", "default": True}},
+             "required": ["task_id"]}},
+        {"name": "task_cancel",
+         "description": "Cancel a durable task. Queued tasks stop immediately. A "
+                        "running task is asked to stop; it reports 'running' with "
+                        "cancel_requested until its work actually finishes. "
+                        "Example: {'task_id': 'task_abc123'}.",
+         "inputSchema": {"type": "object", "properties": {
+             "task_id": {"type": "string", "description": "Task id from task_submit"}},
+             "required": ["task_id"]}},
         {"name": "list_engines",
          "description": "List all available search engines with supported types (web, images, news, videos, shopping, places) and capabilities. "
                         "Use to discover what search types each engine supports. "
@@ -321,6 +356,70 @@ def mcp_tools() -> List[Dict[str, Any]]:
                         "Use to discover what social platforms and actions are available. "
                         "Example: no arguments needed.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "search_graph",
+         "description": "Run a budgeted query graph: concurrent search, optional page fetch, "
+                        "merge, and a cited evidence packet under a hard deadline. "
+                        "Use this instead of multiple separate search calls for multi-source research. "
+                        "Returns results, a packet with claims/sources, gaps, timings, and budget usage. "
+                        "Example: query='latest AI regulation in the EU', max_tokens=1200, fetch_top=3.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal or question",
+                       "minLength": 1, "maxLength": 500},
+             "engine": {"type": "string", "default": "auto",
+                        "description": "Primary engine or 'auto'"},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
+                     "description": "Results per search node"},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200, "description": "Evidence packet token budget"},
+             "deadline_ms": {"type": "integer", "minimum": 100, "maximum": 60000,
+                             "default": 2500, "description": "Hard wall-clock deadline"},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0,
+                           "description": "Fetch and extract the top N result pages"},
+             "intent": {"type": "string",
+                        "description": "Optional plan override: fact_lookup, news_check, comparison, entity_profile, howto, social_signal, scrape"},
+         }, "required": ["query"]}},
+        {"name": "plan_search",
+         "description": "Dry-run a query graph without network calls. Returns the validated graph, "
+                        "cost estimate, rationale, and a cheaper alternative. Use to inspect or "
+                        "budget a research task before running it.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal or question",
+                       "minLength": 1, "maxLength": 500},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200},
+             "deadline_ms": {"type": "integer", "minimum": 100, "maximum": 60000,
+                             "default": 2500},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0},
+             "intent": {"type": "string"},
+         }, "required": ["query"]}},
+        {"name": "session_handoff",
+         "description": "Produce a structured handoff brief for another agent: the goal, the "
+                        "evidence ids behind it, what is still open, contradictions found, "
+                        "budget left, and the suggested next node. Use this instead of a "
+                        "free-text summary when passing work to a planner, retriever, "
+                        "verifier or writer agent, so the receiver gets ids it can resolve "
+                        "rather than prose it has to re-derive. "
+                        "Example: query='latest AI regulation in the EU', role='verifier'.",
+         "inputSchema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Research goal being handed over",
+                       "minLength": 1, "maxLength": 500},
+             "role": {"type": "string",
+                      "enum": ["planner", "retriever", "verifier", "writer", "observer"],
+                      "default": "writer",
+                      "description": "Role of the agent receiving the handoff"},
+             "engine": {"type": "string", "default": "auto"},
+             "num": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+             "max_tokens": {"type": "integer", "minimum": 64, "maximum": 32000,
+                            "default": 1200},
+             "deadline_ms": {"type": "integer", "minimum": 0, "maximum": 60000,
+                             "default": 0,
+                             "description": "0 derives the deadline from observed latency"},
+             "fetch_top": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0},
+             "intent": {"type": "string"},
+             "graph_id": {"type": "string",
+                          "description": "Hand over an existing run instead of starting one"},
+         }, "required": ["query"]}},
     ]
 
 

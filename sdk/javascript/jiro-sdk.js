@@ -60,7 +60,7 @@
  * @property {number} [timeout] - Request timeout in milliseconds
  */
 
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 
 /**
  * Base error class for Jiro SDK errors.
@@ -241,6 +241,61 @@ class JiroClient {
       type: options.type || 'web',
       location: options.location || 'us',
       language: options.language || 'en',
+    });
+  }
+
+  /**
+   * Plan a query graph without touching the network (v0.4.0).
+   *
+   * Returns the validated graph, a cost estimate, and the rationale for the
+   * shape chosen.
+   *
+   * @param {string} query - Search query
+   * @param {Object} [options={}] - Plan options
+   * @param {string} [options.engine='auto'] - Engine, or 'auto' to let the planner choose
+   * @param {number} [options.num=5] - Number of search results to consider
+   * @param {number} [options.maxTokens] - Token ceiling for the evidence packet
+   * @param {number} [options.deadlineMs] - Wall-clock ceiling for the run
+   * @param {number} [options.maxNodes=12] - Maximum nodes the graph may contain
+   * @param {number} [options.fetchTop] - How many top results to fetch in full
+   * @param {string} [options.intent] - Force an intent instead of detecting it
+   * @returns {Promise<Object>} { graph, estimate, rationale, alternatives }
+   */
+  async planSearch(query, options = {}) {
+    return this._request('POST', '/v1/graph/plan', {
+      query,
+      engine: options.engine || 'auto',
+      num: options.num || 5,
+      max_tokens: options.maxTokens ?? null,
+      deadline_ms: options.deadlineMs ?? null,
+      max_nodes: options.maxNodes || 12,
+      fetch_top: options.fetchTop ?? null,
+      intent: options.intent ?? null,
+    });
+  }
+
+  /**
+   * Execute a query graph and return the run plus its evidence packet (v0.4.0).
+   *
+   * The run carries `packet.claims`, each with the `source_ids` it rests on, so
+   * an answer can be checked back to the pages that produced it.
+   *
+   * @param {string} query - Search query
+   * @param {Object} [options={}] - Search options (as planSearch, plus includePlan)
+   * @param {boolean} [options.includePlan=false] - Also return the executed graph
+   * @returns {Promise<Object>} Run with graph_id, status, duration_ms, budget, packet
+   */
+  async searchGraph(query, options = {}) {
+    return this._request('POST', '/v1/graph/search', {
+      query,
+      engine: options.engine || 'auto',
+      num: options.num || 5,
+      max_tokens: options.maxTokens ?? null,
+      deadline_ms: options.deadlineMs ?? null,
+      max_nodes: options.maxNodes || 12,
+      fetch_top: options.fetchTop ?? null,
+      intent: options.intent ?? null,
+      include_plan: options.includePlan || false,
     });
   }
 

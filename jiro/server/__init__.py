@@ -107,6 +107,9 @@ def create_app(settings: Optional[Settings] = None,
         app.state.orchestrator = orchestrator
         app.state.llm = llm
         app.state.agent = agent
+        from jiro.graph.service import GraphService
+
+        app.state.graph_service = GraphService(settings, orchestrator, scraper_client, cache)
         app.state.compliance_manager = compliance
         app.state.audit_logger = compliance_audit
         app.state.settings = settings
@@ -116,6 +119,57 @@ def create_app(settings: Optional[Settings] = None,
 
         app.state.captcha = CaptchaSolver(settings)
         app.state.jobs = JobManager(db)
+
+        # --- cognitive memory (v0.4.0 Phase 2) ------------------------------
+        # Built before the runtime so terminal tasks can record episodes, and
+        # stopped before the database closes so an in-flight drain can commit.
+        from jiro.memory.app import (
+            build_memory_service,
+            episode_hook,
+            register_memory_handlers,
+        )
+
+        memory_service = await build_memory_service(settings, db)
+        app.state.memory = memory_service.service if memory_service else None
+        app.state.memory_outbox = memory_service.outbox if memory_service else None
+        app.state.memory_bridge = memory_service.bridge if memory_service else None
+
+        # --- durable task runtime -------------------------------------------
+        # Started after the collaborators the built-in handlers need exist, and
+        # stopped before the database closes so in-flight attempts can still
+        # record their outcome.
+        from jiro.runtime import HandlerRegistry, TaskRuntime
+        from jiro.runtime.builtin import register_builtin_handlers
+        from jiro.runtime.metrics import make_metrics_sink
+
+        task_registry = HandlerRegistry()
+        register_builtin_handlers(task_registry, services=app.state)
+        register_memory_handlers(
+            task_registry, service=memory_service.service if memory_service else None)
+        runtime = await TaskRuntime.create(
+            settings, db, task_registry, metrics=make_metrics_sink(),
+            on_terminal=episode_hook(memory_service.bridge
+                                     if memory_service else None))
+        recovery = await runtime.start()
+        app.state.runtime = runtime
+        app.state.task_registry = task_registry
+        # Task handlers reach the memory service through `ctx.runtime`; attaching
+        # it here keeps that lookup from reaching into app state.
+        runtime.memory_service = memory_service.service if memory_service else None
+        # The legacy /jobs facade now executes through the same runtime.
+        app.state.jobs.bind(runtime)
+        log.info("durable task runtime ready", extra={
+            "instance_id": runtime.instance_id,
+            "workers": runtime.config.max_concurrency,
+            "recovered": recovery.total_changed,
+            "task_types": task_registry.type_names(),
+        })
+        if memory_service is not None:
+            await memory_service.outbox.start()
+            log.info("memory system ready", extra={
+                "enabled": memory_service.service.config.enabled,
+                "embedding": memory_service.service.stats()["embedding"]["enabled"],
+            })
 
         # MCP over HTTP: shared protocol engine + session store
         mcp_server = JiroMCPServer(settings)
@@ -141,6 +195,12 @@ def create_app(settings: Optional[Settings] = None,
         try:
             yield
         finally:
+            # Stop the runtime first: its workers still need a live database to
+            # record the outcome of anything they are finishing, and the memory
+            # outbox still needs to drain what those outcomes queued.
+            await runtime.stop()
+            if memory_service is not None:
+                await memory_service.outbox.stop()
             cleanup_task.cancel()
             await mcp_server.stop()
             await scraper_client.close()
@@ -338,12 +398,14 @@ def _add_favicon(app: FastAPI) -> None:
 
 
 def _mount_routers(app: FastAPI) -> None:
-    from jiro.server.routers import admin, ai, analytics, compliance, jobs, ops, plugins, scrape, search, smart, social, stream, system
+    from jiro.server.routers import admin, ai, analytics, compliance, graph, jobs, ops, params, plugins, scrape, search, smart, social, stream, system, tasks
     from jiro.server.routers import enterprise
     from jiro.server.routers import analytics_v2
 
     app.include_router(system.router)
     app.include_router(search.router)
+    app.include_router(graph.router)
+    app.include_router(params.router)
     app.include_router(scrape.router)
     app.include_router(ai.router)
     app.include_router(smart.router)
@@ -351,6 +413,7 @@ def _mount_routers(app: FastAPI) -> None:
     app.include_router(stream.router)
     app.include_router(admin.router)
     app.include_router(jobs.router)
+    app.include_router(tasks.router)
     app.include_router(ops.router)
     app.include_router(analytics.router)
     app.include_router(compliance.router)

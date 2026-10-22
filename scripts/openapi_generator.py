@@ -18,7 +18,7 @@ def generate_openapi_spec() -> Dict[str, Any]:
         "openapi": "3.1.0",
         "info": {
             "title": "Jiro Search API",
-            "version": "0.3.1",
+            "version": "0.4.0",
             "description": "Local-first web search, scraping, and social media intelligence platform. "
                           "Supports 9+ search engines, 12 social platforms, hybrid search, structured extraction, "
                           "and smart intent routing.",
@@ -576,7 +576,7 @@ openapi-generator-cli generate \\
     -g python \\
     -o sdk/python \\
     --package-name jiro_client \\
-    --additional-properties=packageVersion=0.3.1
+    --additional-properties=packageVersion=0.4.0
 
 echo "Python SDK generated at sdk/python/"
 """
@@ -591,7 +591,7 @@ openapi-generator-cli generate \\
     -i openapi-3.1.json \\
     -g typescript-fetch \\
     -o sdk/typescript \\
-    --additional-properties=npmName=@jiro/client,npmVersion=0.3.1
+    --additional-properties=npmName=@jiro/client,npmVersion=0.4.0
 
 echo "TypeScript SDK generated at sdk/typescript/"
 """

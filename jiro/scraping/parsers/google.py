@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.lexbor import LexborHTMLParser as HTMLParser, LexborNode as Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse
@@ -51,6 +51,8 @@ DATE_RE = re.compile(
 class GoogleEngine(BaseEngine):
     name = "google"
     types = ["web", "images", "news", "videos", "shopping", "places"]
+    # Google honours the `start` page-offset parameter.
+    supports_pagination = True
     parser_version = "1.1"
 
     async def search(self, req: SearchRequest) -> SearchResponse:

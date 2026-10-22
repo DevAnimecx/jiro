@@ -1,6 +1,6 @@
 {
   "name": "jiro-cli",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Jiro Search CLI - Local-first, AI-native web search & scraping platform",
   "main": "index.js",
   "bin": {
@@ -51,3 +51,4 @@
     "README.md",
     "LICENSE"
   ]
+}

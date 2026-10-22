@@ -110,6 +110,37 @@ export interface UsageResponse {
   by_endpoint: Array<{ endpoint: string; n: number }>;
 }
 
+export interface GraphOptions {
+  engine?: string;
+  num?: number;
+  maxTokens?: number;
+  deadlineMs?: number;
+  maxNodes?: number;
+  fetchTop?: number;
+  intent?: string;
+}
+
+export interface GraphRunResponse {
+  graph_id: string;
+  status: string;
+  intent: string;
+  duration_ms: number;
+  budget: Record<string, number>;
+  engine_attribution: Record<string, number>;
+  gaps: Array<Record<string, unknown>>;
+  /** Evidence packet: claims paired with the source ids they rest on. */
+  packet: {
+    packet_id?: string;
+    provenance_digest?: string;
+    budget_tokens?: number;
+    used_tokens?: number;
+    claims?: Array<{ id: string; text: string; source_ids: string[] }>;
+    sources?: Array<{ id: string; url: string }>;
+    contradictions?: Array<Record<string, unknown>>;
+  };
+  plan?: Record<string, unknown>;
+}
+
 export declare class JiroClient {
   apiKey: string | null;
   baseUrl: string;
@@ -118,6 +149,10 @@ export declare class JiroClient {
   constructor(options?: JiroClientOptions);
 
   search(query: string, options?: SearchOptions): Promise<any>;
+  /** Plan a query graph without touching the network (v0.4.0). */
+  planSearch(query: string, options?: GraphOptions): Promise<any>;
+  /** Execute a query graph and return the run plus its evidence packet (v0.4.0). */
+  searchGraph(query: string, options?: GraphOptions & { includePlan?: boolean }): Promise<GraphRunResponse>;
   searchParallel(query: string, options?: SearchOptions & { numEngines?: number }): Promise<any>;
   searchImages(query: string, options?: SearchOptions): Promise<any>;
   searchNews(query: string, options?: SearchOptions): Promise<any>;

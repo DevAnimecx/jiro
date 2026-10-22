@@ -13,7 +13,7 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.lexbor import LexborHTMLParser as HTMLParser, LexborNode as Node
 
 from jiro.errors import ScrapeError
 

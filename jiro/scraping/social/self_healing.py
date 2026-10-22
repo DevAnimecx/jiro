@@ -267,7 +267,6 @@ async def _heal_blocked(scraper: Any, method: Callable, args: tuple, kwargs: dic
 
 async def _heal_file_lock(scraper: Any, method: Callable, args: tuple, kwargs: dict) -> Any:
     """Wait for file lock to release and retry with retries."""
-    import os
     platform = getattr(scraper, "platform", "unknown")
     log.info("healing file lock for %s.%s", platform, getattr(method, "__name__", method))
 

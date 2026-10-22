@@ -34,7 +34,7 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 import httpx
 
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 __all__ = [
     "JiroClient",
     "AsyncJiroClient",
@@ -308,6 +308,103 @@ class JiroClient:
             },
         )
         return self._handle_response(resp)
+
+    # ── Query graph (v0.4.0) ────────────────────────────────────────────────
+
+    def plan_search(
+        self,
+        query: str,
+        engine: str = "auto",
+        num: int = 5,
+        max_tokens: Optional[int] = None,
+        deadline_ms: Optional[int] = None,
+        max_nodes: int = 12,
+        fetch_top: Optional[int] = None,
+        intent: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Plan a query graph without touching the network.
+
+        Returns the validated graph, a cost estimate, and the rationale for the
+        shape chosen. Use this to inspect what a run would cost before paying
+        for it.
+
+        Args:
+            query: Search query
+            engine: Engine to use, or "auto" to let the planner choose
+            num: Number of search results to consider
+            max_tokens: Token ceiling for the evidence packet
+            deadline_ms: Wall-clock ceiling for the run
+            max_nodes: Maximum nodes the graph may contain
+            fetch_top: How many of the top results to fetch in full
+            intent: Force an intent instead of detecting it
+
+        Returns:
+            Dict with ``graph``, ``estimate``, ``rationale`` and ``alternatives``.
+        """
+        return self._handle_response(
+            self._client.post(
+                "/v1/graph/plan",
+                json={
+                    "query": query,
+                    "engine": engine,
+                    "num": num,
+                    "max_tokens": max_tokens,
+                    "deadline_ms": deadline_ms,
+                    "max_nodes": max_nodes,
+                    "fetch_top": fetch_top,
+                    "intent": intent,
+                },
+            )
+        )
+
+    def search_graph(
+        self,
+        query: str,
+        engine: str = "auto",
+        num: int = 5,
+        max_tokens: Optional[int] = None,
+        deadline_ms: Optional[int] = None,
+        max_nodes: int = 12,
+        fetch_top: Optional[int] = None,
+        intent: Optional[str] = None,
+        include_plan: bool = False,
+    ) -> Dict[str, Any]:
+        """Execute a query graph and return the run plus its evidence packet.
+
+        The run carries ``packet.claims``, each with the ``source_ids`` it rests
+        on, so an answer can be checked back to the pages that produced it.
+
+        Args:
+            query: Search query
+            engine: Engine to use, or "auto" to let the planner choose
+            num: Number of search results to consider
+            max_tokens: Token ceiling for the evidence packet
+            deadline_ms: Wall-clock ceiling for the run
+            max_nodes: Maximum nodes the graph may contain
+            fetch_top: How many of the top results to fetch in full
+            intent: Force an intent instead of detecting it
+            include_plan: Also return the graph that was executed
+
+        Returns:
+            Run dict with ``graph_id``, ``status``, ``duration_ms``, ``budget``,
+            ``engine_attribution``, ``gaps`` and ``packet``.
+        """
+        return self._handle_response(
+            self._client.post(
+                "/v1/graph/search",
+                json={
+                    "query": query,
+                    "engine": engine,
+                    "num": num,
+                    "max_tokens": max_tokens,
+                    "deadline_ms": deadline_ms,
+                    "max_nodes": max_nodes,
+                    "fetch_top": fetch_top,
+                    "intent": intent,
+                    "include_plan": include_plan,
+                },
+            )
+        )
 
     def search_parallel(
         self,

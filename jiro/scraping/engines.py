@@ -19,9 +19,33 @@ from jiro.log import get_logger
 from jiro.errors import EngineBlockedError, EngineError
 from jiro.models import SearchRequest, SearchResponse
 from jiro.scraping.client import ScrapingClient
+from jiro.scraping.latency import default_recorder
 from jiro.robots import RobotsManager
 
 log = get_logger("jiro.engines")
+
+# Search status values. ``status`` describes fidelity, not transport: a search
+# can return HTTP 200 with real results and still be "partial" because the
+# engine that served them is not the one the caller asked for.
+STATUS_SUCCESS = "success"   # served by the requested engine
+STATUS_PARTIAL = "partial"   # served by a substitute engine
+STATUS_ERROR = "error"       # no engine could serve the query
+
+def _record_substitution(meta: Dict[str, Any], requested_engine: str) -> None:
+    """Stamp what was asked for, what actually served, and how honest the result is.
+
+    ``engine`` is the engine that returned the results; ``engine_requested`` is
+    what the caller asked for. When those differ the search is ``partial``: the
+    results are real, but they come from a different index than requested, and
+    the caller must be able to tell. Keeping this in one place stops the live,
+    cached and semantic-cache paths from drifting apart.
+    """
+    served = meta.get("engine")
+    substituted = served != requested_engine
+    meta["engine_requested"] = requested_engine
+    meta["engine_substituted"] = substituted
+    meta["status"] = STATUS_PARTIAL if substituted else STATUS_SUCCESS
+
 
 # Optional type support table: engine -> list of supported search types.
 ENGINE_TYPES: Dict[str, List[str]] = {
@@ -54,6 +78,10 @@ class BaseEngine:
 
     name: str = ""
     types: List[str] = ["web"]
+    # True only when the upstream request actually accepts a page offset.
+    # Most engines return a single fixed SERP page and merely number results
+    # with ``req.start``, so paging them just re-fetches the same rows.
+    supports_pagination: bool = False
     # Metadata for plugin marketplace
     version: str = "1.0"
     author: str = ""
@@ -246,6 +274,11 @@ class SearchOrchestrator:
         self.semantic = semantic
         self.registry = _build_registry()
         self.robots = RobotsManager(settings, cache) if settings.robots_txt.get("enabled", True) else None
+        # Rolling observations of how long each engine actually takes, so the
+        # graph planner can budget from measurement rather than a constant.
+        self.latency = default_recorder()
+        # Settled engine-race tasks, so a shutdown can cancel them.
+        self._race_tasks: Set[asyncio.Task] = set()
         
         # Lazy import hybrid searcher
         self._hybrid_searcher = None
@@ -307,6 +340,7 @@ class SearchOrchestrator:
             return await self.hybrid_searcher.search(req)
         
         engines = self.available_engines(req.engine)
+        requested_engine = req.engine
         cache_key = self.cache.make_key(
             "search", req.engine, req.q, req.type, req.num, req.start,
             req.location, req.language, req.safe, req.time_range, req.device,
@@ -317,6 +351,7 @@ class SearchOrchestrator:
             cached = await self.cache.get(cache_key)
             if cached is not None:
                 cached["search_metadata"]["cached"] = True
+                _record_substitution(cached["search_metadata"], requested_engine)
                 return SearchResponse(**cached)
             # semantic (fuzzy) cache hit
             if self.semantic is not None:
@@ -324,9 +359,26 @@ class SearchOrchestrator:
                 if fuzzy is not None:
                     fuzzy["search_metadata"]["cached"] = True
                     fuzzy["search_metadata"]["semantic_cache"] = True
+                    _record_substitution(fuzzy["search_metadata"], requested_engine)
                     return SearchResponse(**fuzzy)
 
         errors: List[Dict[str, Any]] = []
+        ua = self.settings.robots_txt.get("user_agent", "JiroBot/1.0")
+
+        # Racing: query engines concurrently instead of one at a time, so a
+        # slow or rate-limited engine no longer serialises the whole request.
+        # Preference order still decides which result wins.
+        if self._should_race(req, engines):
+            winner = await self._race_engines(engines, req, ua=ua, errors=errors)
+            if winner is None:
+                raise EngineError(
+                    "all engines failed for this query",
+                    status_code=502,
+                    details={"attempted": engines, "errors": errors},
+                )
+            return await self._finish_result(
+                winner, requested_engine, errors, req, cache_key)
+
         for engine_name in engines:
             # Check robots.txt compliance before attempting
             if self.robots is not None:
@@ -347,7 +399,6 @@ class SearchOrchestrator:
                 if base:
                     path = ENGINE_SEARCH_PATHS.get(engine_name, "/")
                     search_url = base + path
-                    ua = self.settings.robots_txt.get("user_agent", "JiroBot/1.0")
                     allowed = await self.robots.check_fetch(engine_name, search_url, ua)
                     if not allowed:
                         strict = self.settings.robots_txt.get("strict_mode", False)
@@ -377,6 +428,7 @@ class SearchOrchestrator:
                 started = time.perf_counter()
                 result = await engine.search(req)
                 elapsed = time.perf_counter() - started
+                self.latency.record(engine_name, elapsed * 1000)
                 result.search_metadata["engine"] = engine_name
                 result.search_metadata["total_time_taken"] = round(elapsed, 3)
 
@@ -392,8 +444,18 @@ class SearchOrchestrator:
 
                 if engine_name != engines[0]:
                     result.search_metadata["fallback_engine"] = engine_name
+                # Always record what was asked for so a caller can never be
+                # misled into thinking a substituted engine was the requested
+                # one. ``engine`` is the engine that actually served results.
+                _record_substitution(result.search_metadata, requested_engine)
                 if errors:
                     result.search_metadata["skipped_engines"] = errors
+
+                # Engines return one SERP page (~10 rows) regardless of ``num``.
+                # Walk further pages on the same engine so a request for 50
+                # results is not silently served as 3.
+                await self._paginate(engine_name, engine_cls, req, result)
+
                 await self.cache.put(cache_key, result.model_dump(), engine=engine_name)
                 if self.semantic is not None:
                     await self.semantic.store(req.q, cache_key)
@@ -413,23 +475,342 @@ class SearchOrchestrator:
             details={"attempted": engines, "errors": errors},
         )
 
+    def _should_race(self, req: SearchRequest, engines: List[str]) -> bool:
+        """Whether to query engines concurrently for this request.
+
+        Off by default: racing issues more upstream requests and can return a
+        different engine than a sequential walk would, so opting in should be
+        explicit. Skipped when there is nothing to race or when a caller pinned
+        a single engine.
+        """
+        if len(engines) < 2:
+            return False
+        try:
+            if not self.settings.get("search.race_engines", False):
+                return False
+        except Exception:
+            return False
+        # An exact engine request still races only its own fallback chain, which
+        # is what `engines` already is (requested first, then fallbacks).
+        return True
+
+    async def _finish_result(
+        self, winner: Dict[str, Any], requested_engine: str,
+        errors: List[Dict[str, Any]], req: SearchRequest, cache_key: str,
+    ) -> SearchResponse:
+        """Stamp attribution, paginate and cache a successful engine result."""
+        engine_name = winner["engine"]
+        engine_cls = winner["engine_cls"]
+        result = winner["result"]
+
+        if engine_name != requested_engine:
+            result.search_metadata["fallback_engine"] = engine_name
+        # Always record what was asked for so a caller can never be misled into
+        # thinking a substituted engine was the requested one.
+        _record_substitution(result.search_metadata, requested_engine)
+        if errors:
+            result.search_metadata["skipped_engines"] = errors
+
+        await self._paginate(engine_name, engine_cls, req, result)
+
+        await self.cache.put(cache_key, result.model_dump(), engine=engine_name)
+        if self.semantic is not None:
+            await self.semantic.store(req.q, cache_key)
+        return result
+
+    async def _attempt_engine(
+        self, engine_name: str, req: SearchRequest,
+        *, ua: str,
+    ) -> Dict[str, Any]:
+        """One engine attempt, returning either a result or a recorded error.
+
+        Extracted from the fallback loop so the same attempt can be run
+        sequentially (the default, which prefers the requested engine) or
+        concurrently with other engines when racing is enabled.
+        """
+        if self.robots is not None:
+            from jiro.robots import ENGINE_SEARCH_PATHS
+            base_urls = {
+                "google": "https://www.google.com",
+                "bing": "https://www.bing.com",
+                "duckduckgo": "https://duckduckgo.com",
+                "brave": "https://search.brave.com",
+                "youtube": "https://www.youtube.com",
+                "amazon": "https://www.amazon.com",
+                "ebay": "https://www.ebay.com",
+                "yandex": "https://yandex.com",
+                "baidu": "https://www.baidu.com",
+            }
+            base = base_urls.get(engine_name)
+            if base:
+                path = ENGINE_SEARCH_PATHS.get(engine_name, "/")
+                search_url = base + path
+                allowed = await self.robots.check_fetch(engine_name, search_url, ua)
+                if not allowed:
+                    if self.settings.robots_txt.get("strict_mode", False):
+                        return {"error": {"engine": engine_name,
+                                          "error": "disallowed by robots.txt",
+                                          "error_code": "robots_txt_disallowed"}}
+                    log.warning("robots.txt disallows search path, continuing anyway",
+                                extra={"engine": engine_name, "path": path})
+
+            delay = self.robots.get_crawl_delay(engine_name, ua)
+            if delay:
+                await asyncio.sleep(delay)
+
+        try:
+            engine_cls = self.registry.get(engine_name)
+            engine = engine_cls(self.client, self.settings)
+            if req.type not in engine.types:
+                return {"error": {"engine": engine_name,
+                                  "error": f"type '{req.type}' not supported by this engine"}}
+
+            started = time.perf_counter()
+            result = await engine.search(req)
+            elapsed = time.perf_counter() - started
+            self.latency.record(engine_name, elapsed * 1000)
+            result.search_metadata["engine"] = engine_name
+            result.search_metadata["total_time_taken"] = round(elapsed, 3)
+
+            if not self._is_relevant(req.q, result):
+                return {
+                    "error": {
+                        "engine": engine_name,
+                        "error": "results not relevant to query (possible bot detection)",
+                        "error_code": "irrelevant_results",
+                    }
+                }
+            return {"engine": engine_name, "engine_cls": engine_cls, "result": result}
+        except EngineBlockedError as exc:
+            return {"error": {"engine": engine_name, "error": exc.message,
+                              "error_code": exc.code}}
+        except EngineError as exc:
+            return {"error": {"engine": engine_name, "error": exc.message,
+                              "error_code": exc.code}}
+        except Exception as exc:
+            return {"error": {"engine": engine_name, "error": str(exc),
+                              "error_code": type(exc).__name__}}
+
+    async def _race_engines(
+        self, engines: List[str], req: SearchRequest, *, ua: str,
+        errors: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Try engines concurrently; return the best *relevant* result.
+
+        The preference order is preserved: if the first engine succeeds it wins
+        even when a later one finished sooner, because the caller asked for that
+        index. Racing only removes the wait for an engine that is slow, rate
+        limited or blocked. A winning engine that is not the first is still
+        reported through ``_record_substitution`` by the caller.
+        """
+        tasks = {
+            name: asyncio.create_task(
+                self._attempt_engine(name, req, ua=ua))
+            for name in engines
+        }
+        self._race_tasks.update(tasks.values())
+        try:
+            # Wait for every attempt to settle. Racing is about not serialising
+            # the *latency*; correctness still needs all outcomes so the skipped
+            # engines can be reported honestly.
+            done = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        finally:
+            self._race_tasks.difference_update(tasks.values())
+
+        winners: Dict[str, Dict[str, Any]] = {}
+        for name, outcome in zip(tasks, done):
+            if isinstance(outcome, BaseException):
+                errors.append({"engine": name, "error": str(outcome),
+                               "error_code": type(outcome).__name__})
+            elif "error" in outcome:
+                errors.append(outcome["error"])
+            else:
+                winners[name] = outcome
+
+        if not winners:
+            return None
+        # Preference order decides among the engines that actually succeeded.
+        for name in engines:
+            if name in winners:
+                return winners[name]
+        return None
+
+    async def _paginate(self, engine_name: str, engine_cls: Type[BaseEngine],
+                        req: SearchRequest, result: SearchResponse) -> None:
+        """Top up ``result`` from later SERP pages of the *same* engine.
+
+        Each engine returns roughly one page of results, so ``num`` above that
+        page size used to be ignored. This walks successive pages (dedup by
+        link) until ``num`` is reached, the engine stops returning new rows, or
+        the page budget is used up. Never triggers a fallback.
+        """
+        max_pages = self.settings.get("search.pagination.max_pages", 5)
+        have = len(result.organic_results)
+        if have >= req.num or max_pages <= 0 or req.start > 0:
+            return
+        # Pagination is only meaningful for engines that expose a page offset.
+        if req.type not in ("web", "images", "news", "videos"):
+            return
+        if not getattr(engine_cls, "supports_pagination", False):
+            # Disclose the shortfall rather than silently serving a short page.
+            result.search_metadata["requested_num"] = req.num
+            result.search_metadata["truncated"] = True
+            result.search_metadata["pagination_supported"] = False
+            return
+
+        seen = {r.link for r in result.organic_results if r.link}
+        # Offset step. A short first page means the engine serves smaller pages
+        # than assumed, so step by what was actually returned rather than a
+        # fixed 10: stepping by more than the engine's page size silently skips
+        # results, which is how a request for 9 came back with 6.
+        page_size = have if have > 0 else 10
+
+        # Page offsets are independent, so fetch them concurrently instead of
+        # walking pages one at a time: a request for 50 results used to spend
+        # up to five sequential round-trips. Order is preserved when merging
+        # (results are appended in page order, not completion order), so the
+        # caller sees the same ranking as the sequential walk produced.
+        #
+        # Only as many pages as could still be useful are requested: the
+        # shortfall divided by the page size, bounded by max_pages. Fetching
+        # every allowed page unconditionally would spend upstream requests on
+        # pages that cannot fit in the result anyway.
+        shortfall = req.num - have
+        pages_needed = min(max_pages, max(1, -(-shortfall // page_size)))
+        offsets = [req.start + page_size * (n + 1) for n in range(pages_needed)]
+
+        async def _page(offset: int) -> List[Any]:
+            page_req = req.model_copy(update={"start": offset})
+            try:
+                page = await engine_cls(self.client, self.settings).search(page_req)
+            except Exception as exc:
+                log.debug("pagination page failed",
+                          extra={"engine": engine_name, "start": offset,
+                                 "error": str(exc)})
+                return []
+            return list(page.organic_results)
+
+        responses = await asyncio.gather(*(_page(o) for o in offsets))
+        fetched_pages = sum(1 for batch in responses if batch)
+
+        for batch in responses:
+            for item in batch:
+                if len(result.organic_results) >= req.num:
+                    break
+                if item.link and item.link in seen:
+                    continue
+                if item.link:
+                    seen.add(item.link)
+                result.organic_results.append(item)
+
+        if len(result.organic_results) > req.num:
+            result.organic_results = result.organic_results[:req.num]
+
+        total = len(result.organic_results)
+        result.search_information["organic_results_count"] = total
+        if total < req.num:
+            # Be explicit rather than letting the caller assume a short page
+            # is the complete answer.
+            result.search_metadata["requested_num"] = req.num
+            result.search_metadata["truncated"] = True
+            result.search_metadata["pages_fetched"] = 1 + fetched_pages
+            result.search_metadata["pagination_supported"] = True
+
     async def engines_info(self) -> List[Dict[str, Any]]:
         info = self.registry.info()
         for item in info:
             item["default"] = item["name"] == self.settings.default_engine
         return info
 
-    async def health_check(self) -> Dict[str, Dict[str, Any]]:
-        """Check health of all registered engines."""
-        health: Dict[str, Dict[str, Any]] = {}
-        for name in self.registry.names():
-            try:
-                engine_cls = self.registry.get(name)
-                engine = engine_cls(self.settings, self.client)
-                ok = await engine.health_check() if hasattr(engine, 'health_check') else True
-                health[name] = {"ok": ok}
-            except Exception as exc:
-                health[name] = {"ok": False, "error": str(exc)}
+    async def probe_engine(self, name: str, *, timeout: float = 15.0,
+                           query: str = "jiro") -> Dict[str, Any]:
+        """Live reachability probe for a single engine (no fallback chain).
+
+        A real request is issued so rate limits, bot walls and parse
+        regressions show up as failures instead of reporting every engine as
+        healthy merely because its module imported.
+        """
+        started = time.perf_counter()
+        try:
+            engine_cls = self.registry.get(name)
+            engine = engine_cls(self.client, self.settings)
+            req = SearchRequest(q=query, engine=name, num=1, type="web")
+            result = await asyncio.wait_for(engine.search(req), timeout=timeout)
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            return {
+                "ok": True,
+                "reachable": True,
+                "results": len(result.organic_results),
+                "latency_ms": elapsed,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "ok": False,
+                "reachable": False,
+                "error": f"probe timed out after {timeout}s",
+                "error_code": "engine_timeout",
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
+        except EngineBlockedError as exc:
+            return {
+                "ok": False,
+                "reachable": False,
+                "error": exc.message,
+                "error_code": exc.code,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
+        except EngineError as exc:
+            return {
+                "ok": False,
+                "reachable": False,
+                "error": exc.message,
+                "error_code": exc.code,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "reachable": False,
+                "error": str(exc),
+                "error_code": type(exc).__name__,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
+
+    async def health_check(self, live: bool = True,
+                           timeout: float = 15.0) -> Dict[str, Dict[str, Any]]:
+        """Check health of all registered engines.
+
+        With ``live=True`` (default) each engine is probed with a real request
+        so blocked engines (HTTP 429, CAPTCHA walls) are reported honestly.
+        With ``live=False`` only instantiation is verified.
+        """
+        names = self.registry.names()
+        if not live:
+            health: Dict[str, Dict[str, Any]] = {}
+            for name in names:
+                try:
+                    # NOTE: BaseEngine takes (client, settings) — passing them
+                    # swapped silently skipped every real check.
+                    engine_cls = self.registry.get(name)
+                    engine_cls(self.client, self.settings)
+                    health[name] = {"ok": True, "mode": "instantiation"}
+                except Exception as exc:
+                    health[name] = {"ok": False, "mode": "instantiation",
+                                    "error": str(exc)}
+            return health
+
+        probes = await asyncio.gather(
+            *[self.probe_engine(name, timeout=timeout) for name in names],
+            return_exceptions=True,
+        )
+        health = {}
+        for name, probe in zip(names, probes):
+            if isinstance(probe, BaseException):
+                health[name] = {"ok": False, "reachable": False,
+                                "error": str(probe),
+                                "error_code": type(probe).__name__}
+            else:
+                health[name] = {**probe, "mode": "live"}
         return health
 
     # ------------------------------------------------------------------

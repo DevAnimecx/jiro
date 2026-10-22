@@ -285,7 +285,7 @@ def _extract_rule(html: str, kind: str, rule: str, *, url: str) -> Any:
 
 
 def _css_values(html: str, selector: str, *, url: str) -> List[Any]:
-    from selectolax.parser import HTMLParser
+    from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
     tree = HTMLParser(html)
     # attribute extraction: selector@attr
@@ -325,7 +325,7 @@ def _xpath_values(html: str, xpath: str) -> List[Any]:
 
 def _extract_json_ld(html: str) -> Any:
     import json as _json
-    from selectolax.parser import HTMLParser
+    from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
     tree = HTMLParser(html)
     data: Any = None

@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.lexbor import LexborHTMLParser as HTMLParser, LexborNode as Node
 
 from jiro.errors import EngineParseError
 from jiro.models import OrganicResult, SearchRequest, SearchResponse
@@ -23,6 +23,8 @@ BAIDU_SEARCH_URL = "https://www.baidu.com/s"
 class BaiduEngine(BaseEngine):
     name = "baidu"
     types = ["web"]
+    # Baidu honours the `pn` page-offset parameter.
+    supports_pagination = True
     parser_version = "1.0"
 
     async def search(self, req: SearchRequest) -> SearchResponse:

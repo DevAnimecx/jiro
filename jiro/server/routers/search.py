@@ -10,7 +10,7 @@ import time
 from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from jiro.audit import AuditEventType, ComplianceLogger
 from jiro.auth import AuthContext
@@ -261,10 +261,29 @@ async def search_batch(
     tasks = [_search_one(item) for item in items]
     results = await asyncio.gather(*tasks, return_exceptions=False)
 
+    ok = sum(1 for r in results if not r.get("error"))
+    # A batch where nothing succeeded is a failure, not a 200 with a per-item
+    # error field: callers that only check the status code would treat total
+    # failure as success. Partial success stays 200 with per-item errors.
+    status = 200 if ok else 502
+
     latency_ms = (time.perf_counter() - started) * 1000
-    await record_usage(request, endpoint="/search/batch", status=200,
+    await record_usage(request, endpoint="/search/batch", status=status,
                        latency_ms=latency_ms)
-    return {"count": len(results), "results": results}
+
+    if ok:
+        return {"count": len(results), "results": results}
+
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": "all batch queries failed",
+            "error_code": "batch_failed",
+            "count": len(results),
+            "succeeded": 0,
+            "results": results,
+        },
+    )
 
 
 # ── SSE Search Stream ────────────────────────────────────────────────────

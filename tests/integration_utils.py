@@ -104,7 +104,9 @@ class ContractTestMixin:
         assert "engine" in meta
         assert "query" in meta
         assert "status" in meta
-        assert meta["status"] in ("success", "error")
+        # "partial" means results came from a fallback engine rather than the one
+        # requested; the response is still well-formed and the results are real.
+        assert meta["status"] in ("success", "partial", "error")
 
         info = response["search_information"]
         assert "total_results" in info

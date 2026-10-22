@@ -24,11 +24,50 @@ from jiro import __version__
 from jiro.cli_plugins import plugin_app
 from jiro.config import Settings
 
+# Exit codes. Documented contract for scripts driving the CLI.
+#   0  success
+#   1  runtime failure
+#   2  usage / validation error
+#   3  served by a substituted engine (results are real, but not from the
+#      engine that was requested)
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+EXIT_SUBSTITUTED = 3
+
+
+def _force_utf8_stdio() -> None:
+    """Make stdout/stderr speak UTF-8 so non-ASCII queries survive on Windows.
+
+    The Windows console defaults to the ANSI code page (cp1252 in most locales),
+    which cannot encode CJK, Cyrillic, Arabic or emoji. Rich then dies with
+    ``UnicodeEncodeError`` while printing the results. Setting PYTHONIOENCODING
+    here is too late - CPython already built the stdio streams at interpreter
+    startup - so reconfigure the live streams instead. Any child process we
+    spawn inherits the env var either way.
+    """
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Detached or exotic stream; nothing to reconfigure.
+            pass
+
+
 # Fix Windows encoding issues
 if sys.platform == "win32":
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    _force_utf8_stdio()
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+# Importing starlette.testclient emits a StarletteDeprecationWarning about httpx
+# on every CLI command that spins up the in-process app. It is noise for users
+# and pollutes stderr for scripts. Starlette's category does not subclass
+# DeprecationWarning, so match on the message text rather than the category.
+warnings.filterwarnings("ignore", message=r".*starlette\.testclient.*")
+warnings.filterwarnings("ignore", message=r".*httpx.*testclient.*")
 
 
 def _quiet_settings(settings: Settings) -> Settings:
@@ -49,7 +88,12 @@ dev_app = typer.Typer(help="Developer commands (install from GitHub).", no_args_
 social_app = typer.Typer(help="Social media scraping from the CLI.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server and client setup.", no_args_is_help=True)
 ai_app = typer.Typer(help="AI features: ask questions, setup providers, check status.", no_args_is_help=True)
+graph_app = typer.Typer(help="Budgeted query graphs and evidence packets.", no_args_is_help=True)
 license_app = typer.Typer(help="License management for self-hosted.", no_args_is_help=True)
+
+# Durable task runtime commands (defined in a separate module to keep this
+# file focused; see jiro/cli_tasks.py).
+from jiro.cli_tasks import tasks_app
 
 console = Console()
 
@@ -131,6 +175,8 @@ app.add_typer(social_app, name="social")
 app.add_typer(ai_app, name="ai")
 app.add_typer(auth_app, name="auth")
 app.add_typer(license_app, name="license")
+app.add_typer(tasks_app, name="tasks")
+app.add_typer(graph_app, name="graph")
 
 
 @app.callback(invoke_without_command=True)
@@ -652,6 +698,20 @@ def search_web(
     cloud: bool = typer.Option(False, "--cloud", help="Use Jiro Cloud backend (requires login)"),
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
+    # Reject an unknown engine up front. Previously it fell through to an empty
+    # result set that exited 0, so a typo looked like a successful search that
+    # happened to find nothing.
+    if not cloud:
+        from jiro.scraping.engines import _build_registry
+        registry = _build_registry()
+        known = registry.names()
+        if engine not in known:
+            from jiro.cli_ui import error as _err
+            console.print(_err(
+                f"Unknown engine '{engine}'. Available: {', '.join(known)}"
+            ))
+            raise typer.Exit(EXIT_USAGE)
+
     if cloud:
         asyncio.run(_cloud_search(q, engine, type, num, location, language, json_output))
     elif interactive or q is None:
@@ -699,20 +759,46 @@ async def _cli_search(q, engine, type, num, location, language, parallel, num_en
             "parallel": parallel, "num_engines": num_engines,
         })
         data = resp.json()
-        if json_output:
-            console.print(json.dumps(data, indent=2, default=str))
-            return
         meta = data.get("search_metadata", {})
-        results = data.get("organic_results", [])
-        card = search_result_card(
-            q, results,
-            engine=meta.get("engine", engine),
-            cached=meta.get("cached", False),
-            time_taken=meta.get("total_time_taken", 0),
-        )
-        console.print()
-        console.print(card)
-        console.print()
+        substituted = bool(meta.get("engine_substituted"))
+
+        if json_output:
+            # Write straight to stdout: Rich word-wraps long lines and would
+            # insert real newlines inside JSON string values, producing output
+            # that no longer parses.
+            sys.stdout.write(json.dumps(data, indent=2, default=str) + "\n")
+        else:
+            results = data.get("organic_results", [])
+            card = search_result_card(
+                q, results,
+                engine=meta.get("engine", engine),
+                cached=meta.get("cached", False),
+                time_taken=meta.get("total_time_taken", 0),
+            )
+            console.print()
+            console.print(card)
+
+        if substituted:
+            # Results are real but from a different index than requested. Say so
+            # loudly and exit non-zero so callers cannot mistake this for a
+            # successful search of the engine they asked for.
+            #
+            # With --json the warning goes to stderr: stdout carries the JSON
+            # payload and nothing else, or consumers cannot parse it.
+            from jiro.cli_ui import warning, dim
+            requested = meta.get("engine_requested", engine)
+            served = meta.get("engine", "?")
+            reasons = meta.get("skipped_engines") or []
+            warn_console = Console(stderr=True) if json_output else console
+            warn_console.print(warning(
+                f"'{requested}' unavailable - these results came from '{served}', "
+                f"a different index than requested."
+            ))
+            for skip in reasons:
+                if skip.get("engine") == requested and skip.get("error"):
+                    warn_console.print(dim(f"  {requested}: {skip['error']}"))
+            raise typer.Exit(EXIT_SUBSTITUTED)
+        return
 
 
 async def _cloud_search(q, engine, type, num, location, language, json_output):
@@ -819,6 +905,13 @@ def scrape(
     if cloud:
         asyncio.run(_cloud_scrape(url, format, full))
         return
+
+    # An empty input is a mistake, not a search for nothing: without this guard
+    # it silently becomes a search query (and then a confusing error downstream).
+    if not url.strip():
+        from jiro.cli_ui import error as _err
+        console.print(_err("No URL given. Pass a URL to scrape, e.g. jiro scrape https://example.com"))
+        raise typer.Exit(EXIT_USAGE)
 
     # Auto-prepend https:// if no scheme is provided but looks like a domain
     if not _is_url(url):
@@ -978,8 +1071,14 @@ def _run_ai_ask(query: str, max_sources: int, json_output: bool, config: str) ->
     from jiro.cli_ui import console, rule, Text, Panel, box, error
     from rich.status import Status
 
+    # NOTE: Starlette's TestClient dropped the ``timeout`` kwarg. Per-request
+    # timeouts are now expressed via ``backend_options={"timeout": ...}``.
+    backend_options = {"timeout": 120.0}
     with Status("Researching...", console=console, spinner="dots"):
-        with TestClient(create_app(_quiet_settings(Settings.load(config))), timeout=120) as client:
+        with TestClient(
+            create_app(_quiet_settings(Settings.load(config))),
+            backend_options=backend_options,
+        ) as client:
             resp = client.post("/ai/search", json={"query": query,
                                                    "max_sources": max_sources})
             data = resp.json()
@@ -1319,16 +1418,20 @@ def mcp_status() -> None:
 # keys
 # --------------------------------------------------------------------------
 def _admin_key_required() -> str:
+    """Return the admin key, or fail fast with an actionable message.
+
+    Deliberately never prompts. These are non-interactive admin subcommands, and
+    the tty check that used to guard the prompt is unreliable on Windows (it
+    reports True even with stdin redirected), so ``typer.prompt()`` could block
+    forever with no way to answer.
+    """
     import os as _os
     key = _os.environ.get("JIRO_ADMIN_KEY")
     if key:
         return key
-    if not sys.stdin.isatty():
-        from jiro.cli_ui import console as _c, error
-        _c.print(error("Admin API key required. Set JIRO_ADMIN_KEY env var or pass --admin-key."))
-        raise typer.Exit(1)
-    key = typer.prompt("Admin API key", hide_input=True)
-    return key
+    from jiro.cli_ui import console as _c, error
+    _c.print(error("Admin API key required. Set JIRO_ADMIN_KEY env var or pass --admin-key."))
+    raise typer.Exit(EXIT_USAGE)
 
 
 @keys_app.command("create", help="Create an API key (requires an admin key).")
@@ -2103,15 +2206,36 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
         _check("Database", "fail", str(e))
 
     # 6. Network
-    try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(3)
-        s.connect(("8.8.8.8", 80))
-        s.close()
-        _check("Network", "pass", "Internet reachable")
-    except Exception:
-        _check("Network", "fail", "No internet connectivity", "Check your connection")
+    # Probe several independent endpoints. A single-endpoint check reports "no
+    # internet" on any network that happens to block that one host:port (some
+    # ISPs and corporate firewalls blackhole 8.8.8.8:80 while the rest of the
+    # internet is fine), which sends users chasing a problem that isn't there.
+    import socket as _socket
+    _probes = [
+        ("8.8.8.8", 443),
+        ("1.1.1.1", 443),
+        ("1.1.1.1", 80),
+    ]
+    _reachable = None
+    for _host, _port in _probes:
+        try:
+            _s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            _s.settimeout(3)
+            _s.connect((_host, _port))
+            _s.close()
+            _reachable = f"{_host}:{_port}"
+            break
+        except Exception:
+            continue
+
+    if _reachable:
+        _check("Network", "pass", f"Internet reachable (via {_reachable})")
+    else:
+        # Only some hosts may be blocked, so this is a warning that names what
+        # failed rather than a hard failure asserting there is no connectivity.
+        _check("Network", "warn",
+               f"No route to any probe ({', '.join(f'{h}:{p}' for h, p in _probes)})",
+               "Check firewall/proxy; searchers may still fail")
 
     # 7. Cloud credentials
     try:
@@ -2173,14 +2297,22 @@ async def _run_doctor(json_output: bool = False, do_fix: bool = False) -> None:
 
     # 12. Encoding (Windows)
     if sys.platform == "win32":
-        encoding = os.environ.get("PYTHONIOENCODING", "")
-        if encoding and "utf" in encoding.lower():
-            _check("Encoding", "pass", "PYTHONIOENCODING=UTF-8")
-        else:
-            _check("Encoding", "warn", "May cause Unicode issues on Windows", "Set PYTHONIOENCODING=utf-8")
+        # Test what stdout can actually encode rather than trusting the env var,
+        # which says nothing about the already-built stdio streams or the console
+        # code page. Non-Latin output is where this bites in practice.
+        _probe = "日本語 한국어 中文 єюя"
+        _enc = getattr(sys.stdout, "encoding", None) or "unknown"
+        try:
+            _probe.encode(_enc, errors="strict")
+            _check("Encoding", "pass", f"stdout encodes non-ASCII ({_enc})")
+        except (UnicodeEncodeError, LookupError):
+            _check("Encoding", "warn",
+                   f"stdout cannot encode non-ASCII ({_enc})",
+                   "Non-Latin queries may fail; run 'jiro doctor --fix'")
             if do_fix:
-                os.environ["PYTHONIOENCODING"] = "utf-8"
-                _check("Encoding", "pass", "Fixed (set for this session)")
+                _force_utf8_stdio()
+                _check("Encoding", "pass",
+                       f"Fixed (stdout -> {getattr(sys.stdout, 'encoding', '?')})")
 
     # 13. Disk space
     try:
@@ -2681,6 +2813,198 @@ def bench(
     table.add_row("Total", f"{sum(search_times):.3f}s", f"{sum(scrape_times):.3f}s")
 
     _c.print(table)
+
+
+# --------------------------------------------------------------------------
+# v0.4.0: one-command setup and query graph commands
+# --------------------------------------------------------------------------
+@app.command("setup", help="One-command agent setup: configure every detected MCP client.")
+def setup_command(
+    client: Optional[str] = typer.Option(
+        None, "--client", "-c", help="Specific client id (see: jiro mcp status)"
+    ),
+    all_clients: bool = typer.Option(
+        False, "--all", help="Configure every detected client"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Non-interactive"),
+    uninstall: bool = typer.Option(
+        False, "--uninstall", help="Restore the backup for a client"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes only"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Print JSON"),
+    remote: bool = typer.Option(
+        False, "--remote", help="Configure the remote cloud MCP endpoint"
+    ),
+) -> None:
+    from jiro.mcp_setup import run_auto_setup, run_setup, run_uninstall, setup_client
+
+    if uninstall:
+        if not client:
+            console.print("[red]--uninstall requires --client[/red]")
+            raise typer.Exit(2)
+        raise typer.Exit(run_uninstall(client))
+
+    if client:
+        if json_output:
+            result = setup_client(client, remote=remote, dry_run=dry_run)
+            print(json.dumps(result, indent=2))
+            raise typer.Exit(0 if result.get("ok") else 1)
+        raise typer.Exit(run_setup(client, remote=remote, dry_run=dry_run))
+
+    _ = (all_clients, yes)
+    raise typer.Exit(run_auto_setup(dry_run=dry_run, json_output=json_output))
+
+
+def _graph_request(path: str, payload: dict, config: Optional[str]):
+    from jiro.server import create_app
+    from starlette.testclient import TestClient
+
+    settings = _quiet_settings(Settings.load(config))
+    with TestClient(create_app(settings)) as client:
+        return client.post(path, json=payload)
+
+
+@graph_app.command("plan", help="Dry-run a query graph and print its cost estimate.")
+def graph_plan(
+    query: str = typer.Argument(..., help="Research goal or question"),
+    engine: str = typer.Option("auto", "--engine", "-e"),
+    num: int = typer.Option(5, "--num", "-n", min=1, max=10),
+    max_tokens: int = typer.Option(1200, "--max-tokens"),
+    deadline_ms: int = typer.Option(
+        0, "--deadline-ms",
+        help="Whole-graph deadline in ms. 0 derives it from observed latency."),
+    fetch_top: int = typer.Option(0, "--fetch-top", min=0, max=10),
+    intent: Optional[str] = typer.Option(None, "--intent"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+) -> None:
+    from rich.markup import escape
+
+    payload = {
+        "query": query,
+        "engine": engine,
+        "num": num,
+        "max_tokens": max_tokens,
+        # Omit when 0 so the planner budgets from measured latency instead of
+        # being pinned to a constant that may be below one real search.
+        "deadline_ms": deadline_ms or None,
+        "fetch_top": fetch_top,
+        "intent": intent,
+    }
+    resp = _graph_request("/v1/graph/plan", payload, config)
+    if resp.status_code != 200:
+        console.print(f"[red]{resp.status_code}[/red] {resp.text}")
+        raise typer.Exit(1)
+    data = resp.json()
+    if json_output:
+        print(json.dumps(data, indent=2, default=str))
+        return
+
+    graph = data["graph"]
+    estimate = data["estimate"]
+    console.print(
+        Panel.fit(
+            f"[bold]{escape(graph['intent'])}[/bold]\n"
+            f"id: {graph['graph_id']}\n"
+            f"{len(graph['nodes'])} nodes, {estimate['waves']} waves, "
+            f"~{estimate['estimated_latency_ms']} ms, "
+            f"{estimate['estimated_requests']} requests",
+            title="Jiro Query Graph Plan",
+        )
+    )
+    table = Table("Node", "Operator", "Inputs", "Required")
+    for node in graph["nodes"]:
+        table.add_row(
+            node["id"],
+            node["op"],
+            ", ".join(node.get("inputs") or []) or "-",
+            "yes" if node.get("required", True) else "no",
+        )
+    console.print(table)
+    console.print(f"[dim]{escape(data['rationale'])}[/dim]")
+    if data.get("alternatives"):
+        for alt in data["alternatives"]:
+            console.print(
+                f"[yellow]{alt['name']}[/yellow]: ~{alt['estimated_latency_ms']} ms "
+                f"({alt['estimated_requests']} requests) — {escape(alt['tradeoff'])}"
+            )
+
+
+@graph_app.command("run", help="Execute a query graph and print a cited evidence packet.")
+def graph_run(
+    query: str = typer.Argument(..., help="Research goal or question"),
+    engine: str = typer.Option("auto", "--engine", "-e"),
+    num: int = typer.Option(5, "--num", "-n", min=1, max=10),
+    max_tokens: int = typer.Option(1200, "--max-tokens"),
+    deadline_ms: int = typer.Option(
+        0, "--deadline-ms",
+        help="Whole-graph deadline in ms. 0 derives it from observed latency."),
+    fetch_top: int = typer.Option(3, "--fetch-top", min=0, max=10),
+    intent: Optional[str] = typer.Option(None, "--intent"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+) -> None:
+    from rich.markup import escape
+
+    payload = {
+        "query": query,
+        "engine": engine,
+        "num": num,
+        "max_tokens": max_tokens,
+        # Omit when 0 so the planner budgets from measured latency.
+        "deadline_ms": deadline_ms or None,
+        "fetch_top": fetch_top,
+        "intent": intent,
+    }
+    resp = _graph_request("/v1/graph/search", payload, config)
+    if resp.status_code != 200:
+        console.print(f"[red]{resp.status_code}[/red] {resp.text}")
+        raise typer.Exit(1)
+    data = resp.json()
+    if json_output:
+        print(json.dumps(data, indent=2, default=str))
+        return
+
+    packet = data.get("packet") or {}
+    console.print(
+        Panel.fit(
+            f"[bold]{data['status']}[/bold] in {data['duration_ms']} ms\n"
+            f"graph: {data['graph_id']} ({data['intent']})\n"
+            f"claims: {len(packet.get('claims') or [])} | "
+            f"tokens: {packet.get('used_tokens', 0)}/{packet.get('budget_tokens', 0)} | "
+            f"gaps: {len(data.get('gaps') or [])}",
+            title="Jiro Evidence Graph",
+        )
+    )
+
+    claims = packet.get("claims") or []
+    if claims:
+        table = Table("ID", "Claim", "Sources", "Support")
+        for claim in claims:
+            table.add_row(
+                claim["id"],
+                escape(claim["text"][:220]),
+                ", ".join(claim.get("source_ids") or []),
+                claim.get("support", "single"),
+            )
+        console.print(table)
+
+    sources = packet.get("sources") or []
+    if sources:
+        source_table = Table("ID", "URL", "Fetched")
+        for source in sources:
+            source_table.add_row(
+                source["id"], escape(source["url"]), source.get("fetched_at", "")
+            )
+        console.print(source_table)
+
+    for gap in data.get("gaps") or []:
+        console.print(
+            f"[yellow]gap[/yellow] {gap.get('node_id')}: {escape(str(gap.get('error') or gap))}"
+        )
+
+    if data.get("error"):
+        console.print(f"[red]error[/red] {escape(str(data['error']))}")
 
 
 if __name__ == "__main__":

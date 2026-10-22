@@ -12,7 +12,11 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-console = Console()
+# ``legacy_windows=False`` keeps Rich on its Unicode renderer instead of the
+# Win32 console API, which writes through the ANSI code page (cp1252 in most
+# locales) and cannot represent non-Latin text. Together with the UTF-8 stdio
+# reconfigure in cli.py this lets CJK/Cyrillic/Arabic queries print safely.
+console = Console(legacy_windows=False)
 
 # Brand Palette
 ORANGE    = "#f97316"
@@ -49,7 +53,7 @@ def make_logo() -> Panel:
     subtitle = Text()
     subtitle.append("  AI-native web search & scraping", style=f"dim {DIM}")
     subtitle.append("\n  v", style=f"dim {DIM}")
-    subtitle.append("0.3.1", style=f"bold {ORANGE}")
+    subtitle.append("0.4.0", style=f"bold {ORANGE}")
 
     group = Group(logo, subtitle)
     return Panel(group, border_style=ORANGE, box=box.DOUBLE_EDGE, padding=(0, 1))

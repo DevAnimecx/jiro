@@ -27,13 +27,17 @@ jobs:
 
       - name: Copy data files
         run: |
-          rm -rf jiro-web/public/data
-          cp -r jiro-search/data jiro-web/public/data
+          # Overwrite in place, never wipe. jiro-web owns docs/, faq/,
+          # testimonials/, use-cases/ and its own changelog/blog entries that
+          # do not exist here, and its loader reads an explicit allowlist of
+          # slugs. A `rm -rf` would delete those and silently degrade those
+          # pages to placeholder entries.
+          cp -r jiro-search/data/. jiro-web/public/data/
 
       - name: Extract version from __init__.py
         id: version
         run: |
-          VERSION=$(grep -oP '__version__ = "\K[^"]+' jiro-search/jiro/__init__.py || echo "0.2.15")
+          VERSION=$(grep -oP '__version__ = "\K[^"]+' jiro-search/jiro/__init__.py || echo "0.3.3")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Update jiro-web package.json version

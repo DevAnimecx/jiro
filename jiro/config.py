@@ -129,11 +129,112 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_size_mb": 1024,
         "semantic": False,          # semantic cache (needs embeddings via llm key)
     },
+    "graph": {
+        # Budgeted query graph (v0.4.0 Phase 1). Additive: disabling it
+        # leaves every 0.3.x endpoint unchanged.
+        "enabled": True,
+        # Whole-graph deadline. 0 = derive it from observed engine latency. A
+        # fixed 2500 ms was below the cost of one real web search, so every
+        # plan timed out before it could run.
+        "default_deadline_ms": 0,
+        "max_deadline_ms": 60000,
+        # Cold-start per-search timeout, used until latency is observed.
+        # Measured on a working connection: a single engine search takes
+        # 4.6-15s depending on whether the first engine answers or has to be
+        # substituted, so this has to clear the slow end, not the average.
+        "search_timeout_ms": 20000,
+        "default_max_tokens": 1200,
+        "max_tokens": 4000,
+        "fetch_top": 0,              # optional page fetch per search graph (0-10)
+        "fetch_concurrency": 6,      # parallel page fetches per FETCH node
+        "cache_ttl_seconds": 900,
+        "max_concurrency": 6,
+    },
+    "params": {
+        # Live Parameter Layer (v0.4.0 Phase 2). File-backed, local-first.
+        "root": "~/.jiro/params",
+        "default_max_tokens": 1200,
+    },
     "db": {
         "type": "sqlite",           # sqlite | postgresql
         "path": "~/.jiro/jiro.db",
         "url": "",                  # SECURITY: Required for postgresql - no default credentials
         "pool_size": 10,
+    },
+    "runtime": {
+        # Durable task runtime (jiro/runtime). See docs/runtime.md.
+        "enabled": True,
+        "db_path": "",              # empty = reuse db.path (one SQLite writer per process)
+        "max_concurrency": 4,       # worker count == max simultaneous handler executions
+        "poll_interval_seconds": 0.5,
+        # Leases are renewed on a heartbeat while a handler runs, so this
+        # mostly bounds how long a task waits after a hard kill before
+        # recovery. It must still exceed max_attempt_timeout_seconds: an
+        # attempt that blocks the event loop long enough to miss heartbeats
+        # can otherwise be reclaimed and re-executed while it is running.
+        "lease_ttl_seconds": 3900,
+        "default_attempt_timeout_seconds": 60,
+        "max_attempt_timeout_seconds": 3600,
+        "default_max_attempts": 3,
+        "max_max_attempts": 10,
+        "retry_backoff_base_seconds": 1.0,
+        "retry_backoff_max_seconds": 60.0,
+        "retry_jitter_ratio": 0.2,  # fraction of each delay randomised
+        "shutdown_grace_seconds": 15,
+        "max_result_bytes": 262144,
+        "event_retention_days": 7,  # 0 disables event pruning
+        # Re-reconcile durable state on this interval. Startup recovery alone
+        # leaves a task stranded in `running` if its owner died but this
+        # process kept running: the lease is still live at startup and only
+        # becomes reclaimable once it lapses. 0 disables the sweep.
+        "reconcile_interval_seconds": 30,
+    },
+    "memory": {
+        # Cognitive memory (jiro/memory). See docs/memory.md.
+        "enabled": True,
+        # Working memory: bounded, disposable scratch context per scope.
+        "working_capacity": 50,        # entries per scope; deterministic eviction
+        "working_ttl_seconds": 3600,   # 0 disables expiry
+        # Retention windows in days. 0 keeps the type indefinitely.
+        "episodic_retention_days": 90,
+        "semantic_retention_days": 0,
+        "procedural_retention_days": 0,
+        "max_content_bytes": 65536,
+        "max_memories_per_scope": 2000,
+        # Retrieval bounds. Every result is bounded; nothing is unbounded.
+        "default_retrieval_limit": 10,
+        "max_retrieval_limit": 100,
+        "context_budget_chars": 2000,
+        "max_context_memories": 20,
+        "recency_half_life_seconds": 604800,  # 7 days
+        "retrieval": {
+            # Documented ranking weights. No hidden multipliers.
+            "weights": {
+                "text": 0.55,
+                "recency": 0.15,
+                "importance": 0.10,
+                "verification": 0.12,
+                "scope": 0.08,
+            },
+        },
+        "embedding": {
+            # Opt-in. The core memory system works fully without it, using
+            # deterministic lexical ranking.
+            "enabled": False,
+            "model": "",            # empty = the project's configured model
+            "dimensions": 384,
+            "fail_open": True,      # provider failure falls back to lexical
+        },
+        "outbox": {
+            # Durable deferred writes, so a task result and its episode cannot
+            # be lost to a crash between two commits.
+            "enabled": True,
+            "drain_interval_seconds": 5.0,
+            "max_attempts": 5,
+            "batch_size": 50,
+        },
+        "auto_episodes": True,        # terminal tasks produce episodic records
+        "promotion_min_evaluations": 2,  # gates procedural promotion
     },
     "llm": {
         "provider": "openai",       # openai | anthropic | gemini | openrouter | ollama
@@ -254,6 +355,25 @@ def _coerce_env(value: str) -> Any:
     return value
 
 
+def _plugin_engine_names() -> set:
+    """Engine names provided by plugin modules under jiro/plugins/engine.
+
+    These ship with the package but are not part of the built-in parser
+    registry, so a config naming one of them (arxiv, github, ...) is valid.
+    Failure here is non-fatal: an unreadable plugins directory just means the
+    caller falls back to the built-in registry.
+    """
+    names = set()
+    try:
+        from pathlib import Path
+        plugin_dir = Path(__file__).parent / "plugins" / "engine"
+        if plugin_dir.is_dir():
+            names = {p.stem for p in plugin_dir.glob("*.py") if not p.name.startswith("_")}
+    except Exception:
+        pass
+    return names
+
+
 @dataclass
 class Settings:
     """Typed access to the merged configuration."""
@@ -297,16 +417,50 @@ class Settings:
     @property
     def default_engine(self) -> str:
         return self.raw["scraping"].get("default_engine", "google")
-
     @property
     def engines(self) -> List[str]:
-        return self.raw["scraping"].get("engines", ["google", "bing", "duckduckgo"])
+        return self._validated_engines(
+            self.raw["scraping"].get("engines", ["google", "bing", "duckduckgo"])
+        )
 
     @property
     def fallback_order(self) -> List[str]:
-        return self.raw["scraping"].get(
-            "fallback_order", ["google", "bing", "duckduckgo"]
+        return self._validated_engines(
+            self.raw["scraping"].get("fallback_order", ["google", "bing", "duckduckgo"])
         )
+
+    @staticmethod
+    def _validated_engines(configured: List[str]) -> List[str]:
+        """Drop engines named in config that no parser can serve.
+
+        Config is user-editable and is not checked against the engine registry,
+        so a stale or invented name (``mock`` is a common one in the wild would
+        be advertised as available and then fail every request with a 422). Warn
+        once and keep only engines that can actually serve.
+
+        Built-in parsers are not the whole story: engines may also come from
+        plugin modules under ``jiro/plugins/engine`` (arxiv, github, ...), which
+        ``_build_registry`` does not load. Those names are legitimate, so accept
+        them too.
+        """
+        try:
+            from jiro.scraping.engines import _build_registry
+            known = set(_build_registry().names())
+            known |= _plugin_engine_names()
+        except Exception:
+            # Registry unavailable (import cycle, partial install): trust config.
+            return list(configured)
+
+        valid, unknown = [], []
+        for name in configured:
+            (valid if name in known else unknown).append(name)
+        if unknown:
+            from jiro.log import get_logger
+            get_logger("jiro.config").warning(
+                "ignoring unregistered engines in config",
+                extra={"unknown": unknown, "available": sorted(known)},
+            )
+        return valid or ["google"]
 
     @property
     def timeout(self) -> float:
@@ -345,6 +499,15 @@ class Settings:
     @property
     def request_validation(self) -> Dict[str, Any]:
         return self.raw["scraping"].get("request_validation", {})
+
+    # -- graph --------------------------------------------------------------
+    @property
+    def graph(self) -> Dict[str, Any]:
+        return self.raw.get("graph", {})
+
+    @property
+    def graph_enabled(self) -> bool:
+        return bool(self.graph.get("enabled", True))
 
     # -- cache --------------------------------------------------------------
     @property

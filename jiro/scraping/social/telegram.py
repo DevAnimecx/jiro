@@ -78,7 +78,7 @@ class TelegramScraper(BaseSocialScraper):
     def _parse_search_results(self, html: str, limit: int) -> List[SocialPost]:
         """Parse Google search results for Telegram content."""
         results = []
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         
         for item in tree.css("div.g")[:limit]:
@@ -138,7 +138,7 @@ class TelegramScraper(BaseSocialScraper):
     
     def _parse_channel_page(self, html: str, channel: str, limit: int) -> List[SocialPost]:
         """Parse channel preview page for messages using selectolax."""
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         messages = []
         
@@ -205,7 +205,7 @@ class TelegramScraper(BaseSocialScraper):
     
     def _parse_channel_info(self, html: str, username: str, url: str) -> SocialProfile:
         """Parse channel info from preview page using selectolax."""
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         
         # Channel title
@@ -250,7 +250,7 @@ class TelegramScraper(BaseSocialScraper):
     def _extract_channel_name(self, html: str) -> str:
         """Extract channel name from page using selectolax."""
         try:
-            from selectolax.parser import HTMLParser
+            from selectolax.lexbor import LexborHTMLParser as HTMLParser
             tree = HTMLParser(html)
             title_elem = tree.css_first("div.tgme_page_title")
             if title_elem:

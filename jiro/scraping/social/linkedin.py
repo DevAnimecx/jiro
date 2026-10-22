@@ -82,7 +82,7 @@ class LinkedInScraper(BaseSocialScraper):
     def _parse_search_results(self, html: str, limit: int) -> List[SocialPost]:
         """Parse Google search results for LinkedIn content."""
         results = []
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         
         for item in tree.css("div.g")[:limit]:
@@ -343,7 +343,7 @@ class LinkedInScraper(BaseSocialScraper):
         results = []
         
         # Look for activity/feed posts in the HTML
-        from selectolax.parser import HTMLParser
+        from selectolax.lexbor import LexborHTMLParser as HTMLParser
         tree = HTMLParser(html)
         
         for item in tree.css("div.feed-shared-update-v2, div.occludable-update, article")[:limit]:
