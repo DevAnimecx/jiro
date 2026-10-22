@@ -314,3 +314,286 @@ class TestProceduralValidation:
 
     def test_step_limit(self):
         payload = self._valid()
+        payload["steps"] = [
+            {"action": "search", "description": "x"} for _ in range(51)
+        ]
+        with pytest.raises(MemoryValidationError):
+            validate_procedural(payload, max_bytes=4096)
+
+    def test_dedup_changes_when_steps_change(self):
+        a = procedural_dedup_key("p", {"steps": [{"action": "search"}]})
+        b = procedural_dedup_key("p", {"steps": [{"action": "scrape"}]})
+        assert a != b
+
+
+# ------------------------------------------------------------- confidence & tags
+class TestConfidenceDiscipline:
+    def test_none_is_a_valid_value(self):
+        assert validate_confidence(None) is None
+
+    def test_range_is_enforced_not_clamped(self):
+        with pytest.raises(MemoryValidationError):
+            validate_confidence(1.5)
+        with pytest.raises(MemoryValidationError):
+            validate_confidence(-0.1)
+
+    def test_bool_is_not_a_number(self):
+        with pytest.raises(MemoryValidationError):
+            validate_confidence(True)
+
+    def test_verification_is_ordered_and_explicit(self):
+        # Weight is derived from an explicit table, not learned.
+        assert (VERIFICATION_WEIGHT[Verification.VERIFIED]
+                > VERIFICATION_WEIGHT[Verification.EXTRACTED])
+        assert (VERIFICATION_WEIGHT[Verification.OBSERVED]
+                > VERIFICATION_WEIGHT[Verification.INFERRED])
+
+    def test_tags_are_normalised(self):
+        assert validate_tags(["Alpha", "BETA", "alpha"]) == ("alpha", "beta")
+
+    def test_tag_limit(self):
+        with pytest.raises(MemoryValidationError):
+            validate_tags([f"t{i}" for i in range(40)])
+
+    def test_importance_range(self):
+        assert validate_importance(None) == 0.5
+        assert validate_importance(0) == 0.0
+        with pytest.raises(MemoryValidationError):
+            validate_importance(1.2)
+
+
+# ------------------------------------------------------------------- provenance
+class TestProvenanceValidation:
+    def test_requires_kind_and_id(self):
+        with pytest.raises(MemoryValidationError):
+            validate_provenance([{"source_kind": "doc"}])
+        with pytest.raises(MemoryValidationError):
+            validate_provenance([{"source_id": "d1"}])
+
+    def test_method_must_be_recognised(self):
+        with pytest.raises(MemoryValidationError):
+            validate_provenance([
+                {"source_kind": "d", "source_id": "1", "method": "vibes"}
+            ])
+
+    def test_unknown_field_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            validate_provenance([
+                {"source_kind": "d", "source_id": "1", "trust": "high"}
+            ])
+
+    def test_accepts_provenance_instances(self):
+        result = validate_provenance([source()])
+        assert result[0].source_kind == "document"
+
+    def test_url_is_redacted(self):
+        result = validate_provenance([{
+            "source_kind": "url", "source_id": "1",
+            "source_url": "https://x.com/?api_key=sk-supersecret12345",
+        }])
+        assert "sk-supersecret12345" not in (result[0].source_url or "")
+
+
+# --------------------------------------------------------------------- redaction
+class TestRedaction:
+    def test_bearer_token_removed(self):
+        assert "abcdef123456" not in redact_text("failed with Bearer abcdef123456")
+
+    def test_openai_style_key_removed(self):
+        assert "sk-proj-AAAABBBBCCCC" not in redact_text("key sk-proj-AAAABBBBCCCC")
+
+    def test_github_token_removed(self):
+        assert "ghp_" not in redact_text("token ghp_ABCDEFGHIJKLMNOPQRST")
+
+    def test_aws_key_removed(self):
+        assert "AKIAIOSFODNN7EXAMPLE" not in redact_text("AKIAIOSFODNN7EXAMPLE")
+
+    def test_email_removed(self):
+        assert "user@example.com" not in redact_text("contact user@example.com")
+
+    def test_key_value_assignment_removed(self):
+        assert "hunter2hunter2" not in redact_text("password=hunter2hunter2")
+
+    def test_nested_structure_is_walked(self):
+        cleaned = redact_value({"a": {"b": ["Bearer abcdef123456"]}})
+        assert "abcdef123456" not in canonical_json(cleaned)
+
+    def test_depth_is_bounded(self):
+        deep: object = "leaf"
+        for _ in range(30):
+            deep = {"n": deep}
+        cleaned = redact_value(deep)
+        # Must terminate rather than exhaust the stack.
+        assert cleaned is not None
+
+    def test_metadata_scrub_drops_secret_keys(self):
+        cleaned = scrub_metadata({"api_key": "k", "note": "n", "count": 1})
+        assert cleaned["api_key"] == "[redacted]"
+        assert cleaned["note"] == "n"
+        assert cleaned["count"] == 1
+
+    def test_truncation(self):
+        assert len(redact_text("x" * 100, max_chars=20)) <= 25
+
+
+# ----------------------------------------------------------------------- ranking
+class TestRanking:
+    def test_lexical_score_is_coverage_of_query_tokens(self):
+        record = _record(content_text="python asyncio web scraping")
+        score = lexical_score("python scraping", record)
+        assert 0.0 < score <= 1.0
+        assert lexical_score("kotlin", record) == 0.0
+
+    def test_lexical_score_saturates_at_full_coverage(self):
+        record = _record(content_text="alpha beta gamma delta")
+        assert lexical_score("alpha beta", record) == 1.0
+
+    def test_empty_query_scores_zero(self):
+        assert lexical_score("", _record()) == 0.0
+
+    def test_recency_halves_at_one_half_life(self):
+        now = 10_000.0
+        fresh = _record(updated_at=now)
+        old = _record(updated_at=now - 3600.0)
+        assert recency_score(fresh, now=now, half_life=3600.0) == pytest.approx(1.0)
+        assert recency_score(old, now=now, half_life=3600.0) == pytest.approx(0.5)
+
+    def test_importance_is_passed_through(self):
+        assert importance_score(_record(importance=0.25)) == 0.25
+
+    def test_verification_uses_the_declared_table(self):
+        record = _record(verification=Verification.VERIFIED)
+        assert verification_score(record) == VERIFICATION_WEIGHT[
+            Verification.VERIFIED]
+
+    def test_scope_score_exact_and_wider(self):
+        requested = MemoryScope(kind=ScopeKind.TASK, scope_id="t1",
+                                owner_key_id="key_a")
+        exact = _record(scope=requested)
+        wider = _record(scope=MemoryScope(kind=ScopeKind.GLOBAL,
+                                          owner_key_id="key_a"))
+        assert scope_score(exact, requested) == 1.0
+        assert 0.0 < scope_score(wider, requested) < 1.0
+
+    def test_scope_score_is_zero_across_owners(self):
+        requested = MemoryScope(kind=ScopeKind.GLOBAL, owner_key_id="key_a")
+        foreign = _record(scope=MemoryScope(kind=ScopeKind.GLOBAL,
+                                            owner_key_id="key_b"))
+        assert scope_score(foreign, requested) == 0.0
+
+    def test_ranking_is_ordered_and_explained(self):
+        config = memory_config()
+        ranker = Ranker(config)
+        now = time.time()
+        records = [
+            _record(id="mem_a", content_text="python asyncio", importance=0.9),
+            _record(id="mem_b", content_text="unrelated", importance=0.1),
+        ]
+        ranked = ranker.rank(records, query_text="python asyncio",
+                             requested_scope=None, now=now, limit=10)
+        assert ranked[0].record.id == "mem_a"
+        assert set(ranked[0].breakdown) == {
+            "text", "recency", "importance", "verification", "scope"}
+        assert "text" in ranked[0].reason
+
+    def test_ranking_order_is_total_and_stable(self):
+        ranker = Ranker(memory_config())
+        now = time.time()
+        records = [
+            _record(id=f"mem_{i}", importance=0.5, content_text="same")
+            for i in range(5)
+        ]
+        first = ranker.rank(records, query_text="same", requested_scope=None,
+                            now=now, limit=10)
+        second = ranker.rank(records, query_text="same", requested_scope=None,
+                             now=now, limit=10)
+        assert [r.record.id for r in first] == [r.record.id for r in second]
+
+    def test_ranking_respects_limit(self):
+        ranker = Ranker(memory_config())
+        records = [_record(id=f"mem_{i}") for i in range(20)]
+        ranked = ranker.rank(records, query_text="", requested_scope=None,
+                             now=time.time(), limit=3)
+        assert len(ranked) == 3
+
+    def test_weights_are_reported(self):
+        ranker = Ranker(memory_config())
+        item = RankedRecord(record=_record(), score=0.5, breakdown={"text": 0.5})
+        explained = ranker.explain(item)
+        assert "weights" in explained and "signals" in explained
+
+
+# ------------------------------------------------------------------- near-dupes
+class TestNearDuplicate:
+    def test_identical_normalised_text(self):
+        assert near_duplicate("The quick brown fox", "quick brown fox the")
+
+    def test_different_text(self):
+        assert not near_duplicate("alpha beta gamma", "delta epsilon zeta")
+
+    def test_empty_never_matches(self):
+        assert not near_duplicate("", "")
+
+
+class TestTextNormalisation:
+    def test_case_and_punctuation_folded(self):
+        assert normalise_text("Python, asyncio!") == normalise_text(
+            "python asyncio")
+
+    def test_stopwords_dropped_from_tokens(self):
+        assert "the" not in tokenise("the quick brown fox")
+
+    def test_dedup_digest_is_stable(self):
+        assert dedup_digest("a", 1) == dedup_digest("a", 1)
+        assert dedup_digest("a", 1) != dedup_digest("a", 2)
+
+
+# --------------------------------------------------------------------- config
+class TestMemoryConfig:
+    def test_defaults_load(self):
+        config = memory_config()
+        assert config.working_capacity == 5
+        assert config.embedding_enabled is False
+
+    def test_zero_capacity_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            memory_config(working_capacity=0)
+
+    def test_limit_below_default_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            memory_config(default_retrieval_limit=10, max_retrieval_limit=5)
+
+    def test_negative_ttl_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            memory_config(working_ttl_seconds=-1)
+
+    def test_all_zero_weights_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            memory_config(retrieval={"weights": {
+                "text": 0, "recency": 0, "importance": 0,
+                "verification": 0, "scope": 0}})
+
+    def test_out_of_range_weight_rejected(self):
+        with pytest.raises(MemoryValidationError):
+            memory_config(retrieval={"weights": {"text": 2.0}})
+
+    def test_retention_zero_means_forever(self):
+        config = memory_config(episodic_retention_days=0)
+        assert config.retention_seconds("episodic") is None
+
+    def test_retention_in_seconds(self):
+        config = memory_config(episodic_retention_days=2)
+        assert config.retention_seconds("episodic") == 2 * 86400
+
+    def test_weights_reported(self):
+        assert set(RetrievalWeights().as_dict()) == {
+            "text", "recency", "importance", "verification", "scope"}
+
+
+def test_cosine_guard_is_importable():
+    """Cosine lives in the embeddings module and is exercised there."""
+    from jiro.memory.embeddings import cosine
+
+    assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+    assert cosine([1.0], [1.0, 0.0]) == 0.0
+    assert cosine([0.0, 0.0], [1.0, 0.0]) == 0.0
