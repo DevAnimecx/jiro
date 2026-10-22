@@ -33,7 +33,7 @@ import (
 )
 
 // Version is the SDK version.
-const Version = "0.2.15"
+const Version = "0.4.0"
 
 // Client represents a Jiro API client.
 type Client struct {
