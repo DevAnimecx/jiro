@@ -60,7 +60,7 @@
  * @property {number} [timeout] - Request timeout in milliseconds
  */
 
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 
 /**
  * Base error class for Jiro SDK errors.
