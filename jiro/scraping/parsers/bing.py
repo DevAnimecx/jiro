@@ -36,6 +36,8 @@ BING_NEWS_URL = "https://www.bing.com/news/search"
 class BingEngine(BaseEngine):
     name = "bing"
     types = ["web", "images", "news"]
+    # Bing honours the `first` page-offset parameter.
+    supports_pagination = True
     parser_version = "1.1"
 
     async def search(self, req: SearchRequest) -> SearchResponse:
