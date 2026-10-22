@@ -1,0 +1,303 @@
+================================================================================
+JIRO v0.4.0 — VERSION ANALYSIS AND 0.3.3 COMPARISON
+================================================================================
+Analyzed: 2026-10-22
+Method:    source inspection, test execution, live CLI invocation
+Baseline:  jirosearch 0.3.3 (committed, main @ e60207a)
+Candidate: 0.4.0 work-in-progress (uncommitted, branch fix/stress-test-findings)
+
+--------------------------------------------------------------------------------
+HEADLINE
+--------------------------------------------------------------------------------
+
+A large, genuinely engineered body of work exists — 21,504 lines of new code
+across 8 new modules, 488 passing tests, 13 ADRs, 16 client adapters. The
+architecture is real and the engineering is disciplined.
+
+It is NOT ready to ship as 0.4.0, and nothing is committed:
+
+  1. All four headline performance claims have NO benchmark artifact.
+     The project's own CLAIMS.md rule says such numbers may not be published.
+  2. The flagship feature (graph run) fails on a trivial query.
+  3. The version is still 0.3.3 in every file. Nothing is bumped.
+  4. The entire body of work is uncommitted — 0 commits on the branch.
+
+Verdict: strong Phase 1-4 engineering, presented with pre-launch ambition that
+the evidence does not yet support. The gap is verification and tuning, not
+architecture.
+
+================================================================================
+1. SCOPE — WHAT ACTUALLY EXISTS
+================================================================================
+
+New modules (untracked):
+
+  Module                  Files    Lines
+  ----------------------  -----  -------
+  jiro/memory                15    6,228
+  jiro/runtime               15    4,618
+  jiro/research              10    3,418
+  jiro/orchestration          6    2,533
+  jiro/verification           6    2,300
+  jiro/graph                  6    1,375
+  jiro/parametric             5      651
+  jiro/params                 3      381
+  ----------------------  -----  -------
+  TOTAL                      66   21,504
+
+Supporting artifacts:
+  - 20 new test files
+  - 3 new API routers: graph, params, tasks
+  - 2 new CLI groups: `jiro tasks`, `jiro graph`
+  - 13 ADRs (docs/adr/0001-0011 plus 2 phase reports)
+  - 5 planning docs (docs/v0.4.0/)
+  - New user docs: memory.md, runtime.md, mcp.md, compliance.md
+  - Benchmark harness: benchmarks/{claims.yaml, run.py, report.py, workloads/}
+  - 2 phase handoff docs (Phase 3, Phase 4)
+
+================================================================================
+2. CAPABILITY COMPARISON: 0.3.3 -> 0.4.0
+================================================================================
+
+Dimension           | 0.3.3 (shipped)      | 0.4.0 (in tree)        | Status
+--------------------|----------------------|------------------------|------------
+Unit of work        | 1 search / 1 scrape  | Budgeted query graph   | BUILT, FAILS
+Search + scrape     | Separate endpoints   | Unified graph ops      | BUILT
+Query planner       | None                 | Cost-based planner     | BUILT, WORKS
+Output              | Raw JSON rows        | Cited evidence packet  | PARTIAL
+Claim verification  | None                 | Claim ledger/contradiction | BUILT
+Parameter layer     | None                 | Versioned params, TTL  | BUILT
+Durable tasks       | None                 | Submit/status/cancel   | BUILT, WORKS
+Agent orchestration | None                 | 6 agent roles, DAG     | BUILT
+Memory system       | None                 | 15-file subsystem      | BUILT
+MCP                 | 19 tools             | +resources/prompts/progress/cancel | BUILT
+Client adapters     | Manual config        | 16 auto-detect adapters | BUILT
+Version string      | 0.3.3                | 0.3.3 (NOT BUMPED)     | MISSING
+
+--------------------------------------------------------------------------------
+ENGINE / INTEGRATION FLOOR (unchanged)
+--------------------------------------------------------------------------------
+Still 9 built-in engines: google, bing, duckduckgo, brave, yandex, baidu,
+amazon, ebay, youtube. Plus 6 plugin engines (arxiv, github, google_scholar,
+hackernews, reddit, wikipedia). 12 social platforms. No new engines in 0.4.0 —
+0.4.0 is about orchestration and evidence, not more sources.
+
+================================================================================
+3. WHAT WORKS — VERIFIED LIVE
+================================================================================
+
+These were executed, not just read:
+
+[x] `jiro graph plan` — WORKS
+    Detected "comparison" intent from natural language, built a correct 4-node
+    DAG (SEARCH, SEARCH, MERGE, COMPRESS) across 3 waves, produced a cost
+    estimate (~555ms, 2 requests), and even surfaced a counter-argument
+    ("single_search: ~277ms — faster, but no cross-source corroboration").
+    This is real planning logic with honest tradeoff reporting.
+
+[x] `jiro tasks types` — WORKS
+    Lists 3 durable task types with schemas: ai_search, ai_agent, batch_scrape.
+
+[x] 488 new-module tests — ALL PASS
+    graph + memory: 290 passed
+    runtime + orchestration + params + research: 198 passed
+
+[x] 16 client adapters — CONFIRMED IN CODE
+    claude, claude_code, cline, codex, continue, cursor, gemini, goose, hermes,
+    kilo, openclaw, opencode, roo, vscode, windsurf, zed.
+    The "15+ agents" claim is genuinely met at the code level.
+
+[x] MCP v2 features — PRESENT
+    resources, prompts, progress tracking, cancellation all implemented.
+
+[x] 13 ADRs — solid design documentation
+    Notably ADR 0011 (parametric-context-boundary) documents why "writing
+    weights" is out of scope — intellectual honesty about the boundary.
+
+================================================================================
+4. WHAT IS BROKEN OR MISSING
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 CRITICAL — All four headline claims have no artifact
+--------------------------------------------------------------------------------
+Claim          | Registry says                          | Reality
+---------------|----------------------------------------|----------
+speed-2x       | artifact: docs/v0.4.0/benchmarks/      | MISSING
+               |           speed.json                   |
+efficiency-3x  | artifact: .../efficiency.json          | MISSING
+citation-      | artifact: .../citations.json           | MISSING
+  complete     |                                        |
+setup-15       | artifact: .../setup.json                | MISSING
+
+benchmarks/claims.yaml exists. benchmarks/run.py exists. The artifact
+directory docs/v0.4.0/benchmarks/ does not exist at all.
+
+The project's own stated rule (CLAIMS.md line 3):
+  "If the artifact does not exist, the number is not published."
+
+By the plan's own standard, NONE of these may be claimed today:
+  2x faster  /  3x more efficient  /  citation-complete  /  15+ agents
+
+The harness is built. It has not been run to produce committed results.
+
+--------------------------------------------------------------------------------
+4.2 CRITICAL — Flagship feature fails on a trivial query
+--------------------------------------------------------------------------------
+Command: jiro graph run "what is the capital of France"
+Result:  HTTP 502, graph_execution_failed, rc=1
+
+Both search nodes timed out. Root cause is a budget/latency mismatch:
+
+  Graph total deadline (model.py:41)      : 2,500 ms
+  Effective per-node deadline (observed)  : 1,400 ms
+  Real search latency (measured live)     : 4,630 - 12,905 ms
+
+The node budget is roughly 3x to 9x BELOW the actual search latency floor.
+On this machine and network, the graph cannot succeed for any web search.
+
+To the project's credit, the failure is honest — it reports 502, node_timeout,
+explicit gaps, empty results, and packet:null. Nothing is faked. The principles
+in MASTER_PLAN section "Fail visible" are upheld. But the default budget needs
+calibration against real latency before this feature is usable.
+
+--------------------------------------------------------------------------------
+4.3 HIGH — Version not bumped anywhere
+--------------------------------------------------------------------------------
+pyproject.toml        version = "0.3.3"
+jiro/__init__.py      __version__ = "0.3.3"
+npm/package.json      "version": "0.3.3"
+sdk/python/setup.py   version="0.3.3"
+
+21,504 lines of new functionality carries no version. Building or publishing
+now would ship 0.4.0 features under the 0.3.3 label.
+
+--------------------------------------------------------------------------------
+4.4 HIGH — Entire workstream is uncommitted
+--------------------------------------------------------------------------------
+Branch fix/stress-test-findings: 0 commits beyond main.
+86 uncommitted files in the working tree.
+
+There is no point in history at which this work is recoverable. A single
+mistaken git clean, checkout, or reset loses 21,504 lines.
+
+--------------------------------------------------------------------------------
+4.5 MEDIUM — Claimed feature with no implementation
+--------------------------------------------------------------------------------
+MASTER_PLAN promises: "handoff protocol" for shared agent sessions.
+grep for "handoff" in jiro/mcp.py: 0 occurrences.
+
+Also claimed but unverified: "median time to first successful tool call under
+two minutes on a clean machine" (setup-15) — no measurement exists.
+
+--------------------------------------------------------------------------------
+4.6 LOW — Live config warning on new runtime code
+--------------------------------------------------------------------------------
+Every `jiro tasks` invocation prints:
+  "runtime.lease_ttl_seconds is not greater than
+   runtime.max_attempt_timeout_seconds; a long attempt that blocks the event
+   loop could be reclaimed and re-executed"
+
+The runtime's own validator (jiro/runtime/config.py:228) detects a genuine
+safety hazard in its default configuration and warns. Defaults are
+mis-configured relative to each other. Relevant because it directly describes
+a duplicate-execution risk.
+
+================================================================================
+5. TEST EVIDENCE
+================================================================================
+
+New-module tests          : 488 passed, 0 failed
+Full suite (my earlier run): 1501 passed, 2 failed, 9 skipped
+
+The 2 full-suite failures are both unrelated to 0.4.0 work:
+  - test_recipe_api: pre-existing; verified failing on clean main
+  - test_get_engines_for_category: my own regression, since fixed
+
+Test coverage of new modules is genuinely strong. The gap is not unit testing —
+it is integration/environment validation (4.1, 4.2) and shipping hygiene
+(4.3, 4.4).
+
+================================================================================
+6. ARCHITECTURE ASSESSMENT
+================================================================================
+
+The 6-layer design in MASTER_PLAN is coherent:
+
+  L6 Agent Fabric    — 16 adapters, sessions, one-command setup     [built]
+  L5 Parameter Layer — params, TTL, decay, diff                     [built]
+  L4 Evidence        — claims, support, packets, ledger             [built]
+  L3 Graph Runtime   — planner, cost model, waves, deadline         [built, mistuned]
+  L2 Sense           — engines, plugins, social, proxies, SSRF      [unchanged]
+  L1 ...             — storage                                      [unchanged]
+
+Strengths worth naming:
+  - "Additive only" is respected: no existing engine, endpoint or SDK shape
+    was broken by any of the 8 new modules.
+  - The capability ladder (R0-R4) is a far more honest framing than an "AGI"
+    claim, and the plan explicitly refuses the AGI label.
+  - ADR 0011 draws a clear line around what "internet as model parameter"
+    does NOT mean, preventing the most likely overclaim.
+  - Failure reporting is genuinely honest: node_timeout, gaps, engine
+    attribution, budget accounting — all surfaced.
+
+Weakness:
+  - The plan's ambition (2x/3x, 15+ agents, R3) is written as though shipped,
+    while the evidence tier is empty. The writing runs ahead of the artifacts.
+
+================================================================================
+7. RECOMMENDED SEQUENCE BEFORE 0.4.0 CAN SHIP
+================================================================================
+
+Priority 1 — Protect the work (minutes)
+  1. Commit the current tree to the branch. 21,504 lines with no commit is the
+     single largest risk in this analysis.
+
+Priority 2 — Make the flagship work (days)
+  2. Calibrate the graph node budget against measured latency. Current default
+     (1400ms/node) cannot serve web search (4,600-12,900ms). Either raise the
+     budget, make it adaptive, or have the planner estimate from observed
+     engine latency before committing to a plan.
+  3. Re-run: jiro graph run "what is the capital of France" must return a cited
+     packet, not a 502.
+
+Priority 3 — Earn the claims (days)
+  4. Run benchmarks/run.py to generate the four artifacts, or delete the
+     claims from the public docs until they can be produced. Publishing
+     "2x faster" with no artifact contradicts the project's own CLAIMS.md.
+  5. Resolve the runtime lease_ttl / max_attempt_timeout default mismatch —
+     it warns about duplicate-execution, which matters for a durable runtime.
+
+Priority 4 — Ship hygiene (hours)
+  6. Bump version to 0.4.0 across pyproject.toml, jiro/__init__.py,
+     npm/package.json, sdk/python/setup.py once features are frozen.
+  7. Implement or remove the "handoff protocol" claim from MASTER_PLAN.
+
+================================================================================
+8. BOTTOM LINE
+================================================================================
+
+0.4.0 is a real, substantial, well-architected expansion — not a plan document
+dressed up as code. 21,504 lines, 488 passing tests, 16 working client
+adapters, and 13 ADRs show disciplined engineering. The planner demonstrably
+works and reasons about tradeoffs.
+
+The gap between 0.3.3 and 0.4.0 is genuine in capability: from a search-and-
+scrape API to a query-graph runtime with evidence compilation, durable tasks,
+agent orchestration, and a memory subsystem.
+
+But 0.4.0 is not shippable today for three reasons, in order of severity:
+
+  1. Zero of four headline claims have their required artifact. The project
+     wrote a rule forbidding this and then did it.
+  2. The flagship graph feature fails on "what is the capital of France"
+     because its budget is 3-9x below real search latency.
+  3. Nothing is committed and nothing is versioned.
+
+None of these are architectural problems. All three are finish-line problems —
+protect the work, tune the budget, run the benchmark. The foundation is sound;
+the last mile is not walked.
+
+================================================================================
+END OF REPORT
+================================================================================
