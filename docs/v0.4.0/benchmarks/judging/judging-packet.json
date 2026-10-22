@@ -1,0 +1,189 @@
+{
+  "rubric": "1-10 answer quality; judge on factual support, coverage of the required claims, and absence of unsupported statements.",
+  "judge_model": "fixed at run time and recorded in the answers file",
+  "blinding": "text_a/text_b assignment is randomised per item; the judge must not be shown text_*_source",
+  "created_at": "2026-10-22T14:31:42+00:00",
+  "seed": 4040,
+  "items": [
+    {
+      "item": 0,
+      "prompt_id": "quality-000",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 1,
+      "prompt_id": "quality-001",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 2,
+      "prompt_id": "quality-002",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 3,
+      "prompt_id": "quality-003",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 4,
+      "prompt_id": "quality-004",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 5,
+      "prompt_id": "quality-005",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 6,
+      "prompt_id": "quality-006",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 7,
+      "prompt_id": "quality-007",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 8,
+      "prompt_id": "quality-008",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 9,
+      "prompt_id": "quality-009",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 10,
+      "prompt_id": "quality-010",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 11,
+      "prompt_id": "quality-011",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 12,
+      "prompt_id": "quality-012",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 13,
+      "prompt_id": "quality-013",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 14,
+      "prompt_id": "quality-014",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 15,
+      "prompt_id": "quality-015",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 16,
+      "prompt_id": "quality-016",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 17,
+      "prompt_id": "quality-017",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 18,
+      "prompt_id": "quality-018",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 19,
+      "prompt_id": "quality-019",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 20,
+      "prompt_id": "quality-020",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 21,
+      "prompt_id": "quality-021",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 22,
+      "prompt_id": "quality-022",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 23,
+      "prompt_id": "quality-023",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 24,
+      "prompt_id": "quality-024",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 25,
+      "prompt_id": "quality-025",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 26,
+      "prompt_id": "quality-026",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    },
+    {
+      "item": 27,
+      "prompt_id": "quality-027",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 28,
+      "prompt_id": "quality-028",
+      "text_a_source": "candidate",
+      "text_b_source": "baseline"
+    },
+    {
+      "item": 29,
+      "prompt_id": "quality-029",
+      "text_a_source": "baseline",
+      "text_b_source": "candidate"
+    }
+  ]
+}
