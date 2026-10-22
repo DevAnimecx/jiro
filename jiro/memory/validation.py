@@ -378,3 +378,386 @@ def fact_claim_key(subject: str, predicate: str) -> str:
     Two facts sharing this key but disagreeing on the object are a
     contradiction, not a duplicate. Normalising case and whitespace is what
     stops ``"Python"`` and ``"python "`` from being treated as different claims.
+    """
+    return dedup_digest(normalise_text(subject), normalise_text(predicate))
+
+
+# ------------------------------------------------------------ procedural memory
+
+
+def validate_procedural(content: Any, *, max_bytes: int) -> Tuple[Dict[str, Any], str]:
+    """Validate a procedural payload.
+
+    Steps are checked for *structure* and against :data:`ALLOWED_STEP_ACTIONS`.
+    Nothing here executes a step; the point of the action allow-list is that a
+    stored record can only ever name an operation that was registered in code.
+    """
+    if not isinstance(content, Mapping):
+        raise MemoryValidationError(
+            "procedural content must be an object",
+            details={"received": type(content).__name__},
+        )
+    allowed = {
+        "name", "purpose", "preconditions", "input_schema", "steps",
+        "required_capabilities", "expected_outputs", "validation_criteria",
+        "known_limitations", "compatibility",
+    }
+    unknown = sorted(set(content) - allowed)
+    if unknown:
+        raise MemoryValidationError(
+            f"unknown procedural field(s): {unknown}",
+            details={"unknown": unknown, "allowed": sorted(allowed)},
+        )
+
+    name = content.get("name")
+    purpose = content.get("purpose")
+    if not isinstance(name, str) or not name.strip():
+        raise MemoryValidationError("procedural memory requires a 'name'")
+    if not isinstance(purpose, str) or not purpose.strip():
+        raise MemoryValidationError("procedural memory requires a 'purpose'")
+
+    steps = content.get("steps")
+    if not isinstance(steps, (list, tuple)):
+        raise MemoryValidationError("procedural memory requires a 'steps' list")
+    if not steps:
+        raise MemoryValidationError("procedural memory requires at least one step")
+    if len(steps) > 50:
+        raise MemoryValidationError(
+            "procedural memory accepts at most 50 steps",
+            details={"received": len(steps)},
+        )
+
+    cleaned_steps: List[Dict[str, Any]] = []
+    for index, step in enumerate(steps):
+        cleaned_steps.append(_validate_step(index, step))
+
+    cleaned: Dict[str, Any] = {
+        "name": name.strip()[:256],
+        "purpose": purpose.strip()[:1000],
+        "steps": cleaned_steps,
+    }
+    for key in ("preconditions", "required_capabilities",
+                "expected_outputs", "validation_criteria", "known_limitations"):
+        value = content.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, (list, tuple)):
+            raise MemoryValidationError(f"procedural '{key}' must be a list")
+        items = []
+        for entry in value:
+            if not isinstance(entry, str) or not entry.strip():
+                raise MemoryValidationError(
+                    f"procedural '{key}' entries must be non-empty strings"
+                )
+            items.append(entry.strip()[:500])
+        if items:
+            cleaned[key] = items
+
+    schema = content.get("input_schema")
+    if schema is not None:
+        if not isinstance(schema, Mapping):
+            raise MemoryValidationError("procedural 'input_schema' must be an object")
+        cleaned["input_schema"] = redact_value(dict(schema), max_chars=8192)
+    compat = content.get("compatibility")
+    if compat is not None:
+        if not isinstance(compat, Mapping):
+            raise MemoryValidationError("procedural 'compatibility' must be an object")
+        cleaned["compatibility"] = redact_value(dict(compat), max_chars=4096)
+
+    searchable = " ".join([cleaned["name"], cleaned["purpose"]])
+    if len(searchable.encode("utf-8")) > max_bytes:
+        raise MemoryValidationError(
+            f"procedural memory exceeds {max_bytes} bytes",
+            details={"bytes": len(searchable.encode('utf-8'))},
+        )
+    return cleaned, searchable
+
+
+def _validate_step(index: int, step: Any) -> Dict[str, Any]:
+    if not isinstance(step, Mapping):
+        raise MemoryValidationError(
+            f"procedural step {index} must be an object",
+            details={"index": index},
+        )
+    allowed = {"action", "description", "requires", "capture_as", "notes"}
+    unknown = sorted(set(step) - allowed)
+    if unknown:
+        raise MemoryValidationError(
+            f"procedural step {index} has unknown field(s): {unknown}",
+            details={"index": index, "unknown": unknown},
+        )
+    action = step.get("action")
+    if not isinstance(action, str) or not action.strip():
+        raise MemoryValidationError(
+            f"procedural step {index} requires an 'action'",
+            details={"index": index},
+        )
+    action = action.strip()
+    if action not in ALLOWED_STEP_ACTIONS:
+        raise MemoryValidationError(
+            f"procedural step {index} names an unregistered action '{action}'",
+            details={
+                "index": index,
+                "action": action,
+                "allowed": sorted(ALLOWED_STEP_ACTIONS),
+            },
+        )
+    description = step.get("description")
+    if not isinstance(description, str) or not description.strip():
+        raise MemoryValidationError(
+            f"procedural step {index} requires a 'description'",
+            details={"index": index},
+        )
+    cleaned: Dict[str, Any] = {
+        "action": action,
+        "description": redact_text(description.strip(), max_chars=1000),
+    }
+    requires = step.get("requires")
+    if requires is not None:
+        if not isinstance(requires, (list, tuple)):
+            raise MemoryValidationError(
+                f"procedural step {index} 'requires' must be a list"
+            )
+        cleaned["requires"] = [str(r)[:64] for r in requires[:10]]
+    capture = step.get("capture_as")
+    if capture is not None:
+        if not isinstance(capture, str) or not capture.strip():
+            raise MemoryValidationError(
+                f"procedural step {index} 'capture_as' must be a string"
+            )
+        cleaned["capture_as"] = capture.strip()[:64]
+    notes = step.get("notes")
+    if notes is not None:
+        if not isinstance(notes, str):
+            raise MemoryValidationError(
+                f"procedural step {index} 'notes' must be a string"
+            )
+        cleaned["notes"] = redact_text(notes, max_chars=500)
+    return cleaned
+
+
+# -------------------------------------------------------------- deduplication
+
+
+def working_dedup_key(scope_id: str, content: Mapping[str, Any]) -> str:
+    """Content-derived key for working memory.
+
+    Working memory is deliberately *not* idempotent by source: two entries can
+    legitimately hold the same scratch value at different points in a task.
+    Deduping them would silently collapse distinct context.
+    """
+    return dedup_digest("working", scope_id, canonical_json(content))
+
+
+def episodic_dedup_key(content: Mapping[str, Any], scope_id: str = "") -> str:
+    """Source-identity key for an episode.
+
+    Anchored on the task and attempt rather than the prose, so a re-run that
+    produces a slightly different summary is still recognised as the same
+    event.
+
+    Falls back to the event text plus the scope, because two tasks can
+    legitimately record the same event ("task.succeeded") and collapsing them
+    would lose one of the two experiences.
+    """
+    task_id = content.get("task_id")
+    if task_id:
+        return dedup_digest("episodic", str(task_id), str(content.get("attempt", 0)))
+    return dedup_digest("episodic", scope_id,
+                        normalise_text(str(content.get("event", ""))))
+
+
+def semantic_dedup_key(claim_key: str, subject: str, predicate: str,
+                       object_value: Any) -> str:
+    """Claim identity for a semantic fact.
+
+    Includes the object, so two facts about the same subject/predicate with
+    different objects are *not* duplicates — they are a contradiction, and the
+    service needs to see both to detect it.
+    """
+    return dedup_digest("semantic", claim_key, subject.strip(), predicate.strip(),
+                        str(object_value))
+
+
+def procedural_dedup_key(name: str, content: Mapping[str, Any]) -> str:
+    """Identity for a procedure.
+
+    Anchored on name *and* structural content, so editing a procedure creates a
+    new candidate rather than silently overwriting the validated one. The
+    versioned lifecycle handles the rest.
+    """
+    steps = canonical_json(content.get("steps", []))
+    return dedup_digest("procedural", normalise_text(name), steps)
+
+
+def derive_dedup_key(
+    memory_type: MemoryType,
+    *,
+    scope_id: str,
+    content: Mapping[str, Any],
+) -> str:
+    """Pick the right dedup strategy for a memory type."""
+    if memory_type is MemoryType.WORKING:
+        return working_dedup_key(scope_id, content)
+    if memory_type is MemoryType.EPISODIC:
+        return episodic_dedup_key(content, scope_id)
+    if memory_type is MemoryType.SEMANTIC:
+        claim_key = fact_claim_key(str(content["subject"]), str(content["predicate"]))
+        return semantic_dedup_key(
+            claim_key, str(content["subject"]), str(content["predicate"]),
+            content.get("object"),
+        )
+    return procedural_dedup_key(str(content.get("name", "")), content)
+
+
+def near_duplicate(left: str, right: str, *, threshold: float = 0.9) -> bool:
+    """Cheap token-overlap similarity used only to raise a *review candidate*.
+
+    Never used to merge. Two records with different sources or different
+    verification status stay separate regardless of how similar their text is.
+    """
+    left_tokens = set(tokenise(left))
+    right_tokens = set(tokenise(right))
+    if not left_tokens or not right_tokens:
+        return False
+    if left_tokens == right_tokens:
+        return True
+    overlap = len(left_tokens & right_tokens)
+    return overlap / min(len(left_tokens), len(right_tokens)) >= threshold
+
+
+def validate_tags(tags: Any, *, max_tags: int = 32) -> Tuple[str, ...]:
+    """Normalise a tag list: lowercase, deduplicated, bounded."""
+    if tags is None:
+        return ()
+    if not isinstance(tags, (list, tuple, set)):
+        raise MemoryValidationError("tags must be a list of strings")
+    if len(tags) > max_tags:
+        raise MemoryValidationError(
+            f"at most {max_tags} tags are allowed",
+            details={"received": len(tags)},
+        )
+    seen: List[str] = []
+    for tag in tags:
+        if not isinstance(tag, str):
+            raise MemoryValidationError("tags must be strings")
+        cleaned = tag.strip().lower()[:64]
+        if cleaned and cleaned not in seen:
+            seen.append(cleaned)
+    return tuple(seen)
+
+
+def validate_importance(value: Any) -> float:
+    """Clamp an explicit importance weight into ``[0, 1]``."""
+    if value is None:
+        return 0.5
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MemoryValidationError("importance must be a number")
+    if value < 0.0 or value > 1.0:
+        raise MemoryValidationError("importance must be within [0, 1]")
+    return float(value)
+
+
+def validate_confidence(value: Any) -> Optional[float]:
+    """Validate a confidence hint.
+
+    ``None`` means "not meaningful for this record type" and is a first-class
+    value. Rejects non-numbers and out-of-range values rather than clamping,
+    because a silently clamped confidence would be read as a real number.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MemoryValidationError("confidence must be a number or None")
+    if value < 0.0 or value > 1.0:
+        raise MemoryValidationError("confidence must be within [0, 1]")
+    return float(value)
+
+
+def validate_provenance(items: Any, *, max_items: int = 20) -> Tuple[Provenance, ...]:
+    """Validate caller-supplied provenance records.
+
+    A source is never invented here: ``source_kind`` and ``source_id`` are both
+    required, and ``method`` is constrained to a known set so a record cannot
+    claim to be verified when it was merely guessed.
+    """
+    if items is None:
+        return ()
+    if not isinstance(items, (list, tuple)):
+        raise MemoryValidationError("provenance must be a list")
+    if len(items) > max_items:
+        raise MemoryValidationError(
+            f"at most {max_items} provenance records are allowed",
+            details={"received": len(items)},
+        )
+    allowed_methods = {
+        "observed", "extracted", "user_provided", "imported", "summary", "derived",
+    }
+    out: List[Provenance] = []
+    for item in items:
+        if isinstance(item, Provenance):
+            provenance = item
+        elif isinstance(item, Mapping):
+            unknown = sorted(set(item) - {
+                "source_kind", "source_id", "source_url", "locator", "method",
+                "observed_at", "published_at", "note",
+            })
+            if unknown:
+                raise MemoryValidationError(
+                    f"unknown provenance field(s): {unknown}",
+                    details={"unknown": unknown},
+                )
+            if not item.get("source_kind") or not item.get("source_id"):
+                raise MemoryValidationError(
+                    "provenance requires both 'source_kind' and 'source_id'"
+                )
+            method = item.get("method") or "observed"
+            if method not in allowed_methods:
+                raise MemoryValidationError(
+                    f"provenance method '{method}' is not recognised",
+                    details={"allowed": sorted(allowed_methods)},
+                )
+            provenance = Provenance(
+                source_kind=str(item["source_kind"])[:64],
+                source_id=str(item["source_id"])[:512],
+                source_url=(redact_text(str(item["source_url"]), max_chars=2048)
+                            if item.get("source_url") else None),
+                locator=(str(item["locator"])[:512]
+                         if item.get("locator") else None),
+                method=method,
+                observed_at=(float(item["observed_at"])
+                             if item.get("observed_at") else None),
+                published_at=(float(item["published_at"])
+                              if item.get("published_at") else None),
+                note=(redact_text(str(item["note"]), max_chars=1000)
+                      if item.get("note") else None),
+            )
+        else:
+            raise MemoryValidationError(
+                "provenance entries must be objects or Provenance instances"
+            )
+        out.append(provenance)
+    return tuple(out)
+
+
+__all__ = [
+    "ALLOWED_STEP_ACTIONS",
+    "FactInput",
+    "derive_dedup_key",
+    "episodic_dedup_key",
+    "fact_claim_key",
+    "near_duplicate",
+    "normalise_text",
+    "procedural_dedup_key",
+    "semantic_dedup_key",
+    "tokenise",
+    "validate_confidence",
+    "validate_episodic",
+    "validate_importance",
+    "validate_procedural",
+    "validate_provenance",
+    "validate_semantic",
+    "validate_tags",
+    "validate_working",
+    "working_dedup_key",
+]
