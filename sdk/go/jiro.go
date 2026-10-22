@@ -81,17 +81,20 @@ func NewClient(opts ...ClientOption) *Client {
 }
 
 // ErrorResponse represents an API error response.
+//
+// The message field is named Message rather than Error so that the type can
+// implement the error interface: a field named Error would shadow the method.
 type ErrorResponse struct {
-	Error  string `json:"error"`
-	Detail string `json:"detail,omitempty"`
+	Message string `json:"error"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // Error implements the error interface.
 func (e *ErrorResponse) Error() string {
 	if e.Detail != "" {
-		return fmt.Sprintf("%s: %s", e.Error, e.Detail)
+		return fmt.Sprintf("%s: %s", e.Message, e.Detail)
 	}
-	return e.Error
+	return e.Message
 }
 
 // ── Search Types ──────────────────────────────────────────────────────────
@@ -197,6 +200,98 @@ func (c *Client) SearchParallel(query string, numResults, numEngines int) (*Sear
 		Num:        numResults,
 		NumEngines: numEngines,
 	})
+}
+
+// ── Query Graph Types (v0.4.0) ───────────────────────────────────────────
+
+// GraphOptions contains optional parameters for planning and running a query graph.
+type GraphOptions struct {
+	Engine     string
+	Num        int
+	MaxTokens  int
+	DeadlineMS int
+	MaxNodes   int
+	FetchTop   int
+	Intent     string
+}
+
+func (o *GraphOptions) body(query string) map[string]interface{} {
+	body := map[string]interface{}{
+		"query":     query,
+		"engine":    "auto",
+		"num":       5,
+		"max_nodes": 12,
+	}
+	if o == nil {
+		return body
+	}
+	if o.Engine != "" {
+		body["engine"] = o.Engine
+	}
+	if o.Num > 0 {
+		body["num"] = o.Num
+	}
+	if o.MaxNodes > 0 {
+		body["max_nodes"] = o.MaxNodes
+	}
+	if o.MaxTokens > 0 {
+		body["max_tokens"] = o.MaxTokens
+	}
+	if o.DeadlineMS > 0 {
+		body["deadline_ms"] = o.DeadlineMS
+	}
+	if o.FetchTop > 0 {
+		body["fetch_top"] = o.FetchTop
+	}
+	if o.Intent != "" {
+		body["intent"] = o.Intent
+	}
+	return body
+}
+
+// GraphPlanResponse is the dry-run result: the validated graph plus its cost estimate.
+type GraphPlanResponse struct {
+	Graph        map[string]interface{}   `json:"graph"`
+	Estimate     map[string]interface{}   `json:"estimate"`
+	Rationale    string                   `json:"rationale"`
+	Alternatives []map[string]interface{} `json:"alternatives"`
+}
+
+// GraphRunResponse is the result of executing a query graph.
+//
+// Packet carries the evidence: claims paired with the source ids they rest on,
+// so an answer can be traced back to the pages that produced it.
+type GraphRunResponse struct {
+	GraphID           string                   `json:"graph_id"`
+	Status            string                   `json:"status"`
+	Intent            string                   `json:"intent"`
+	DurationMS        float64                  `json:"duration_ms"`
+	Budget            map[string]interface{}   `json:"budget"`
+	EngineAttribution map[string]int           `json:"engine_attribution"`
+	Gaps              []map[string]interface{} `json:"gaps"`
+	Packet            map[string]interface{}   `json:"packet"`
+	Plan              map[string]interface{}   `json:"plan,omitempty"`
+}
+
+// PlanSearch plans a query graph without touching the network.
+func (c *Client) PlanSearch(query string, opts *GraphOptions) (*GraphPlanResponse, error) {
+	var resp GraphPlanResponse
+	if err := c.post("/v1/graph/plan", opts.body(query), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GraphSearch executes a query graph and returns the run plus its evidence packet.
+func (c *Client) GraphSearch(query string, opts *GraphOptions, includePlan bool) (*GraphRunResponse, error) {
+	body := opts.body(query)
+	body["include_plan"] = includePlan
+
+	var resp GraphRunResponse
+	if err := c.post("/v1/graph/search", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // ── Scrape Types ─────────────────────────────────────────────────────────
@@ -368,7 +463,7 @@ func (c *Client) BatchSearch(queries []string, engine string, numResults int) (*
 // BatchScrape scrapes multiple URLs in batch.
 func (c *Client) BatchScrape(urls []string, format string) (*BatchJob, error) {
 	body := map[string]interface{}{
-		"urls":  urls,
+		"urls":   urls,
 		"format": format,
 	}
 
@@ -393,10 +488,10 @@ func (c *Client) BatchJobStatus(jobID string) (*BatchJob, error) {
 
 // StatusResponse represents the system status response.
 type StatusResponse struct {
-	Version    string   `json:"version"`
-	Status     string   `json:"status"`
-	Engines    []string `json:"engines"`
-	AuthEnabled bool   `json:"auth_enabled"`
+	Version     string   `json:"version"`
+	Status      string   `json:"status"`
+	Engines     []string `json:"engines"`
+	AuthEnabled bool     `json:"auth_enabled"`
 }
 
 // Status gets the system status.
@@ -491,23 +586,23 @@ func (c *Client) do(req *http.Request, result interface{}) error {
 	}
 
 	if resp.StatusCode == 401 {
-		return &ErrorResponse{Error: "authentication failed"}
+		return &ErrorResponse{Message: "authentication failed"}
 	}
 	if resp.StatusCode == 429 {
-		return &ErrorResponse{Error: "rate limit exceeded"}
+		return &ErrorResponse{Message: "rate limit exceeded"}
 	}
 	if resp.StatusCode == 404 {
-		return &ErrorResponse{Error: "resource not found"}
+		return &ErrorResponse{Message: "resource not found"}
 	}
 	if resp.StatusCode >= 500 {
-		return &ErrorResponse{Error: fmt.Sprintf("server error: %d", resp.StatusCode)}
+		return &ErrorResponse{Message: fmt.Sprintf("server error: %d", resp.StatusCode)}
 	}
 	if resp.StatusCode >= 400 {
 		var errResp ErrorResponse
 		if json.Unmarshal(body, &errResp) == nil {
 			return &errResp
 		}
-		return &ErrorResponse{Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+		return &ErrorResponse{Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
 
 	if result != nil {
