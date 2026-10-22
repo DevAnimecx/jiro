@@ -218,3 +218,230 @@ class ContradictionDetector:
         # If A says "before X" and B says "after X"
         if scope_a.valid_until and scope_b.valid_from:
             if scope_a.valid_until < scope_b.valid_from:
+                contradictions.append(Contradiction(
+                    contradiction_id=hashlib.sha256(f"{claim_a.claim_id}{claim_b.claim_id}temp".encode()).hexdigest()[:16],
+                    contradiction_type=ContradictionType.TEMPORAL_CONFLICT,
+                    severity=ConflictSeverity.HIGH,
+                    claim_ids=[claim_a.claim_id, claim_b.claim_id],
+                    description="Temporal conflict: Claim A ends before Claim B begins",
+                    details={"scope_a": scope_a.to_dict(), "scope_b": scope_b.to_dict()},
+                ))
+
+        if scope_b.valid_until and scope_a.valid_from:
+            if scope_b.valid_until < scope_a.valid_from:
+                contradictions.append(Contradiction(
+                    contradiction_id=hashlib.sha256(f"{claim_a.claim_id}{claim_b.claim_id}temp".encode()).hexdigest()[:16],
+                    contradiction_type=ContradictionType.TEMPORAL_CONFLICT,
+                    severity=ConflictSeverity.HIGH,
+                    claim_ids=[claim_a.claim_id, claim_b.claim_id],
+                    description="Temporal conflict: Claim B ends before Claim A begins",
+                    details={"scope_a": scope_a.to_dict(), "scope_b": scope_b.to_dict()},
+                ))
+
+        return contradictions
+
+    def _check_assessment_conflict(self, claim_a: Claim, claim_b: Claim) -> List[Contradiction]:
+        """Check for conflicting verification assessments on same/similar claims."""
+        contradictions = []
+
+        # If both claims have been assessed and have opposite assessments
+        status_a = claim_a.status
+        status_b = claim_b.status
+
+        # Strong support vs contradicted is a conflict
+        strong_statuses = {VerificationStatus.STRONG_SUPPORT, VerificationStatus.VERIFIED}
+        contradicted_statuses = {VerificationStatus.CONTRADICTED, VerificationStatus.REJECTED}
+
+        if status_a in strong_statuses and status_b in contradicted_statuses:
+            contradictions.append(Contradiction(
+                contradiction_id=hashlib.sha256(f"{claim_a.claim_id}{claim_b.claim_id}assess".encode()).hexdigest()[:16],
+                contradiction_type=ContradictionType.ASSESSMENT_CONFLICT,
+                severity=ConflictSeverity.HIGH,
+                claim_ids=[claim_a.claim_id, claim_b.claim_id],
+                description=f"Assessment conflict: Claim A {status_a.value}, Claim B {status_b.value}",
+                details={"status_a": status_a.value, "status_b": status_b.value},
+            ))
+
+        return contradictions
+
+    def _check_logical_inconsistency(self, claim_a: Claim, claim_b: Claim) -> List[Contradiction]:
+        """Check for mutually exclusive claims (e.g., "A causes B" vs "A prevents B")."""
+        contradictions = []
+
+        causal_patterns = [
+            ("causes", "prevents"),
+            ("increases", "decreases"),
+            ("improves", "worsens"),
+            ("enables", "blocks"),
+            ("supports", "undermines"),
+        ]
+
+        text_a = claim_a.claim_text.lower()
+        text_b = claim_b.claim_text.lower()
+
+        for pos, neg in causal_patterns:
+            if pos in text_a and neg in text_b:
+                contradictions.append(Contradiction(
+                    contradiction_id=hashlib.sha256(f"{claim_a.claim_id}{claim_b.claim_id}logic".encode()).hexdigest()[:16],
+                    contradiction_type=ContradictionType.LOGICAL_INCONSISTENCY,
+                    severity=ConflictSeverity.MODERATE,
+                    claim_ids=[claim_a.claim_id, claim_b.claim_id],
+                    description=f"Logical inconsistency: '{pos}' vs '{neg}'",
+                    details={"positive": pos, "negative": neg},
+                ))
+            elif neg in text_a and pos in text_b:
+                contradictions.append(Contradiction(
+                    contradiction_id=hashlib.sha256(f"{claim_a.claim_id}{claim_b.claim_id}logic".encode()).hexdigest()[:16],
+                    contradiction_type=ContradictionType.LOGICAL_INCONSISTENCY,
+                    severity=ConflictSeverity.MODERATE,
+                    claim_ids=[claim_a.claim_id, claim_b.claim_id],
+                    description=f"Logical inconsistency: '{neg}' vs '{pos}'",
+                    details={"positive": pos, "negative": neg},
+                ))
+
+        return contradictions
+
+    def _texts_similar(self, text_a: str, text_b: str, threshold: float = 0.7) -> bool:
+        """Check if two texts are similar (Jaccard similarity)."""
+        words_a = set(text_a.split())
+        words_b = set(text_b.split())
+
+        if not words_a or not words_b:
+            return False
+
+        intersection = words_a & words_b
+        union = words_a | words_b
+
+        return len(intersection) / len(union) >= threshold
+
+    def _extract_numeric_assertions(self, text: str) -> List[Dict[str, Any]]:
+        """Extract numeric assertions with context and units."""
+        import re
+
+        assertions = []
+
+        # Patterns: "X is 5%", "5% of X", "X increased by 10%", etc.
+        patterns = [
+            (r"(\w+(?:\s+\w+){0,3})\s+(?:is|equals?|was|were)\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*(\%|percent|dollars?|USD|€|£)?", "value"),
+            (r"(?:increased|decreased|rose|fell|grew|dropped)\s+by\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*(\%|percent)?", "change"),
+            (r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*(\%|percent)\s+of\s+(\w+(?:\s+\w+){0,3})", "percentage_of"),
+        ]
+
+        for pattern, ptype in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                groups = match.groups()
+                if ptype == "value" and len(groups) >= 3:
+                    context, value_str, unit = groups[0], groups[1], groups[2] or ""
+                    assertions.append({
+                        "context": context.strip(),
+                        "value": float(value_str.replace(",", "")),
+                        "unit": unit.strip().lower() if unit else "",
+                        "type": "value",
+                    })
+                elif ptype == "change" and len(groups) >= 2:
+                    value_str, unit = groups[0], groups[1] or ""
+                    assertions.append({
+                        "context": "change",
+                        "value": float(value_str.replace(",", "")),
+                        "unit": unit.strip().lower() if unit else "",
+                        "type": "change",
+                    })
+
+        return assertions
+
+    def get_contradiction(self, contradiction_id: str) -> Optional[Contradiction]:
+        return self._contradictions.get(contradiction_id)
+
+    def get_all_contradictions(self) -> List[Contradiction]:
+        return list(self._contradictions.values())
+
+    def get_unresolved_contradictions(self) -> List[Contradiction]:
+        return [c for c in self._contradictions.values() if not c.resolved]
+
+    def resolve_contradiction(
+        self,
+        contradiction_id: str,
+        resolution: str,
+        method: str = "evidence",
+    ) -> bool:
+        """Mark a contradiction as resolved."""
+        if contradiction_id not in self._contradictions:
+            return False
+
+        c = self._contradictions[contradiction_id]
+        # Create new resolved version
+        self._contradictions[contradiction_id] = Contradiction(
+            contradiction_id=c.contradiction_id,
+            contradiction_type=c.contradiction_type,
+            severity=c.severity,
+            claim_ids=c.claim_ids,
+            description=c.description,
+            details=c.details,
+            detected_at=c.detected_at,
+            resolved=True,
+            resolution=resolution,
+            resolved_at=time.time(),
+            resolution_method=method,
+        )
+        return True
+
+
+class CrossMemoryContradictionDetector:
+    """Detects contradictions between claims and memory records."""
+
+    def __init__(self, contradiction_detector: ContradictionDetector):
+        self.detector = contradiction_detector
+
+    def check_memory_claims(
+        self,
+        claim: Claim,
+        memory_facts: List[Dict[str, Any]],  # From memory system
+    ) -> List[Contradiction]:
+        """Check claim against memory facts for contradictions."""
+        contradictions = []
+
+        for fact in memory_facts:
+            fact_text = fact.get("object", "") or fact.get("predicate", "")
+            if not fact_text:
+                continue
+
+            # Create a pseudo-claim from the fact
+            from jiro.verification.claims import Claim as ClaimClass, VerificationStatus, SupportLevel
+            fact_claim = ClaimClass.create(
+                claim_text=fact_text,
+                claim_type=ClaimType.SOURCE_ASSERTION,
+                created_by="memory",
+            )
+            # Use proper transition path: PENDING -> STRONG_SUPPORT -> VERIFIED
+            fact_claim = fact_claim.transition_status(
+                new_status=VerificationStatus.STRONG_SUPPORT,
+                support_level=SupportLevel.STRONG,
+                reason="Memory fact treated as verified",
+                evidence_reviewed=[],
+                assumptions_considered=[],
+                validator="memory",
+            )
+            fact_claim = fact_claim.transition_status(
+                new_status=VerificationStatus.VERIFIED,
+                support_level=SupportLevel.STRONG,
+                reason="Memory fact treated as verified",
+                evidence_reviewed=[],
+                assumptions_considered=[],
+                validator="memory",
+            )
+
+            # Check for contradictions
+            new_contradictions = self.detector.detect_contradictions(claim, [fact_claim])
+            contradictions.extend(new_contradictions)
+
+        return contradictions
+
+
+__all__ = [
+    "ClaimPair",
+    "ConflictSeverity",
+    "Contradiction",
+    "ContradictionDetector",
+    "ContradictionType",
+    "CrossMemoryContradictionDetector",
+]
