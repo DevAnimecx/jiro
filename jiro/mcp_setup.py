@@ -16,10 +16,12 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -158,6 +160,105 @@ CLIENTS: Dict[str, Dict[str, Any]] = {
         },
         "launch_hint": "Restart Zed after setup.",
     },
+    "claude_code": {
+        "name": "Claude Code",
+        "kind": "cli",
+        "bin": "claude",
+        "write": False,
+        "command_hint": "claude mcp add --scope user jiro -- jiro mcp",
+        "uninstall_hint": "claude mcp remove jiro",
+        "launch_hint": "Run the command above, then start Claude Code.",
+    },
+    "windsurf": {
+        "name": "Windsurf",
+        "detect": {
+            "darwin": "~/.codeium/windsurf/mcp_config.json",
+            "win32": os.path.expandvars(r"%USERPROFILE%\.codeium\windsurf\mcp_config.json"),
+            "linux": "~/.codeium/windsurf/mcp_config.json",
+        },
+        "write": True,
+        "config_key": ("mcpServers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "env": {}},
+        "launch_hint": "Restart Windsurf after setup.",
+    },
+    "cline": {
+        "name": "Cline (VS Code)",
+        "detect": {
+            "darwin": "~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+            "win32": os.path.expandvars(r"%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json"),
+            "linux": "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+        },
+        "write": True,
+        "config_key": ("mcpServers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "disabled": False, "autoApprove": []},
+        "launch_hint": "Reload VS Code, then enable Jiro in Cline.",
+    },
+    "roo": {
+        "name": "Roo Code (VS Code)",
+        "detect": {
+            "darwin": "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
+            "win32": os.path.expandvars(r"%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\mcp_settings.json"),
+            "linux": "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
+        },
+        "write": True,
+        "config_key": ("mcpServers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "disabled": False, "autoApprove": []},
+        "launch_hint": "Reload VS Code, then enable Jiro in Roo Code.",
+    },
+    "kilo": {
+        "name": "Kilo Code (VS Code)",
+        "detect": {
+            "darwin": "~/Library/Application Support/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
+            "win32": os.path.expandvars(r"%APPDATA%\Code\User\globalStorage\kilocode.kilo-code\settings\mcp_settings.json"),
+            "linux": "~/.config/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
+        },
+        "write": True,
+        "config_key": ("mcpServers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "disabled": False, "autoApprove": []},
+        "launch_hint": "Reload VS Code, then enable Jiro in Kilo Code.",
+    },
+    "gemini": {
+        "name": "Gemini CLI",
+        "detect": {
+            "darwin": "~/.gemini/settings.json",
+            "win32": os.path.expandvars(r"%USERPROFILE%\.gemini\settings.json"),
+            "linux": "~/.gemini/settings.json",
+        },
+        "write": True,
+        "config_key": ("mcpServers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "env": {}},
+        "launch_hint": "Restart Gemini CLI after setup.",
+    },
+    "goose": {
+        "name": "Goose",
+        "detect": {
+            "darwin": "~/.config/goose/config.yaml",
+            "win32": os.path.expandvars(r"%USERPROFILE%\.config\goose\config.yaml"),
+            "linux": "~/.config/goose/config.yaml",
+        },
+        "write": True,
+        "config_key": ("extensions", "jiro"),
+        "config": lambda: {
+            "enabled": True,
+            "type": "stdio",
+            "name": "jiro",
+            "cmd": JIRO_BIN,
+            "args": ["mcp"],
+        },
+        "launch_hint": "Restart Goose after setup.",
+    },
+    "vscode": {
+        "name": "VS Code Copilot",
+        "detect": {
+            "darwin": ".vscode/mcp.json",
+            "win32": ".vscode/mcp.json",
+            "linux": ".vscode/mcp.json",
+        },
+        "write": True,
+        "config_key": ("servers", "jiro"),
+        "config": lambda: {"command": JIRO_BIN, "args": ["mcp"], "type": "stdio"},
+        "launch_hint": "Reload the workspace, then enable Jiro in Copilot agent mode.",
+    },
 }
 
 
@@ -175,8 +276,12 @@ def _detect_client(client_id: str) -> Optional[Path]:
     client = CLIENTS.get(client_id)
     if not client:
         return None
+    if client.get("kind") == "cli":
+        binary = client.get("bin")
+        found = shutil.which(binary) if binary else None
+        return Path(found) if found else None
     sys_name = _get_system()
-    raw = client["detect"].get(sys_name)
+    raw = client.get("detect", {}).get(sys_name)
     if not raw:
         return None
     p = _expand(raw)
@@ -202,7 +307,8 @@ def _deep_set(d: Dict[str, Any], keys: tuple, value: Any) -> None:
 def _load_config(path: Path) -> Dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
-        if path.suffix == ".toml":
+        suffix = path.suffix.lower()
+        if suffix == ".toml":
             try:
                 import tomllib
                 return tomllib.loads(text)
@@ -212,148 +318,3 @@ def _load_config(path: Path) -> Dict[str, Any]:
                     return tomli.loads(text)
                 except ImportError:
                     log.warning("tomllib/tomli not available; treating as JSON")
-        return json.loads(text)
-    except Exception:
-        return {}
-
-
-def _save_config(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.suffix == ".toml":
-        try:
-            import tomli_w
-            path.write_text(tomli_w.dumps(data), encoding="utf-8")
-            return
-        except ImportError:
-            pass
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-
-def setup_client(client_id: str, force: bool = False, remote: bool = False) -> Dict[str, Any]:
-    """Configure a client for local (stdio) or remote (HTTP) MCP."""
-    client = CLIENTS.get(client_id)
-    if not client:
-        return {"ok": False, "error": f"Unknown client: {client_id}"}
-
-    sys_name = _get_system()
-    raw_path = client["detect"].get(sys_name)
-    if not raw_path:
-        return {"ok": False, "error": f"Unsupported platform: {sys_name}"}
-
-    config_path = _expand(raw_path)
-
-    if not config_path.exists():
-        if not client.get("write"):
-            return {"ok": False, "error": f"Config not found: {config_path}", "path": str(config_path)}
-        data: Dict[str, Any] = {}
-    else:
-        data = _load_config(config_path)
-
-    if remote:
-        # Load API key from cloud credentials
-        from jiro.cloud_auth import load_cloud_credentials, JIRO_CLOUD_BASE
-        creds = load_cloud_credentials()
-        if not creds or not creds.api_key:
-            return {
-                "ok": False,
-                "error": "Not signed in. Run 'jiro auth login' first to get an API key for remote MCP.",
-            }
-        api_key = creds.api_key
-        config_value = {
-            "url": f"{JIRO_CLOUD_BASE}/mcp",
-            "headers": {
-                "Authorization": f"Bearer {api_key}",
-            },
-        }
-        hint = f"Remote MCP configured. Restart {client['name']} to use cloud backend."
-    else:
-        config_value = client["config"]()
-        hint = client.get("launch_hint", "")
-
-    keys = client["config_key"]
-
-    if not force and keys[-1] in _deep_get(data, keys[:-1]):
-        return {
-            "ok": True,
-            "skipped": True,
-            "path": str(config_path),
-            "message": f"Jiro already configured in {config_path}",
-        }
-
-    _deep_set(data, keys, config_value)
-    _save_config(config_path, data)
-
-    mode = "remote (cloud)" if remote else "local (stdio)"
-    return {
-        "ok": True,
-        "path": str(config_path),
-        "client": client["name"],
-        "mode": mode,
-        "launch_hint": hint,
-        "message": f"Configured {client['name']} ({mode}) at {config_path}",
-    }
-
-
-def _deep_get(d: Dict[str, Any], keys: tuple) -> Dict[str, Any]:
-    for k in keys:
-        d = d.get(k, {}) if isinstance(d, dict) else {}
-    return d
-
-
-# ── Public API ────────────────────────────────────────────────────────
-
-def list_supported_clients() -> List[Dict[str, str]]:
-    return [{"id": cid, "name": CLIENTS[cid]["name"]} for cid in sorted(CLIENTS)]
-
-
-def detect_configured() -> List[str]:
-    return _detect_all()
-
-
-def run_setup(client_id: str, force: bool = False, remote: bool = False) -> int:
-    result = setup_client(client_id, force, remote=remote)
-    if result.get("ok"):
-        print(f"[OK] {result['message']}")
-        if result.get("launch_hint"):
-            print(f"       {result['launch_hint']}")
-        return 0
-    else:
-        print(f"[FAIL] {result.get('error', 'Unknown error')}")
-        if result.get("path"):
-            print(f"       Config: {result['path']}")
-        return 1
-
-
-def run_auto_setup() -> int:
-    found = _detect_all()
-    if not found:
-        print("[INFO] No supported MCP clients detected.")
-        print("       Supported: " + ", ".join(sorted(CLIENTS.keys())))
-        return 0
-
-    print(f"[INFO] Detected {len(found)} client(s): {', '.join(found)}")
-    exit_code = 0
-    for cid in found:
-        rc = run_setup(cid)
-        if rc != 0:
-            exit_code = rc
-    return exit_code
-
-
-# ── CLI integration ───────────────────────────────────────────────────
-
-def _print_status() -> int:
-    found = _detect_all()
-    if found:
-        print(f"Detected {len(found)} configured MCP client(s):")
-        for cid in found:
-            p = _detect_client(cid)
-            print(f"  [OK] {CLIENTS[cid]['name']:20s} {p}")
-    else:
-        print("No MCP clients detected.")
-    print()
-    print("Supported clients:")
-    for cid, meta in sorted(CLIENTS.items()):
-        detected = "[detected]" if cid in found else ""
-        print(f"  {cid:15s} {meta['name']} {detected}")
-    return 0
