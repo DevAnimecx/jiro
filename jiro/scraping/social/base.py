@@ -439,10 +439,24 @@ class HealedScraper:
         return await _heal_async(self._scraper, self._scraper.scrape_profile, username)
 
     async def search(self, query: str, limit: int = 25) -> List[SocialPost]:
-        return await _heal_async(self._scraper, self._scraper.search, query, limit)
+        # An empty search result is a valid no-match response, not a scraper failure.
+        return await _heal_async(
+            self._scraper,
+            self._scraper.search,
+            query,
+            limit,
+            allow_empty=True,
+        )
 
     async def scrape_timeline(self, username: str, limit: int = 20) -> List[SocialPost]:
-        return await _heal_async(self._scraper, self._scraper.scrape_timeline, username, limit)
+        # A user may legitimately have no public posts available.
+        return await _heal_async(
+            self._scraper,
+            self._scraper.scrape_timeline,
+            username,
+            limit,
+            allow_empty=True,
+        )
 
     @property
     def platform(self) -> str:
