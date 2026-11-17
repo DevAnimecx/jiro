@@ -395,12 +395,16 @@ async def _heal_empty_result(scraper: Any, method: Callable, args: tuple, kwargs
     return method(*args, **kwargs)
 
 
-def _validate_result(result: Any) -> bool:
-    """Check if a scrape result is meaningful (non-empty, well-formed)."""
+def _validate_result(result: Any, *, allow_empty: bool = False) -> bool:
+    """Check if a scrape result is meaningful (non-empty, well-formed).
+
+    Search and timeline calls may validly return no matches, so callers can
+    explicitly allow an empty list without disabling validation for other types.
+    """
     if result is None:
         return False
     if isinstance(result, list) and len(result) == 0:
-        return False
+        return allow_empty
     if isinstance(result, dict) and not result:
         return False
     if isinstance(result, str) and not result.strip():
@@ -408,8 +412,17 @@ def _validate_result(result: Any) -> bool:
     return True
 
 
-async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) -> Any:
-    """Call ``method`` with automatic healing on failure (async version).
+async def heal_async(
+    scraper: Any,
+    method: Callable,
+    *args: Any,
+    allow_empty: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Call the method with automatic healing on failure (async version).
+
+    Set allow_empty=True for collection operations such as search, where an
+    empty list is a valid no-match response rather than a scraper failure.
 
     Retries up to ``MAX_HEAL_RETRIES`` times, applying increasingly
     aggressive recovery strategies based on the error type. Supports
@@ -429,7 +442,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
             result = method(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
-            if not _validate_result(result):
+            if not _validate_result(result, allow_empty=allow_empty):
                 raise EmptyResultError(f"empty result from {platform}.{getattr(method, '__name__', method)}")
             await _stats.record_success(platform)
             return result
@@ -444,7 +457,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = _heal_stale_hash(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = EmptyResultError(f"empty result after stale-hash healing for {platform}")
@@ -453,7 +466,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = _heal_selector(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = EmptyResultError(f"empty result after selector healing for {platform}")
@@ -462,7 +475,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_blocked(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = EmptyResultError(f"empty result after blocked healing for {platform}")
@@ -471,7 +484,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_file_lock(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = EmptyResultError(f"empty result after file-lock healing for {platform}")
@@ -480,7 +493,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_dns(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = exc
@@ -489,7 +502,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_ssl(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = exc
@@ -498,7 +511,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_http_5xx(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = exc
@@ -507,7 +520,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_proxy(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = exc
@@ -516,7 +529,7 @@ async def heal_async(scraper: Any, method: Callable, *args: Any, **kwargs: Any) 
                     result = await _heal_credentials(scraper, method, args, kwargs)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    if _validate_result(result):
+                    if _validate_result(result, allow_empty=allow_empty):
                         await _stats.record_success(platform)
                         return result
                     last_exc = EmptyResultError(f"empty result after credential healing for {platform}")

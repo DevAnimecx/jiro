@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from jiro.scraping.social.base import HealedScraper
 from jiro.scraping.social.self_healing import (
     EngineBlockedError,
     HealingStats,
@@ -116,6 +117,48 @@ async def test_heal_async_blocked():
 
     result = await heal_async(scraper, flaky)
     assert result == "unblocked"
+
+
+@pytest.mark.asyncio
+async def test_healed_scraper_search_accepts_empty_results_without_retrying():
+    class EmptySearchScraper:
+        platform = "empty-search"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def search(self, query: str, limit: int = 25):
+            self.calls += 1
+            return []
+
+    scraper = EmptySearchScraper()
+    healed = HealedScraper(scraper)
+
+    results = await healed.search("no matching posts")
+
+    assert results == []
+    assert scraper.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_healed_scraper_timeline_accepts_empty_results_without_retrying():
+    class EmptyTimelineScraper:
+        platform = "empty-timeline"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def scrape_timeline(self, username: str, limit: int = 20):
+            self.calls += 1
+            return []
+
+    scraper = EmptyTimelineScraper()
+    healed = HealedScraper(scraper)
+
+    results = await healed.scrape_timeline("user-with-no-public-posts")
+
+    assert results == []
+    assert scraper.calls == 1
 
 
 @pytest.mark.asyncio
